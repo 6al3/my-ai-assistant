@@ -1,1 +1,1 @@
-apiapi/chat.js
+api/chat.js
