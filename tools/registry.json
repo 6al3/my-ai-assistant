@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "Catalog of external tools. Entries are metadata only unless a separate safe integration is implemented.",
+  "tools": []
+}
