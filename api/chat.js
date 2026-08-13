@@ -32,7 +32,7 @@ export default async function handler(request) {
               content: message
             }
           ],
-          max_tokens: 500
+          max_tokens: 300
         })
       }
     );
@@ -57,7 +57,7 @@ export default async function handler(request) {
 
   } catch (error) {
     return Response.json(
-      { error: "Server error." },
+      { error: error.message || "Server error." },
       { status: 500 }
     );
   }
