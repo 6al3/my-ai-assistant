@@ -9,3 +9,6 @@ pwd
 /workspaces/my-ai-assistant
 cd /workspaces/my-ai-assistant && git status --short && printf '\n--- TOOLS ---\n' && find . -maxdepth 2 -type d | sort
 find . -
+git clone
+npm install
+git submodule update
