@@ -13,22 +13,28 @@
     id="message"
     type="text"
     placeholder="اكتب رسالتك هنا..."
+    autocomplete="off"
   >
 
-  <button onclick="sendMessage()">إرسال</button>
+  <button id="sendButton" onclick="sendMessage()">إرسال</button>
 
-  <div id="response"></div>
+  <div id="status"></div>
+  <pre id="response"></pre>
 
   <script>
-    async function sendMessage() {
-      const messageInput = document.getElementById("message");
-      const responseBox = document.getElementById("response");
+    const messageInput = document.getElementById("message");
+    const responseBox = document.getElementById("response");
+    const statusBox = document.getElementById("status");
+    const sendButton = document.getElementById("sendButton");
 
+    async function sendMessage() {
       const message = messageInput.value.trim();
 
       if (!message) return;
 
-      responseBox.textContent = "جاري التفكير...";
+      sendButton.disabled = true;
+      statusBox.textContent = "جاري الاتصال...";
+      responseBox.textContent = "";
 
       try {
         const response = await fetch("/api/chat", {
@@ -42,15 +48,25 @@
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || "حدث خطأ");
+          throw new Error(data.error || "حدث خطأ في الخادم");
         }
 
+        statusBox.textContent = "تم الرد";
         responseBox.textContent = data.reply || "ما وصل رد من الذكاء الاصطناعي.";
-
       } catch (error) {
+        statusBox.textContent = "فشل الطلب";
         responseBox.textContent = "خطأ: " + error.message;
+      } finally {
+        sendButton.disabled = false;
+        messageInput.focus();
       }
     }
+
+    messageInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        sendMessage();
+      }
+    });
   </script>
 </body>
 </html>
