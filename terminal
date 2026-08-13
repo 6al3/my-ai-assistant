@@ -7,3 +7,4 @@ git submodule status
 === TOP LEVEL === 
 pwd
 /workspaces/my-ai-assistant
+cd /workspaces/my-ai-assistant && git status --short && printf '\n--- TOOLS ---\n' && find . -maxdepth 2 -type d | sort
