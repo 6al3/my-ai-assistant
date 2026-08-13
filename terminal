@@ -29,3 +29,4 @@ grep -RniE 'curl|wget|Invoke-WebRequest|eval\(|exec\(|child_process|powershell|b
   --exclude-dir=node_modules \
   --exclude='package-lock.json' \
   2>/dev/null
+python3 jailbreak_tests.py
