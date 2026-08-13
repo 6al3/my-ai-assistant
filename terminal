@@ -31,3 +31,5 @@ grep -RniE 'curl|wget|Invoke-WebRequest|eval\(|exec\(|child_process|powershell|b
   2>/dev/null
 python3 jailbreak_tests.py
 security-test/results.json
+
+grep -RniE "model|responses.create|chat.completions|OPENAI_API_KEY|api_key" . --exclude-dir=.git --exclude-dir=node_modules
