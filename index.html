@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My AI Assistant</title>
+</head>
+
+<body>
+  <h1>My AI Assistant</h1>
+
+  <input
+    id="message"
+    type="text"
+    placeholder="اكتب رسالتك هنا..."
+  >
+
+  <button onclick="sendMessage()">إرسال</button>
+
+  <div id="response"></div>
+
+  <script>
+    async function sendMessage() {
+      const message = document.getElementById("message").value;
+      const responseBox = document.getElementById("response");
+
+      if (!message.trim()) return;
+
+      responseBox.textContent = "جاري الإرسال...";
+
+      // سنربط الـ Backend هنا في الخطوة القادمة
+      responseBox.textContent =
+        "وصلت رسالتك: " + message;
+    }
+  </script>
+</body>
+</html>
