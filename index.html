@@ -21,16 +21,35 @@
 
   <script>
     async function sendMessage() {
-      const message = document.getElementById("message").value;
+      const messageInput = document.getElementById("message");
       const responseBox = document.getElementById("response");
 
-      if (!message.trim()) return;
+      const message = messageInput.value.trim();
 
-      responseBox.textContent = "جاري الإرسال...";
+      if (!message) return;
 
-      // سنربط الـ Backend هنا في الخطوة القادمة
-      responseBox.textContent =
-        "وصلت رسالتك: " + message;
+      responseBox.textContent = "جاري التفكير...";
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "حدث خطأ");
+        }
+
+        responseBox.textContent = data.reply || "ما وصل رد من الذكاء الاصطناعي.";
+
+      } catch (error) {
+        responseBox.textContent = "خطأ: " + error.message;
+      }
     }
   </script>
 </body>
