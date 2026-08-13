@@ -2,3 +2,6 @@ git clone --recurse-submodules https://github.com/mgeeky/Penetration-Testing-Too
 cd Penetration-Testing-Tools && \
 git submodule update --init --recursive && \
 git submodule status
+=== STATUS ===
+=== SUBMODULES ===
+=== TOP LEVEL ===
