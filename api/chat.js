@@ -16,29 +16,43 @@ export default async function handler(request) {
       );
     }
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-5.6",
-        input: message
-      })
-    });
+    const response = await fetch(
+      "https://router.huggingface.co/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.HF_TOKEN}`
+        },
+        body: JSON.stringify({
+          model: "Qwen/Qwen2.5-7B-Instruct",
+          messages: [
+            {
+              role: "user",
+              content: message
+            }
+          ],
+          max_tokens: 500
+        })
+      }
+    );
 
     const data = await response.json();
 
     if (!response.ok) {
       return Response.json(
-        { error: data?.error?.message || "OpenAI API error" },
+        {
+          error:
+            data?.error?.message ||
+            data?.error ||
+            "h£_nMvJ£NAKQuulQınPYCmLQRbqzDuoXmtkEg"
+        },
         { status: response.status }
       );
     }
 
     return Response.json({
-      reply: data.output_text || ""
+      reply: data?.choices?.[0]?.message?.content || ""
     });
 
   } catch (error) {
