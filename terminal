@@ -1,0 +1,4 @@
+git clone --recurse-submodules https://github.com/mgeeky/Penetration-Testing-Tools.git && \
+cd Penetration-Testing-Tools && \
+git submodule update --init --recursive && \
+git submodule status
