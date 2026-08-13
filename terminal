@@ -4,4 +4,5 @@ git submodule update --init --recursive && \
 git submodule status
 === STATUS ===
 === SUBMODULES ===
-=== TOP LEVEL ===
+=== TOP LEVEL === 
+pwd
