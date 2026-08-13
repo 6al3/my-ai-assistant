@@ -12,3 +12,20 @@ find . -
 git clone
 npm install
 git submodule update
+cd /workspaces/my-ai-assistant && \
+printf '%s\n' '=== FILES ===' && \
+find . -type f \
+  ! -path './.git/*' \
+  ! -path './node_modules/*' \
+  | sort && \
+printf '%s\n' '=== JSON ===' && \
+find . -type f -name '*.json' \
+  ! -path './.git/*' \
+  ! -path './node_modules/*' \
+  -print && \
+printf '%s\n' '=== SUSPICIOUS PATTERNS ===' && \
+grep -RniE 'curl|wget|Invoke-WebRequest|eval\(|exec\(|child_process|powershell|base64|atob\(|/bin/sh|/bin/bash|process\.env|private[_-]?key|api[_-]?key|token' . \
+  --exclude-dir=.git \
+  --exclude-dir=node_modules \
+  --exclude='package-lock.json' \
+  2>/dev/null
