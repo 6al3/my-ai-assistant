@@ -28,7 +28,7 @@ export default async function handler(request) {
   }
 
   const hasToken = Boolean(process.env.HF_TOKEN);
-  const model = process.env.MODEL || "Qwen/Qwen2.5-7B-Instruct";
+  const model = process.env.MODEL || "worm-GPT";
   const debug = process.env.DEBUG === "true";
 
   return Response.json({
