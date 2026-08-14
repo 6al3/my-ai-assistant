@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "agents": [
+    {"id":"orchestrator","name":"Orchestrator","role":"Route tasks, coordinate specialists, combine results","auto":true},
+    {"id":"planner","name":"Planner","role":"Decompose complex goals into ordered executable plans","auto":true},
+    {"id":"coder","name":"Coder","role":"Implement, debug, refactor and prepare code changes","auto":true},
+    {"id":"system","name":"System Engineer","role":"Diagnose DIG services, runtime, resources and reliability","auto":true},
+    {"id":"files","name":"File & Data","role":"Organize and retrieve project files and local data","auto":true},
+    {"id":"web","name":"Web Researcher","role":"Research public web information and verify sources","auto":true},
+    {"id":"memory","name":"Memory","role":"Maintain useful project context and retrieve prior knowledge","auto":true},
+    {"id":"media","name":"Voice & Media","role":"Coordinate supported voice, image, audio and video workflows","auto":true},
+    {"id":"audit","name":"Audit & Security","role":"Observe health, authentication events, logs and suspicious changes","auto":true},
+    {"id":"qa","name":"QA Reviewer","role":"Review outputs, detect regressions and verify completed work","auto":true}
+  ]
+}
