@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "agents": [
+    {"id":"payments-risk","role":"Analyze synthetic card/payment transaction risk"},
+    {"id":"account-integrity","role":"Detect synthetic account abuse, account farms and suspicious onboarding"},
+    {"id":"device-risk","role":"Model device reputation, velocity and device-sharing anomalies"},
+    {"id":"merchant-risk","role":"Score synthetic merchant and creator economy risk"},
+    {"id":"chargeback","role":"Analyze synthetic disputes and chargeback patterns"},
+    {"id":"mule-network","role":"Detect synthetic money-mule and transfer networks"},
+    {"id":"graph-analyst","role":"Find suspicious clusters across accounts, devices and payment instruments"},
+    {"id":"behavioral-risk","role":"Model behavioral anomalies in synthetic account activity"},
+    {"id":"creator-economy-risk","role":"Detect abuse in a mock virtual-coin creator platform"},
+    {"id":"onboarding-risk","role":"Evaluate synthetic signup and onboarding abuse"},
+    {"id":"fraud-qa","role":"Review detections, false positives and missed cases"},
+    {"id":"red-team-sim","role":"Generate defensive adversarial scenarios using synthetic data only"},
+    {"id":"blue-team-rules","role":"Improve defensive detection rules and controls"},
+    {"id":"incident-response","role":"Investigate synthetic fraud incidents and containment"},
+    {"id":"model-monitor","role":"Track drift, precision, recall and calibration"},
+    {"id":"policy-auditor","role":"Verify lab scenarios stay synthetic and non-operational"}
+  ]
+}
