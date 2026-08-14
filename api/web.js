@@ -3,6 +3,7 @@ import net from "node:net";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15000;
+const MAX_REDIRECTS = 5;
 
 function json(body, status = 200) {
   return Response.json(body, {
@@ -38,7 +39,7 @@ function isPrivateIp(ip) {
 async function validatePublicHttpUrl(raw) {
   let url;
   try {
-    url = new URL(raw);
+    url = raw instanceof URL ? raw : new URL(raw);
   } catch {
     throw new Error("Invalid URL.");
   }
@@ -64,6 +65,36 @@ async function validatePublicHttpUrl(raw) {
   return url;
 }
 
+async function fetchWithValidatedRedirects(initialUrl, signal) {
+  let current = await validatePublicHttpUrl(initialUrl);
+
+  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    const response = await fetch(current, {
+      method: "GET",
+      redirect: "manual",
+      signal,
+      headers: {
+        "User-Agent": "DIG-GPT-Web/1.1",
+        "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.5"
+      }
+    });
+
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return response;
+    }
+
+    if (i === MAX_REDIRECTS) {
+      throw new Error("Too many redirects.");
+    }
+
+    const location = response.headers.get("location");
+    if (!location) throw new Error("Redirect response is missing Location header.");
+    current = await validatePublicHttpUrl(new URL(location, current));
+  }
+
+  throw new Error("Redirect handling failed.");
+}
+
 export default async function handler(request) {
   if (request.method !== "GET") {
     return json({ error: "Only GET requests are allowed." }, 405);
@@ -76,21 +107,11 @@ export default async function handler(request) {
   }
 
   try {
-    const url = await validatePublicHttpUrl(target);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        redirect: "follow",
-        signal: controller.signal,
-        headers: {
-          "User-Agent": "DIG-GPT-Web/1.0",
-          "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.5"
-        }
-      });
-
+      const response = await fetchWithValidatedRedirects(target, controller.signal);
       const length = Number(response.headers.get("content-length") || 0);
       if (length > MAX_BYTES) {
         return json({ error: "Remote response is too large." }, 413);
