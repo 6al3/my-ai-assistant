@@ -1,0 +1,10 @@
+{
+  "name": "my-ai-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check api/chat.js && node --check api/health.js",
+    "test": "npm run check"
+  }
+}
