@@ -12,9 +12,7 @@ function clampPriority(value) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.trunc(n))) : 50;
 }
-function persist() {
-  saveMissionSnapshot([...missions.values()]);
-}
+function persist() { saveMissionSnapshot([...missions.values()]); }
 function leaseExpiry(ms = DEFAULT_LEASE_MS) {
   return new Date(nowMs() + Math.max(1_000, Number(ms) || DEFAULT_LEASE_MS)).toISOString();
 }
@@ -25,17 +23,9 @@ export function createMission({ goal, priority = 50, metadata = {}, maxAttempts 
   const id = randomUUID();
   const plan = buildExecutionPlan(text);
   const mission = {
-    id,
-    goal: text,
-    priority: clampPriority(priority),
-    metadata,
-    status: 'queued',
-    plan,
-    attempts: 0,
-    maxAttempts: Math.max(1, Math.trunc(Number(maxAttempts) || 3)),
-    createdAt: now(),
-    updatedAt: now(),
-    events: [{ at: now(), type: 'created' }]
+    id, goal: text, priority: clampPriority(priority), metadata, status: 'queued', plan,
+    attempts: 0, maxAttempts: Math.max(1, Math.trunc(Number(maxAttempts) || 3)),
+    createdAt: now(), updatedAt: now(), events: [{ at: now(), type: 'created' }]
   };
   missions.set(id, mission);
   trimQueue();
@@ -54,11 +44,9 @@ export function getMission(id) {
   return mission ? structuredClone(mission) : null;
 }
 
-export function claimNextMission(workerId = 'local-worker', leaseMs = DEFAULT_LEASE_MS) {
-  recoverExpiredLeases();
-  const mission = listMissions().find(x => x.status === 'queued');
-  if (!mission) return null;
-  const live = missions.get(mission.id);
+function claimMission(live, workerId, leaseMs) {
+  if (!live) return null;
+  if (live.status !== 'queued') throw new Error('mission_not_queued');
   live.status = 'running';
   live.workerId = workerId;
   live.attempts += 1;
@@ -69,6 +57,19 @@ export function claimNextMission(workerId = 'local-worker', leaseMs = DEFAULT_LE
   live.events.push({ at: now(), type: 'claimed', workerId, leaseExpiresAt: live.leaseExpiresAt });
   persist();
   return structuredClone(live);
+}
+
+export function claimNextMission(workerId = 'local-worker', leaseMs = DEFAULT_LEASE_MS) {
+  recoverExpiredLeases();
+  const mission = listMissions().find(x => x.status === 'queued');
+  return mission ? claimMission(missions.get(mission.id), workerId, leaseMs) : null;
+}
+
+export function claimMissionById(id, workerId = 'local-worker', leaseMs = DEFAULT_LEASE_MS) {
+  recoverExpiredLeases();
+  const live = missions.get(String(id));
+  if (!live) throw new Error('mission_not_found');
+  return claimMission(live, workerId, leaseMs);
 }
 
 export function heartbeatMission(id, workerId, leaseToken, leaseMs = DEFAULT_LEASE_MS) {
