@@ -3,20 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My AI Assistant</title>
+  <title>DIG-GPT</title>
 </head>
-
 <body>
-  <h1>My AI Assistant</h1>
+  <h1>DIG-GPT</h1>
 
-  <input
-    id="message"
-    type="text"
-    placeholder="اكتب رسالتك هنا..."
-    autocomplete="off"
-  >
-
-  <button id="sendButton" onclick="sendMessage()">إرسال</button>
+  <textarea id="message" rows="4" placeholder="اكتب رسالتك هنا..." autocomplete="off"></textarea>
+  <div>
+    <button id="sendButton" onclick="sendMessage()">إرسال</button>
+    <button id="clearButton" onclick="clearConversation()">مسح المحادثة</button>
+  </div>
 
   <div id="status"></div>
   <pre id="response"></pre>
@@ -26,33 +22,63 @@
     const responseBox = document.getElementById("response");
     const statusBox = document.getElementById("status");
     const sendButton = document.getElementById("sendButton");
+    const STORAGE_KEY = "dig-gpt-history-v1";
+    const MAX_LOCAL_HISTORY = 24;
+
+    let history = loadHistory();
+
+    function loadHistory() {
+      try {
+        const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        return Array.isArray(value) ? value.slice(-MAX_LOCAL_HISTORY) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistory() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(-MAX_LOCAL_HISTORY)));
+    }
+
+    function clearConversation() {
+      history = [];
+      localStorage.removeItem(STORAGE_KEY);
+      responseBox.textContent = "";
+      statusBox.textContent = "تم مسح ذاكرة المحادثة المحلية";
+      messageInput.focus();
+    }
 
     async function sendMessage() {
       const message = messageInput.value.trim();
-
       if (!message) return;
 
       sendButton.disabled = true;
-      statusBox.textContent = "جاري الاتصال...";
+      statusBox.textContent = "جاري التفكير...";
       responseBox.textContent = "";
 
       try {
         const response = await fetch("/api/chat", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ message })
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, history })
         });
 
         const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "حدث خطأ في الخادم");
 
-        if (!response.ok) {
-          throw new Error(data.error || "حدث خطأ في الخادم");
-        }
+        const reply = data.reply || "ما وصل رد من النموذج.";
+        history.push({ role: "user", content: message });
+        history.push({ role: "assistant", content: reply });
+        history = history.slice(-MAX_LOCAL_HISTORY);
+        saveHistory();
 
-        statusBox.textContent = "تم الرد";
-        responseBox.textContent = data.reply || "ما وصل رد من الذكاء الاصطناعي.";
+        const sourceInfo = Array.isArray(data.webSources) && data.webSources.length
+          ? ` | مصادر ويب: ${data.webSources.length}`
+          : "";
+
+        statusBox.textContent = `تم الرد | ${data.provider || "self-hosted"} | ${data.model || "local-model"}${sourceInfo}`;
+        responseBox.textContent = reply;
+        messageInput.value = "";
       } catch (error) {
         statusBox.textContent = "فشل الطلب";
         responseBox.textContent = "خطأ: " + error.message;
@@ -63,7 +89,8 @@
     }
 
     messageInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
         sendMessage();
       }
     });
