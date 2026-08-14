@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "levels": [
+    {"level":1,"name":"Payments Foundations","topics":["transaction lifecycle","issuer/acquirer roles","authorization responses","3DS","AVS","CVV","tokenization","chargeback basics"]},
+    {"level":2,"name":"Fraud Patterns","topics":["ATO indicators","card testing signals","velocity abuse","friendly fraud","synthetic identity indicators","mule behavior","merchant abuse"]},
+    {"level":3,"name":"Detection Engineering","topics":["rule design","feature engineering","device/session features","graph features","behavioral baselines","threshold tuning"]},
+    {"level":4,"name":"Adversarial Simulation","topics":["synthetic detector evasion","rule bypass simulation","distribution shift","novel pattern generation","robustness testing"]},
+    {"level":5,"name":"Operations & Response","topics":["alert triage","case prioritization","evidence handling","containment","customer protection","merchant review","post-incident analysis"]},
+    {"level":6,"name":"Advanced Analytics","topics":["precision-recall tradeoffs","cost-sensitive evaluation","calibration","drift detection","graph risk propagation","ensemble strategies","explainability"]},
+    {"level":7,"name":"Expert Lab","topics":["multi-stage synthetic fraud campaigns","cross-channel anomaly analysis","adaptive detector evaluation","long-horizon regression suites","failure-bank retesting"]}
+  ],
+  "promotionCriteria": {
+    "minScenarioPassRate": 0.9,
+    "maxFalsePositiveRate": 0.05,
+    "requireQaReview": true,
+    "requireFailureBankRetest": true
+  }
+}
