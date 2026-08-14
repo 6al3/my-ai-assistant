@@ -1,10 +1,10 @@
 {
   "name": "my-ai-assistant",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check api/chat.js && node --check api/health.js && node --check api/web.js && node --check api/agents.js && node --check api/missions.js && node --check agents/orchestrator.mjs && node --check agents/mission-store.mjs && node --check agents/mission-queue.mjs",
-    "test": "npm run check && node tests/mission-queue.test.mjs"
+    "check": "node --check api/chat.js && node --check api/health.js && node --check api/web.js && node --check api/agents.js && node --check api/missions.js && node --check agents/orchestrator.mjs && node --check agents/mission-store.mjs && node --check agents/mission-queue.mjs && node --check workers/worker-store.mjs && node --check workers/worker-registry.mjs && node --check workers/scheduler.mjs && node --check workers/distributed-coordinator.mjs",
+    "test": "npm run check && node tests/mission-queue.test.mjs && node tests/distributed-runtime.test.mjs"
   }
 }
