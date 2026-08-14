@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "agents": [
+    {"id":"payments-analyst","name":"Payments Analyst","focus":["authorization","capture","settlement","reversals","chargebacks","3DS","AVS","CVV","tokenization"]},
+    {"id":"fraud-analyst","name":"Fraud Analyst","focus":["risk scoring","behavioral anomalies","velocity","ATO","card testing","first-party fraud","mules"]},
+    {"id":"fraud-redteam-sim","name":"Fraud Red-Team Simulator","focus":["synthetic evasion tests","detector stress tests","adversarial scenario generation"],"simulationOnly":true},
+    {"id":"detection-engineer","name":"Detection Engineer","focus":["rules","features","graph signals","model monitoring","false-positive reduction"]},
+    {"id":"chargeback-analyst","name":"Chargeback Analyst","focus":["disputes","representment analysis","friendly fraud","merchant evidence quality"]},
+    {"id":"merchant-risk","name":"Merchant Risk Analyst","focus":["merchant abuse","transaction laundering indicators","refund abuse","promo abuse"]},
+    {"id":"financial-ir","name":"Financial Incident Responder","focus":["triage","containment","evidence preservation","customer protection","root cause"]},
+    {"id":"fraud-qa","name":"Fraud QA","focus":["precision","recall","false positives","false negatives","drift","latency","regression testing"]}
+  ]
+}
