@@ -16,8 +16,6 @@ This directory is for cataloging external tools without modifying their original
 tools/
 ├── README.md
 ├── registry.json
-├── sources/
 └── adapters/
 ```
 
-The `sources/` area is reserved for unchanged upstream copies or references. The assistant does not automatically execute source files placed here.
