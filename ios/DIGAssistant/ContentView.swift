@@ -8,6 +8,8 @@ struct ContentView: View {
 
     @State private var input = ""
     @State private var boxURL = ""
+    @State private var fileBoxURL = UserDefaults.standard.string(forKey: "fileBoxURL") ?? "http://127.0.0.1:8788"
+    @State private var ownerToken = OwnerSecretStore.shared.loadToken()
 
     var body: some View {
         NavigationStack {
@@ -77,6 +79,10 @@ struct ContentView: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(saveBoxURL)
 
+            if ownerMode.isActive {
+                ownerPanel
+            }
+
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(chat.messages) { item in
@@ -104,6 +110,37 @@ struct ContentView: View {
             }
         }
         .padding()
+    }
+
+    private var ownerPanel: some View {
+        VStack(spacing: 8) {
+            TextField("عنوان خدمة ملفات الـBox", text: $fileBoxURL)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .textFieldStyle(.roundedBorder)
+
+            SecureField("Owner pairing token", text: $ownerToken)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Button("حفظ إعدادات المالك") {
+                    UserDefaults.standard.set(fileBoxURL, forKey: "fileBoxURL")
+                    OwnerSecretStore.shared.saveToken(ownerToken)
+                    audit.record("owner_settings_saved")
+                }
+
+                Spacer()
+
+                if let fileURL = URL(string: fileBoxURL), !ownerToken.isEmpty {
+                    NavigationLink("ملفات النظام") {
+                        FileEditorView(boxURL: fileURL, ownerToken: ownerToken)
+                    }
+                }
+            }
+            .font(.caption.bold())
+        }
+        .padding(10)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func saveBoxURL() {
