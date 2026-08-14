@@ -1,24 +1,28 @@
 import { randomUUID } from 'node:crypto';
+import { loadWorkerSnapshot, saveWorkerSnapshot } from './worker-store.mjs';
 
 const DEFAULT_TTL_MS = 30_000;
-const workers = new Map();
+const workers = new Map(loadWorkerSnapshot().map(w => [String(w.id), w]));
 const nowMs = () => Date.now();
+const persist = () => saveWorkerSnapshot([...workers.values()]);
 
 export function registerWorker(input = {}) {
   const id = String(input.id || randomUUID());
+  const prior = workers.get(id);
   const worker = {
     id,
-    name: String(input.name || id),
-    capabilities: [...new Set((input.capabilities || []).map(String))],
-    maxConcurrent: Math.max(1, Number(input.maxConcurrent || 1)),
-    activeJobs: Math.max(0, Number(input.activeJobs || 0)),
-    metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {},
+    name: String(input.name || prior?.name || id),
+    capabilities: [...new Set((input.capabilities || prior?.capabilities || []).map(String))],
+    maxConcurrent: Math.max(1, Number(input.maxConcurrent || prior?.maxConcurrent || 1)),
+    activeJobs: Math.max(0, Number(input.activeJobs ?? prior?.activeJobs ?? 0)),
+    metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : (prior?.metadata || {}),
     status: 'online',
-    registeredAt: new Date().toISOString(),
+    registeredAt: prior?.registeredAt || new Date().toISOString(),
     lastHeartbeatAt: new Date().toISOString(),
     expiresAt: nowMs() + Math.max(5_000, Number(input.ttlMs || DEFAULT_TTL_MS))
   };
   workers.set(id, worker);
+  persist();
   return structuredClone(worker);
 }
 
@@ -31,6 +35,7 @@ export function heartbeatWorker(id, patch = {}) {
   worker.status = 'online';
   worker.lastHeartbeatAt = new Date().toISOString();
   worker.expiresAt = nowMs() + Math.max(5_000, Number(patch.ttlMs || DEFAULT_TTL_MS));
+  persist();
   return structuredClone(worker);
 }
 
@@ -38,6 +43,7 @@ export function markWorkerLoad(id, delta) {
   const worker = workers.get(String(id));
   if (!worker) return null;
   worker.activeJobs = Math.max(0, worker.activeJobs + Number(delta || 0));
+  persist();
   return structuredClone(worker);
 }
 
@@ -49,6 +55,7 @@ export function reapStaleWorkers(at = nowMs()) {
       stale.push(structuredClone(worker));
     }
   }
+  if (stale.length) persist();
   return stale;
 }
 
@@ -63,4 +70,7 @@ export function getWorker(id) {
   return worker ? structuredClone(worker) : null;
 }
 
-export function resetWorkersForTest() { workers.clear(); }
+export function resetWorkersForTest() {
+  workers.clear();
+  persist();
+}
