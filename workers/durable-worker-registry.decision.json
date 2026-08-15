@@ -1,0 +1,52 @@
+{
+  "decision": "Persist worker registration and anti-replay state using a locked atomic JSON registry, and require monotonic signed request counters when durable replay protection is enabled",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "durable-monotonic-counter-per-worker",
+      "correctness": "strong restart-safe replay rejection because each authenticated worker request advances one persisted counter",
+      "robustness": "survives coordinator restart and rejects duplicate or regressed counters atomically across local coordinator processes",
+      "latency": "one serialized registry mutation per authenticated request; higher than memory-only nonce cache but still suitable for lab-scale workers",
+      "resourceUse": "low disk footprint; whole-file JSON rewrite is O(worker count)",
+      "regressionRisk": "medium because durable mode requires clients to persist and increment counters",
+      "qa": "tests cover restart persistence, replay after restart, concurrent duplicate counters, capability spoof prevention, and offline worker rejection"
+    },
+    {
+      "name": "persistent-nonce-set",
+      "correctness": "can reject exact replay across restart",
+      "robustness": "requires TTL cleanup and potentially unbounded nonce storage under load",
+      "latency": "similar or worse due to larger persistent replay set",
+      "resourceUse": "grows with request volume",
+      "regressionRisk": "low client change but higher coordinator storage complexity",
+      "qa": "rejected in favor of compact monotonic state"
+    },
+    {
+      "name": "memory-only-nonce-cache",
+      "correctness": "good only within one coordinator lifetime",
+      "robustness": "replay state is lost on restart",
+      "latency": "best",
+      "resourceUse": "low but request-volume dependent",
+      "regressionRisk": "lowest",
+      "qa": "retained only as backwards-compatible LAB fallback when no durable replay store is configured"
+    },
+    {
+      "name": "external-transactional-registry",
+      "correctness": "strongest long-term option for multi-VM or multi-host coordination",
+      "robustness": "can provide transactional counter acceptance and availability guarantees",
+      "latency": "network dependent",
+      "resourceUse": "highest operational cost",
+      "regressionRisk": "high before Qubes transport and deployment topology are fixed",
+      "qa": "deferred for REAL-WORKER stage"
+    }
+  ],
+  "winner": "durable-monotonic-counter-per-worker",
+  "whyItWon": "It closes the specific coordinator-restart replay gap with minimal persistent state, provides atomic duplicate rejection, binds naturally into the existing HMAC envelope, and lets registered capabilities become coordinator-authoritative instead of worker-self-asserted.",
+  "knownFailuresAndLessons": [
+    "Counter state on the worker side must also be persisted; resetting a worker counter causes safe rejection until it is re-provisioned or explicitly re-enrolled.",
+    "The JSON registry is still shared-filesystem LAB infrastructure, not a distributed database.",
+    "Whole-file rewrites add per-request I/O and will not scale to high request rates; batch/session reservation or a transactional store is the next performance step.",
+    "Registration currently authenticates with the pre-provisioned worker secret; secret issuance and rotation are still external responsibilities.",
+    "Coordinator-authoritative capabilities prevent a worker from claiming extra abilities in its request payload, but policy for capability changes still needs explicit operator authorization.",
+    "REAL-WORKER readiness still requires a Qubes-safe confidential transport, secret provisioning/rotation, multi-VM partition tests, and idempotency/fencing for external side effects."
+  ]
+}
