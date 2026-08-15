@@ -1,0 +1,52 @@
+{
+  "decision": "Use per-worker HMAC-SHA256 authenticated request envelopes with timestamp freshness, nonce replay protection, and existing fenced lease tokens for mission ownership",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "per-worker-hmac-envelope",
+      "correctness": "authenticates worker identity and request integrity; binds workerId, action, timestamp, nonce, and payload into one signature",
+      "robustness": "rejects tampering, replay, stale requests, wrong worker secrets, and stale lease owners when combined with DurableMissionQueue fencing",
+      "latency": "one SHA-256 HMAC plus canonical serialization per request; negligible relative to filesystem queue mutation and future inter-VM transport",
+      "resourceUse": "low; per-worker secret plus bounded in-memory nonce cache",
+      "regressionRisk": "medium-low because it wraps the existing queue API instead of changing mission semantics",
+      "qa": "focused tests cover successful claim/complete, payload tamper rejection, nonce replay rejection, stale timestamp rejection, wrong-secret identity forgery rejection, and stale authenticated owner fencing"
+    },
+    {
+      "name": "single-shared-hmac-secret",
+      "correctness": "authenticates membership but cannot distinguish compromise of one worker from compromise of all workers",
+      "robustness": "weaker blast-radius isolation and key rotation",
+      "latency": "equivalent",
+      "resourceUse": "slightly lower key-management cost",
+      "regressionRisk": "low implementation complexity but materially weaker worker isolation",
+      "qa": "rejected because one leaked worker secret would impersonate every worker"
+    },
+    {
+      "name": "mutual-tls-per-worker",
+      "correctness": "strong transport and worker authentication with mature certificate semantics",
+      "robustness": "strongest long-term option when a dedicated coordinator transport and certificate lifecycle exist",
+      "latency": "higher connection/setup overhead but acceptable with keepalive",
+      "resourceUse": "higher operational complexity due to CA, issuance, revocation, rotation, and Qubes certificate provisioning",
+      "regressionRisk": "high for the current branch because no network transport contract exists yet",
+      "qa": "deferred until the coordinator transport is selected"
+    },
+    {
+      "name": "unsigned-local-transport",
+      "correctness": "insufficient across trust boundaries because worker identity is only asserted, not proven",
+      "robustness": "weak against impersonation and message modification",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "low implementation effort but unacceptable security risk for Qubes workers",
+      "qa": "rejected"
+    }
+  ],
+  "winner": "per-worker-hmac-envelope",
+  "whyItWon": "It adds concrete worker authentication, integrity, freshness, replay resistance, and worker-specific blast-radius isolation now, while preserving the durable queue's fenced lease semantics and avoiding premature dependence on a particular Qubes transport. It is easy to replace or layer under mTLS later.",
+  "knownFailuresAndLessons": [
+    "The nonce cache is process-local; a coordinator restart forgets seen nonces. Timestamp freshness limits the replay window, but REAL-WORKER readiness should persist replay state or use coordinator-issued sessions/counters.",
+    "HMAC authenticates messages but does not encrypt them. The eventual Qubes transport must provide confidentiality where mission contents are sensitive.",
+    "Secrets must never be committed to the repository. Qubes deployment needs per-worker secret provisioning and rotation through an isolated secret channel.",
+    "This protocol authenticates queue mutations only. Any external side effect still needs idempotency or resource-level fencing.",
+    "Canonical serialization is intentionally small and deterministic for JSON-compatible payloads; reject unsupported values at the transport boundary.",
+    "REAL-WORKER readiness still requires a concrete Qubes-safe transport, durable worker registry/session state, persistent replay protection or monotonic request counters, and multi-VM fault-injection metrics."
+  ]
+}
