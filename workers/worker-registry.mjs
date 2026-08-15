@@ -42,15 +42,15 @@ export class WorkerRegistry {
   }
 
   reserve(requiredCapabilities = []) {
-    this.reapExpired();
     const required = [...new Set(requiredCapabilities.map(String))];
-    const candidates = [...this.workers.values()]
-      .filter(w => w.status === 'online')
-      .filter(w => w.activeJobs < w.maxConcurrent)
-      .filter(w => required.every(cap => w.capabilities.includes(cap)))
-      .sort((a, b) => (a.activeJobs / a.maxConcurrent) - (b.activeJobs / b.maxConcurrent) || a.id.localeCompare(b.id));
-    const worker = candidates[0];
-    if (!worker) return null;
+    const worker = this.available().find(w => required.every(cap => w.capabilities.includes(cap)));
+    return worker ? this.acquire(worker.id) : null;
+  }
+
+  acquire(id) {
+    this.reapExpired();
+    const worker = this.workers.get(String(id));
+    if (!worker || worker.status !== 'online' || worker.activeJobs >= worker.maxConcurrent) return null;
     worker.activeJobs += 1;
     worker.updatedAt = this.now();
     return structuredClone(worker);
@@ -62,6 +62,14 @@ export class WorkerRegistry {
     worker.activeJobs = Math.max(0, worker.activeJobs - 1);
     worker.updatedAt = this.now();
     return structuredClone(worker);
+  }
+
+  available() {
+    this.reapExpired();
+    return [...this.workers.values()]
+      .filter(w => w.status === 'online' && w.activeJobs < w.maxConcurrent)
+      .sort((a, b) => (a.activeJobs / a.maxConcurrent) - (b.activeJobs / b.maxConcurrent) || a.id.localeCompare(b.id))
+      .map(w => structuredClone(w));
   }
 
   reapExpired() {
