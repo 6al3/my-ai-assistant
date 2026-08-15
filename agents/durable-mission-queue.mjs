@@ -30,6 +30,7 @@ export class DurableMissionQueue {
         id: randomUUID(), task: task.trim(), priority,
         requiredCapabilities: [...new Set(requiredCapabilities)], dependsOn: dependencies, metadata,
         status: 'queued', attempts: 0, workerId: null, leaseUntil: null,
+        leaseEpoch: 0, leaseToken: null,
         createdAt: now, updatedAt: now, result: null, error: null
       };
       state.missions.push(mission);
@@ -51,32 +52,35 @@ export class DurableMissionQueue {
       if (!mission) return null;
       const now = this.now();
       mission.status = 'running'; mission.workerId = worker.id; mission.attempts += 1;
+      mission.leaseEpoch = (mission.leaseEpoch ?? 0) + 1;
+      mission.leaseToken = `${mission.leaseEpoch}:${randomUUID()}`;
       mission.leaseUntil = now + this.leaseMs; mission.updatedAt = now;
       return structuredClone(mission);
     });
   }
 
-  async heartbeat(id, workerId) {
+  async heartbeat(id, workerId, leaseToken) {
     return this.#mutate(state => {
-      const mission = this.#ownedRunning(state, id, workerId);
+      const mission = this.#ownedRunning(state, id, workerId, leaseToken);
       const now = this.now();
       mission.leaseUntil = now + this.leaseMs; mission.updatedAt = now;
       return structuredClone(mission);
     });
   }
 
-  async complete(id, workerId, result = null) {
+  async complete(id, workerId, leaseToken, result = null) {
     return this.#mutate(state => {
-      const mission = this.#ownedRunning(state, id, workerId);
+      const mission = this.#ownedRunning(state, id, workerId, leaseToken);
       mission.status = 'completed'; mission.result = result; mission.leaseUntil = null; mission.updatedAt = this.now();
+      mission.workerId = null; mission.leaseToken = null;
       return structuredClone(mission);
     });
   }
 
-  async fail(id, workerId, error) {
+  async fail(id, workerId, leaseToken, error) {
     return this.#mutate(state => {
-      const mission = this.#ownedRunning(state, id, workerId);
-      mission.error = String(error ?? 'unknown failure'); mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = this.now();
+      const mission = this.#ownedRunning(state, id, workerId, leaseToken);
+      mission.error = String(error ?? 'unknown failure'); mission.workerId = null; mission.leaseUntil = null; mission.leaseToken = null; mission.updatedAt = this.now();
       mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
       return structuredClone(mission);
     });
@@ -109,6 +113,10 @@ export class DurableMissionQueue {
     const raw = fs.readFileSync(this.filePath, 'utf8');
     const state = JSON.parse(raw);
     if (state?.version !== 1 || !Array.isArray(state.missions)) throw new Error('invalid durable mission store');
+    for (const mission of state.missions) {
+      if (!Number.isInteger(mission.leaseEpoch) || mission.leaseEpoch < 0) mission.leaseEpoch = 0;
+      if (!('leaseToken' in mission)) mission.leaseToken = null;
+    }
     return state;
   }
 
@@ -165,7 +173,7 @@ export class DurableMissionQueue {
     let changed = 0;
     for (const mission of state.missions) {
       if (mission.status !== 'running' || mission.leaseUntil > now) continue;
-      mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = now; mission.error = 'worker lease expired';
+      mission.workerId = null; mission.leaseUntil = null; mission.leaseToken = null; mission.updatedAt = now; mission.error = 'worker lease expired';
       mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
       changed += 1;
     }
@@ -176,11 +184,13 @@ export class DurableMissionQueue {
     return mission.dependsOn.every(id => state.missions.find(m => m.id === id)?.status === 'completed');
   }
 
-  #ownedRunning(state, id, workerId) {
+  #ownedRunning(state, id, workerId, leaseToken) {
     const mission = state.missions.find(m => m.id === id);
     if (!mission) throw new Error('mission not found');
     if (TERMINAL.has(mission.status)) throw new Error(`mission is ${mission.status}`);
     if (mission.status !== 'running' || mission.workerId !== workerId) throw new Error('mission is not owned by worker');
+    if (!leaseToken || mission.leaseToken !== leaseToken) throw new Error('stale or invalid lease token');
+    if (mission.leaseUntil <= this.now()) throw new Error('mission lease expired');
     return mission;
   }
 }
