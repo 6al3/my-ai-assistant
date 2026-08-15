@@ -1,6 +1,14 @@
 import { getAgents, buildExecutionPlan } from '../agents/orchestrator.mjs';
+import { authConfigured, isOwnerRequest } from '../security/owner-auth.mjs';
 
 export default async function handler(req, res) {
+  if (!authConfigured()) {
+    return res.status(503).json({ ok: false, error: 'owner_auth_not_configured' });
+  }
+  if (!isOwnerRequest(req)) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
   if (req.method === 'GET') {
     return res.status(200).json({
       ok: true,
