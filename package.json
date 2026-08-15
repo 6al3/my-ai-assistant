@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check api/chat.js && node --check api/health.js && node --check api/web.js && node --check agents/orchestrator.mjs && node --check agents/mission-queue.mjs && node --check agents/benchmark-arena.mjs && node --check agents/payment-sandbox.mjs && node --check agents/collaboration-sandbox.mjs",
+    "check": "node --check api/chat.js && node --check api/agents.js && node --check api/health.js && node --check api/web.js && node --check agents/orchestrator.mjs && node --check agents/mission-queue.mjs && node --check agents/benchmark-arena.mjs && node --check agents/payment-sandbox.mjs && node --check agents/collaboration-sandbox.mjs",
     "test": "npm run check && node --test agents/mission-queue.test.mjs agents/benchmark-arena.test.mjs agents/payment-sandbox.test.mjs agents/collaboration-sandbox.test.mjs"
   }
 }
