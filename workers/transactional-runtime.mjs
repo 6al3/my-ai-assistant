@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const MISSION_MUTATIONS = new Set(['claim', 'heartbeat', 'complete', 'fail']);
 
@@ -60,7 +62,7 @@ export class TransactionalWorkerRuntime {
       mission.workerId = workerId;
       mission.attempts = (mission.attempts ?? 0) + 1;
       mission.leaseEpoch = (mission.leaseEpoch ?? 0) + 1;
-      mission.leaseToken = `${mission.leaseEpoch}:${crypto.randomUUID()}`;
+      mission.leaseToken = `${mission.leaseEpoch}:${randomUUID()}`;
       mission.leaseUntil = now + this.leaseMs;
       mission.updatedAt = now;
       return structuredClone(mission);
