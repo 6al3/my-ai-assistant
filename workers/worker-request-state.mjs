@@ -37,7 +37,7 @@ export class WorkerRequestState {
   }
 
   listPending() {
-    return Object.values(this.#read().pending).map(structuredClone);
+    return Object.values(this.#read().pending).map(record => structuredClone(record));
   }
 
   async clear(requestId) {
