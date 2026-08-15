@@ -63,12 +63,13 @@ export class DurableWorkerRegistry {
     return this.#mutate(state => {
       const worker = state.workers[String(id)];
       if (!worker) throw new Error('worker not registered');
+      const now = this.now();
       worker.credentialGeneration = (worker.credentialGeneration ?? 1) + 1;
       worker.lastCounter = 0;
-      worker.status = 'offline';
-      worker.updatedAt = this.now();
-      worker.expiresAt = this.now();
-      return { id: worker.id, credentialGeneration: worker.credentialGeneration, lastCounter: worker.lastCounter, status: worker.status };
+      worker.status = 'online';
+      worker.updatedAt = now;
+      worker.expiresAt = now + this.ttlMs;
+      return { id: worker.id, credentialGeneration: worker.credentialGeneration, lastCounter: 0, status: worker.status };
     });
   }
 
