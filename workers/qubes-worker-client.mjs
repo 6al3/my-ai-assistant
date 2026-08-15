@@ -10,15 +10,17 @@ function decodeSingle(bytes, maxFrameBytes) {
 }
 
 export class QubesWorkerClient {
-  constructor({ signer, exchange, maxFrameBytes = 1024 * 1024, requestIdFactory = () => randomUUID() } = {}) {
+  constructor({ signer, exchange, maxFrameBytes = 1024 * 1024, requestIdFactory = () => randomUUID(), requestState = null } = {}) {
     if (!signer?.sign) throw new Error('signer.sign is required');
     if (typeof exchange !== 'function') throw new Error('exchange(frameBytes) is required');
     if (!Number.isSafeInteger(maxFrameBytes) || maxFrameBytes < 1) throw new Error('maxFrameBytes must be a positive integer');
     if (typeof requestIdFactory !== 'function') throw new Error('requestIdFactory must be a function');
+    if (requestState && (!requestState.reserve || !requestState.get || !requestState.clear || !requestState.listPending)) throw new Error('requestState must implement reserve/get/clear/listPending');
     this.signer = signer;
     this.exchange = exchange;
     this.maxFrameBytes = maxFrameBytes;
     this.requestIdFactory = requestIdFactory;
+    this.requestState = requestState;
   }
 
   async request(action, payload = {}) {
@@ -40,12 +42,43 @@ export class QubesWorkerClient {
 
   async mutation(action, payload = {}, { requestId = this.requestIdFactory() } = {}) {
     if (!requestId || typeof requestId !== 'string') throw new Error('requestId must be a non-empty string');
+    if (this.requestState) {
+      const existing = this.requestState.get(requestId);
+      if (existing) {
+        if (existing.action !== action) throw new Error('requestId already pending for a different action');
+      } else {
+        await this.requestState.reserve({ action, payload, requestId });
+      }
+    }
     try {
-      return await this.request(action, { ...payload, requestId });
+      const result = await this.request(action, { ...payload, requestId });
+      if (this.requestState) await this.requestState.clear(requestId);
+      return result;
     } catch (error) {
       error.requestId = requestId;
       throw error;
     }
+  }
+
+  async recoverPending() {
+    if (!this.requestState) throw new Error('requestState is required for recovery');
+    const recovered = [];
+    for (const pending of this.requestState.listPending()) {
+      let status;
+      try {
+        status = await this.requestStatus(pending.requestId);
+      } catch (error) {
+        recovered.push({ requestId: pending.requestId, action: pending.action, state: 'unresolved', error: String(error?.message ?? error) });
+        continue;
+      }
+      if (!status || !['completed', 'failed'].includes(status.status)) {
+        recovered.push({ requestId: pending.requestId, action: pending.action, state: 'unresolved', status: status ?? null });
+        continue;
+      }
+      await this.requestState.clear(pending.requestId);
+      recovered.push({ requestId: pending.requestId, action: pending.action, state: status.status, status });
+    }
+    return recovered;
   }
 
   requestStatus(requestId) { return this.request('request-status', { requestId }); }

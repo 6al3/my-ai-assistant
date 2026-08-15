@@ -1,0 +1,54 @@
+{
+  "decision": "persist worker-side pending mutation request IDs and reconcile them through authenticated request-status after restart",
+  "selected": "atomic local pending-request state + coordinator status reconciliation",
+  "alternatives": [
+    {
+      "name": "atomic local pending-request state + status reconciliation",
+      "correctness": 9,
+      "robustness": 9,
+      "latency": 8,
+      "resourceUse": 8,
+      "regressionRisk": 8,
+      "qa": 9,
+      "notes": "Preserves the exact requestId before send, survives worker restart, composes with the existing transactional coordinator, and leaves unknown outcomes pending instead of guessing."
+    },
+    {
+      "name": "blind retry with a fresh requestId",
+      "correctness": 2,
+      "robustness": 3,
+      "latency": 9,
+      "resourceUse": 10,
+      "regressionRisk": 4,
+      "qa": 4,
+      "notes": "Fast but can duplicate a committed mutation after response loss and defeats coordinator idempotency."
+    },
+    {
+      "name": "memory-only pending request map",
+      "correctness": 5,
+      "robustness": 4,
+      "latency": 10,
+      "resourceUse": 10,
+      "regressionRisk": 8,
+      "qa": 6,
+      "notes": "Simple but loses the request identity on the exact worker restart case this task must close."
+    },
+    {
+      "name": "coordinator-issued request IDs",
+      "correctness": 8,
+      "robustness": 7,
+      "latency": 6,
+      "resourceUse": 7,
+      "regressionRisk": 5,
+      "qa": 7,
+      "notes": "Can be strong but needs an extra round trip or session protocol before every mutation and expands the transport/state machine."
+    }
+  ],
+  "winnerReason": "The selected approach closes the worker-restart ambiguity gap with the smallest protocol change. It records mutation identity durably before transport, reuses the same identity on retry, and reconciles terminal outcomes after restart without re-running the mutation.",
+  "failuresAndLessons": [
+    "A response can be lost after coordinator commit; transport failure is not proof that the mutation failed.",
+    "A durable coordinator journal is insufficient if the worker forgets the requestId after restart.",
+    "Unknown or non-terminal status must remain pending; recovery must never invent success or failure.",
+    "Crash after a successful response but before local clear is safe because restart reconciliation observes the coordinator's terminal record and then clears the local pending entry."
+  ],
+  "scope": "synthetic orchestration and defensive lab reliability only; no real financial transactions or external side effects"
+}
