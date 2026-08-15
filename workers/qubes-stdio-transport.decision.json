@@ -1,0 +1,52 @@
+{
+  "decision": "Use a bounded length-prefixed JSON protocol over inherited stdin/stdout as the first Qubes worker transport boundary, with no network listener in DIG",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "qrexec-style-stdio-length-prefixed-json",
+      "correctness": "preserves exact message boundaries across arbitrary stream chunking and composes with the existing HMAC/counter envelope",
+      "robustness": "rejects oversized, truncated, malformed, and non-object frames; isolates request failures so one rejected mission does not kill the session",
+      "latency": "one four-byte header plus JSON serialization; negligible relative to inter-VM execution",
+      "resourceUse": "low and bounded per frame with a 1 MiB default limit",
+      "regressionRisk": "low because it wraps AuthenticatedCoordinator.handle without changing queue/auth semantics",
+      "qa": "tests cover byte-by-byte chunking, sequential requests, oversized/truncated frames, malformed JSON, and per-request failure isolation"
+    },
+    {
+      "name": "newline-delimited-json-over-stdio",
+      "correctness": "simple but newline framing is easier to mishandle when payload generation or diagnostics accidentally write to the transport stream",
+      "robustness": "weaker framing discipline and more sensitive to stray stdout output",
+      "latency": "similar",
+      "resourceUse": "similar",
+      "regressionRisk": "low implementation complexity but weaker boundary guarantees",
+      "qa": "rejected"
+    },
+    {
+      "name": "http-network-listener",
+      "correctness": "mature request semantics but introduces a new reachable service and network policy surface",
+      "robustness": "requires TLS, bind/firewall policy, certificate lifecycle, and listener hardening",
+      "latency": "higher setup/protocol overhead",
+      "resourceUse": "higher",
+      "regressionRisk": "high before the real Qubes topology is fixed",
+      "qa": "rejected for the current stage because DIG should not open a network listener by default"
+    },
+    {
+      "name": "unix-domain-socket",
+      "correctness": "good local IPC semantics",
+      "robustness": "does not itself solve cross-Qube transport and adds socket lifecycle/permission handling",
+      "latency": "low",
+      "resourceUse": "low",
+      "regressionRisk": "medium because an adapter is still required at the Qubes boundary",
+      "qa": "deferred as an optional local adapter"
+    }
+  ],
+  "winner": "qrexec-style-stdio-length-prefixed-json",
+  "whyItWon": "It creates the narrowest transport surface for Qubes integration: DIG inherits streams supplied by the Qubes service mechanism instead of binding a port, keeps authentication/replay fencing in the existing protocol layer, enforces bounded deterministic framing, and has very small runtime and regression cost.",
+  "knownFailuresAndLessons": [
+    "This module is transport framing, not a substitute for Qubes qrexec policy. The operator must still define which source Qubes may invoke the service.",
+    "Confidentiality depends on the trusted inter-VM mechanism supplying stdin/stdout; DIG does not add application-layer encryption in this adapter.",
+    "Anything writing diagnostics to the same stdout stream can corrupt framing; production launchers must reserve stdout exclusively for protocol frames and send logs elsewhere.",
+    "A 1 MiB frame cap limits memory-amplification risk but mission payloads should remain substantially smaller and bulk artifacts should use a separate controlled channel.",
+    "Per-request errors are intentionally sanitized to code/message and never include stack traces.",
+    "REAL-WORKER readiness still requires an actual Qubes qrexec service/policy deployment, worker-side client adapter, restart/partition fault injection across separate Qubes, secret provisioning/rotation, and side-effect idempotency/fencing."
+  ]
+}
