@@ -1,0 +1,51 @@
+{
+  "decision": "Persist the worker-side next request counter with atomic reserve-before-sign semantics",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "atomic-local-counter-file",
+      "correctness": "restart-safe and unique across concurrent local worker processes sharing the state file",
+      "robustness": "counter is durably reserved before a signed request is emitted, so crashes may create harmless gaps but cannot reuse an accepted counter",
+      "latency": "one lock plus small atomic file rewrite per request",
+      "resourceUse": "constant-size state and no request history",
+      "regressionRisk": "low-medium; workers must use PersistentWorkerSigner rather than choosing counters manually",
+      "qa": "tests cover restart continuity, 64 concurrent reservations across 8 instances, signer restart, and restrictive POSIX permissions"
+    },
+    {
+      "name": "memory-only-counter",
+      "correctness": "fails after worker restart because the counter can regress to one",
+      "robustness": "insufficient for coordinator durable replay fencing",
+      "latency": "best",
+      "resourceUse": "lowest",
+      "regressionRisk": "low implementation cost but unsafe restart behavior",
+      "qa": "rejected"
+    },
+    {
+      "name": "timestamp-derived-counter",
+      "correctness": "clock rollback and same-tick concurrency can regress or collide",
+      "robustness": "depends on wall-clock discipline across VM suspension/resume",
+      "latency": "very low",
+      "resourceUse": "none",
+      "regressionRisk": "high correctness risk under Qubes pause/resume",
+      "qa": "rejected"
+    },
+    {
+      "name": "coordinator-issued-counter-blocks",
+      "correctness": "strong long-term option and amortizes persistence/network cost",
+      "robustness": "requires a finalized authenticated Qubes transport and durable session semantics",
+      "latency": "potentially best at scale when counters are reserved in blocks",
+      "resourceUse": "more coordinator/session complexity",
+      "regressionRisk": "high before transport contract exists",
+      "qa": "deferred for real-worker transport stage"
+    }
+  ],
+  "winner": "atomic-local-counter-file",
+  "whyItWon": "It closes the immediate worker-restart replay gap with minimal code and constant state while matching the coordinator's existing monotonic-counter contract. Reserve-before-sign makes crash gaps safe and avoids counter reuse.",
+  "knownFailuresAndLessons": [
+    "A lost or rolled-back worker state file causes safe coordinator rejection; re-enrollment needs an explicit operator-controlled counter reset/resynchronization protocol.",
+    "The state file is not a secret, but integrity matters; Qubes deployment should place it in worker-private persistent storage and prevent untrusted rollback.",
+    "Atomic rename and mkdir locking are LAB assumptions for one filesystem, not a cross-VM distributed primitive.",
+    "Per-request disk writes will become a throughput bottleneck; coordinator-issued counter blocks are the likely scale-up path after transport is fixed.",
+    "The counter does not provide confidentiality or transport authentication; those remain separate Qubes transport requirements."
+  ]
+}
