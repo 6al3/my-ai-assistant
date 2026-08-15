@@ -7,39 +7,46 @@ function stable(value) {
 }
 
 export class WorkerAuthenticator {
-  constructor({ secrets, maxClockSkewMs = 30_000, nonceTtlMs = 120_000, now = () => Date.now() } = {}) {
+  constructor({ secrets, maxClockSkewMs = 30_000, nonceTtlMs = 120_000, replayStore = null, now = () => Date.now() } = {}) {
     if (!secrets || (typeof secrets !== 'object' && typeof secrets !== 'function')) throw new Error('secrets map or resolver is required');
     if (!Number.isFinite(maxClockSkewMs) || maxClockSkewMs < 0) throw new Error('maxClockSkewMs must be >= 0');
     if (!Number.isFinite(nonceTtlMs) || nonceTtlMs <= 0) throw new Error('nonceTtlMs must be > 0');
     this.secrets = secrets;
     this.maxClockSkewMs = maxClockSkewMs;
     this.nonceTtlMs = nonceTtlMs;
+    this.replayStore = replayStore;
     this.now = now;
     this.seen = new Map();
   }
 
-  sign({ workerId, action, payload = {}, timestamp = this.now(), nonce = randomUUID() }) {
+  sign({ workerId, action, payload = {}, timestamp = this.now(), nonce = randomUUID(), counter = null }) {
     const secret = this.#secret(workerId);
-    const message = { workerId: String(workerId), action: String(action), timestamp, nonce: String(nonce), payload };
+    const message = { workerId: String(workerId), action: String(action), timestamp, nonce: String(nonce), counter, payload };
     return { ...message, signature: this.#mac(secret, message) };
   }
 
-  verify(envelope) {
+  async verify(envelope) {
     if (!envelope || typeof envelope !== 'object') throw new Error('invalid worker envelope');
-    const { workerId, action, timestamp, nonce, payload = {}, signature } = envelope;
+    const { workerId, action, timestamp, nonce, counter = null, payload = {}, signature } = envelope;
     if (!workerId || !action || !nonce || !signature || !Number.isFinite(timestamp)) throw new Error('incomplete worker envelope');
     const now = this.now();
     this.#purge(now);
     if (Math.abs(now - timestamp) > this.maxClockSkewMs) throw new Error('worker envelope timestamp outside allowed skew');
-    const replayKey = `${workerId}:${nonce}`;
-    if (this.seen.has(replayKey)) throw new Error('worker envelope replay detected');
     const secret = this.#secret(workerId);
-    const expected = this.#mac(secret, { workerId: String(workerId), action: String(action), timestamp, nonce: String(nonce), payload });
+    const expected = this.#mac(secret, { workerId: String(workerId), action: String(action), timestamp, nonce: String(nonce), counter, payload });
     const actual = Buffer.from(String(signature), 'hex');
     const wanted = Buffer.from(expected, 'hex');
     if (actual.length !== wanted.length || !timingSafeEqual(actual, wanted)) throw new Error('invalid worker signature');
-    this.seen.set(replayKey, now + this.nonceTtlMs);
-    return { workerId: String(workerId), action: String(action), timestamp, nonce: String(nonce), payload: structuredClone(payload) };
+
+    if (this.replayStore) {
+      if (!Number.isSafeInteger(counter) || counter < 1) throw new Error('durable replay protection requires a positive worker counter');
+      await this.replayStore.acceptCounter(String(workerId), counter);
+    } else {
+      const replayKey = `${workerId}:${nonce}`;
+      if (this.seen.has(replayKey)) throw new Error('worker envelope replay detected');
+      this.seen.set(replayKey, now + this.nonceTtlMs);
+    }
+    return { workerId: String(workerId), action: String(action), timestamp, nonce: String(nonce), counter, payload: structuredClone(payload) };
   }
 
   #secret(workerId) {
@@ -58,15 +65,27 @@ export class WorkerAuthenticator {
 }
 
 export class AuthenticatedCoordinator {
-  constructor({ queue, authenticator }) {
+  constructor({ queue, authenticator, registry = null }) {
     if (!queue || !authenticator) throw new Error('queue and authenticator are required');
     this.queue = queue;
     this.authenticator = authenticator;
+    this.registry = registry;
   }
 
   async handle(envelope) {
-    const request = this.authenticator.verify(envelope);
+    const request = await this.authenticator.verify(envelope);
     const { workerId, action, payload } = request;
+    if (action === 'register') {
+      if (!this.registry) throw new Error('worker registry unavailable');
+      return this.registry.register({ id: workerId, capabilities: payload.capabilities ?? [], maxConcurrent: payload.maxConcurrent ?? 1, metadata: payload.metadata ?? {} });
+    }
+    if (this.registry) {
+      const worker = await this.registry.get(workerId);
+      if (!worker) throw new Error('worker not registered');
+      if (worker.status !== 'online') throw new Error('worker is offline');
+      if (action === 'heartbeat') await this.registry.heartbeat(workerId);
+      if (action === 'claim') payload.capabilities = worker.capabilities;
+    }
     switch (action) {
       case 'claim':
         return this.queue.claim({ id: workerId, capabilities: payload.capabilities ?? [] });
