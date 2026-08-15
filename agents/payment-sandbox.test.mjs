@@ -4,8 +4,15 @@ import { createPaymentSandboxExperiment, claimExperimentMission, listPaymentSand
 
 test('payment sandbox exposes synthetic cases only', () => {
   const cases = listPaymentSandboxCases();
-  assert.ok(cases.length >= 4);
+  assert.ok(cases.length >= 9);
   assert.ok(cases.every(c => c.token.startsWith('TEST_')));
+});
+
+test('expanded synthetic scenarios are available', () => {
+  const outcomes = new Set(listPaymentSandboxCases().map(c => c.outcome));
+  for (const expected of ['expired_card', 'cvv_mismatch', 'duplicate_transaction', 'processor_timeout', 'refund_approved']) {
+    assert.ok(outcomes.has(expected));
+  }
 });
 
 test('all registered agents receive sandbox-only missions', () => {
@@ -25,6 +32,15 @@ test('each agent can claim only its own capability mission', () => {
   assert.ok(audit);
   assert.deepEqual(audit.requiredCapabilities, ['audit']);
   assert.equal(audit.metadata.expectedOutcome, 'approved');
+});
+
+test('expanded cases preserve sandbox safety gates', () => {
+  for (const caseId of ['visa-expired', 'visa-cvv', 'visa-duplicate', 'visa-timeout', 'visa-refund']) {
+    const { missions } = createPaymentSandboxExperiment({ caseId });
+    assert.ok(missions.every(m => m.metadata.networkAllowed === false));
+    assert.ok(missions.every(m => m.metadata.realCardsAllowed === false));
+    assert.ok(missions.every(m => m.metadata.syntheticToken.startsWith('TEST_')));
+  }
 });
 
 test('invalid sandbox input is rejected', () => {
