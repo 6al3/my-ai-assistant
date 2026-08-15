@@ -1,0 +1,53 @@
+{
+  "problem": "Eliminate the crash window between mission mutation commit and durable request-result journal completion.",
+  "candidates": [
+    {
+      "name": "unified-atomic-snapshot",
+      "correctness": 9,
+      "robustness": 8,
+      "latency": 7,
+      "resourceUse": 7,
+      "regressionRisk": 7,
+      "qa": 9,
+      "notes": "Mission state and request outcome share one lock and one atomic rename. Straightforward deterministic crash testing. Full-file rewrite remains LAB-scale."
+    },
+    {
+      "name": "two-store-reconciliation",
+      "correctness": 6,
+      "robustness": 6,
+      "latency": 8,
+      "resourceUse": 8,
+      "regressionRisk": 5,
+      "qa": 6,
+      "notes": "Smaller initial refactor, but ambiguous in-progress outcomes require action-specific inference and more recovery branches."
+    },
+    {
+      "name": "sqlite-transaction",
+      "correctness": 10,
+      "robustness": 9,
+      "latency": 9,
+      "resourceUse": 8,
+      "regressionRisk": 5,
+      "qa": 8,
+      "notes": "Strongest local transactional semantics and scale, but adds a new dependency/storage migration before the existing JSON queue is stabilized."
+    },
+    {
+      "name": "external-transactional-coordinator",
+      "correctness": 10,
+      "robustness": 10,
+      "latency": 6,
+      "resourceUse": 5,
+      "regressionRisk": 3,
+      "qa": 6,
+      "notes": "Best future multi-Qube direction, but premature before qrexec deployment, secret lifecycle, and local failure semantics are fully validated."
+    }
+  ],
+  "winner": "unified-atomic-snapshot",
+  "why": "It closes the known LAB crash-consistency gap with one atomic persistence boundary, minimal new dependencies, low protocol churn, and strong deterministic QA. SQLite/external coordination remain stronger future migration targets once multi-Qube throughput and deployment requirements justify them.",
+  "failuresAndLessons": [
+    "Separate atomic files are not a transaction: either file may commit before coordinator death.",
+    "Reconciliation pushes ambiguity into action-specific recovery logic and increases regression surface.",
+    "Atomic rename protects the visible snapshot, but full-file JSON rewrite is not the final high-throughput distributed design.",
+    "The unified store must be integrated into DurableMissionQueue and JournaledCoordinator before this gate is considered fully closed."
+  ]
+}
