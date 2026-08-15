@@ -1,0 +1,54 @@
+{
+  "problem": "Move DIG from local framed stdio toward a real Qubes lab boundary without opening a network listener or broadening trust.",
+  "candidates": [
+    {
+      "name": "pinned-qrexec-policy-plus-local-secret",
+      "correctness": 9,
+      "robustness": 9,
+      "latency": 9,
+      "resourceUse": 9,
+      "regressionRisk": 9,
+      "qa": 9,
+      "notes": "Pin one source qube to one coordinator qube, deny all fallback, keep HMAC secret out of policy/service artifacts, preserve existing framed stdio protocol."
+    },
+    {
+      "name": "wildcard-qrexec-policy",
+      "correctness": 6,
+      "robustness": 5,
+      "latency": 9,
+      "resourceUse": 9,
+      "regressionRisk": 7,
+      "qa": 8,
+      "notes": "Simple but unnecessarily expands which qubes may invoke the coordinator service."
+    },
+    {
+      "name": "http-listener-between-qubes",
+      "correctness": 7,
+      "robustness": 6,
+      "latency": 8,
+      "resourceUse": 7,
+      "regressionRisk": 5,
+      "qa": 7,
+      "notes": "Adds network attack surface and duplicates security properties already provided by qrexec plus authenticated envelopes."
+    },
+    {
+      "name": "embed-worker-secret-in-service-or-policy",
+      "correctness": 3,
+      "robustness": 2,
+      "latency": 9,
+      "resourceUse": 9,
+      "regressionRisk": 3,
+      "qa": 5,
+      "notes": "Rejected: secrets would leak into deployment artifacts or repository history and rotation would be unsafe."
+    }
+  ],
+  "winner": "pinned-qrexec-policy-plus-local-secret",
+  "why": "It preserves the existing no-listener stdio design, minimizes Qubes policy scope, keeps per-worker secrets provisioned locally with owner-only permissions, and has the smallest regression surface.",
+  "failuresAndLessons": [
+    "A wildcard allow rule would undermine the worker identity boundary before HMAC verification and is unnecessary for the lab.",
+    "Secrets must never be committed into qrexec policy, service scripts, or repository fixtures.",
+    "Qrexec transport policy and application HMAC solve different layers: source/target authorization versus worker request authentication and replay fencing.",
+    "Real-Qube fault injection is still required before REAL-WORKER READY; generated artifacts alone are not deployment evidence."
+  ],
+  "safetyScope": "Synthetic defensive orchestration only; no real financial transactions, stolen payment data, external exploitation, or weakened security controls."
+}
