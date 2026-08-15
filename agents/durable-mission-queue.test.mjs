@@ -32,6 +32,7 @@ test('concurrent claim across queue instances is atomic', async t => {
   const claims = [a, b].filter(Boolean);
   assert.equal(claims.length, 1);
   assert.equal(claims[0].id, mission.id);
+  assert.match(claims[0].leaseToken, /^1:/);
   assert.equal((await seed.get(mission.id)).attempts, 1);
 });
 
@@ -40,13 +41,53 @@ test('lease expiry survives restart and requeues work', async t => {
   let now = 0;
   const q1 = new DurableMissionQueue({ filePath, leaseMs: 10, now: () => now });
   const mission = await q1.enqueue({ task: 'recover' });
-  await q1.claim({ id: 'dead-worker' });
+  const first = await q1.claim({ id: 'dead-worker' });
   now = 11;
   const q2 = new DurableMissionQueue({ filePath, leaseMs: 10, now: () => now });
   assert.equal(await q2.requeueExpired(), 1);
   const reclaimed = await q2.claim({ id: 'replacement' });
   assert.equal(reclaimed.id, mission.id);
   assert.equal(reclaimed.attempts, 2);
+  assert.equal(reclaimed.leaseEpoch, 2);
+  assert.notEqual(reclaimed.leaseToken, first.leaseToken);
+});
+
+test('stale worker is fenced after lease expiry and reclaim', async t => {
+  const { dir, filePath } = tempStore(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let now = 0;
+  const q = new DurableMissionQueue({ filePath, leaseMs: 10, now: () => now });
+  const mission = await q.enqueue({ task: 'fence stale owner' });
+  const stale = await q.claim({ id: 'worker-a' });
+  now = 11;
+  await q.requeueExpired();
+  const current = await q.claim({ id: 'worker-b' });
+
+  await assert.rejects(() => q.heartbeat(mission.id, 'worker-a', stale.leaseToken), /not owned|stale|invalid/);
+  await assert.rejects(() => q.complete(mission.id, 'worker-a', stale.leaseToken, 'late result'), /not owned|stale|invalid/);
+  await q.complete(mission.id, 'worker-b', current.leaseToken, 'winner');
+  assert.equal((await q.get(mission.id)).result, 'winner');
+});
+
+test('expired owner cannot complete before explicit requeue', async t => {
+  const { dir, filePath } = tempStore(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let now = 100;
+  const q = new DurableMissionQueue({ filePath, leaseMs: 5, now: () => now });
+  const mission = await q.enqueue({ task: 'reject late completion' });
+  const claim = await q.claim({ id: 'worker-a' });
+  now = 106;
+  await assert.rejects(() => q.complete(mission.id, 'worker-a', claim.leaseToken, 'too late'), /lease expired/);
+});
+
+test('heartbeat extends only the current fenced lease', async t => {
+  const { dir, filePath } = tempStore(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let now = 0;
+  const q = new DurableMissionQueue({ filePath, leaseMs: 10, now: () => now });
+  const mission = await q.enqueue({ task: 'heartbeat' });
+  const claim = await q.claim({ id: 'worker-a' });
+  now = 5;
+  const beat = await q.heartbeat(mission.id, 'worker-a', claim.leaseToken);
+  assert.equal(beat.leaseUntil, 15);
+  await assert.rejects(() => q.heartbeat(mission.id, 'worker-a', '1:bogus'), /stale or invalid lease token/);
 });
 
 test('dependencies remain gated in durable store', async t => {
@@ -56,7 +97,34 @@ test('dependencies remain gated in durable store', async t => {
   const review = await q.enqueue({ task: 'review', requiredCapabilities: ['qa'], dependsOn: [first.id] });
   assert.equal((await q.stats()).blocked, 1);
   assert.equal(await q.claim({ id: 'qa', capabilities: ['qa'] }), null);
-  await q.claim({ id: 'coder', capabilities: ['coder'] });
-  await q.complete(first.id, 'coder');
+  const coderClaim = await q.claim({ id: 'coder', capabilities: ['coder'] });
+  await q.complete(first.id, 'coder', coderClaim.leaseToken);
   assert.equal((await q.claim({ id: 'qa', capabilities: ['qa'] })).id, review.id);
+});
+
+test('contention stress: each mission is claimed and completed once', async t => {
+  const { dir, filePath } = tempStore(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const missionCount = 20;
+  const workerCount = 8;
+  const seed = new DurableMissionQueue({ filePath, lockRetryMs: 1, lockTimeoutMs: 10_000 });
+  for (let i = 0; i < missionCount; i += 1) await seed.enqueue({ task: `job-${i}`, requiredCapabilities: ['coder'] });
+
+  const completed = new Set();
+  await Promise.all(Array.from({ length: workerCount }, async (_, index) => {
+    const q = new DurableMissionQueue({ filePath, lockRetryMs: 1, lockTimeoutMs: 10_000 });
+    const workerId = `worker-${index}`;
+    while (true) {
+      const claim = await q.claim({ id: workerId, capabilities: ['coder'] });
+      if (!claim) return;
+      assert.equal(completed.has(claim.id), false);
+      completed.add(claim.id);
+      await q.complete(claim.id, workerId, claim.leaseToken, { ok: true });
+    }
+  }));
+
+  assert.equal(completed.size, missionCount);
+  const stats = await seed.stats();
+  assert.equal(stats.completed, missionCount);
+  assert.equal(stats.running, 0);
+  assert.equal(stats.queued, 0);
 });
