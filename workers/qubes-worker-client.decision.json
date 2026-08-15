@@ -1,0 +1,51 @@
+{
+  "decision": "Use a worker-side signed request adapter over the bounded stdio transport, with persistent reserve-before-sign counters and one framed request/response exchange per invocation",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "persistent-signer-plus-framed-stdio-client",
+      "correctness": "preserves worker HMAC identity, durable monotonic anti-replay counters, fenced lease tokens, and deterministic request/response framing",
+      "robustness": "fails closed on malformed/truncated responses and composes with coordinator replay fencing after worker restart",
+      "latency": "one signing operation, one small counter persistence, and one framed exchange per request",
+      "resourceUse": "low constant memory and constant-size local counter state",
+      "regressionRisk": "low-medium because it wraps existing signer and transport contracts without changing queue semantics",
+      "qa": "end-to-end tests cover claim/complete, worker restart, duplicate replay rejection, and truncated transport behavior"
+    },
+    {
+      "name": "raw-worker-calls-with-manual-counters",
+      "correctness": "callers can accidentally reuse or regress counters and bypass the intended client contract",
+      "robustness": "weak under restart and concurrent worker processes",
+      "latency": "slightly lower",
+      "resourceUse": "slightly lower",
+      "regressionRisk": "high correctness risk due to duplicated protocol logic",
+      "qa": "rejected"
+    },
+    {
+      "name": "long-lived-multiplexed-session",
+      "correctness": "can be correct with correlation IDs and ordered response handling",
+      "robustness": "requires session recovery, correlation state, half-open handling, and more complex partition semantics",
+      "latency": "best at high request rate",
+      "resourceUse": "higher persistent session state",
+      "regressionRisk": "medium-high before qrexec deployment behavior is measured",
+      "qa": "deferred until real-worker throughput requires multiplexing"
+    },
+    {
+      "name": "network-http-client",
+      "correctness": "mature request semantics but introduces a network service boundary not required by the current Qubes model",
+      "robustness": "adds TLS, listener, firewall, and certificate lifecycle requirements",
+      "latency": "higher setup overhead",
+      "resourceUse": "higher operational footprint",
+      "regressionRisk": "high for the current isolation-first architecture",
+      "qa": "rejected for this stage"
+    }
+  ],
+  "winner": "persistent-signer-plus-framed-stdio-client",
+  "whyItWon": "It closes the missing worker-side integration path using the already-selected authentication, replay, lease-fencing, and stdio framing primitives. It has the smallest new attack surface and regression surface while remaining directly adaptable to a Qubes qrexec launcher.",
+  "knownFailuresAndLessons": [
+    "A transport failure after the coordinator accepted a mutation can leave the worker uncertain whether the action committed; mission mutations therefore still need safe retry semantics and idempotency where applicable.",
+    "A truncated response test intentionally demonstrates this ambiguity: the claim may be committed even though the worker did not receive the response. Lease expiry/recovery limits damage, but an explicit request-id/result lookup protocol would improve recovery.",
+    "The client does not itself launch qrexec; deployment-specific process invocation and policy remain outside this module.",
+    "Persistent counters prevent replay but state rollback/loss still requires controlled worker re-enrollment.",
+    "REAL-WORKER readiness still requires actual qrexec service/policy installation, secret provisioning/rotation, multi-Qube crash/partition tests, and an ambiguity-recovery protocol for committed requests with lost responses."
+  ]
+}
