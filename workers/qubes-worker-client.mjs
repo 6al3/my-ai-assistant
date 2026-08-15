@@ -41,8 +41,7 @@ export class QubesWorkerClient {
   async mutation(action, payload = {}, { requestId = this.requestIdFactory() } = {}) {
     if (!requestId || typeof requestId !== 'string') throw new Error('requestId must be a non-empty string');
     try {
-      const result = await this.request(action, { ...payload, requestId });
-      return { requestId, result };
+      return await this.request(action, { ...payload, requestId });
     } catch (error) {
       error.requestId = requestId;
       throw error;
