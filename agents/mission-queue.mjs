@@ -4,6 +4,8 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 export class MissionQueue {
   constructor({ maxAttempts = 3, leaseMs = 30_000, now = () => Date.now() } = {}) {
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1) throw new Error('maxAttempts must be >= 1');
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('leaseMs must be > 0');
     this.maxAttempts = maxAttempts;
     this.leaseMs = leaseMs;
     this.now = now;
@@ -11,7 +13,9 @@ export class MissionQueue {
   }
 
   enqueue({ task, priority = 0, requiredCapabilities = [], metadata = {} }) {
-    if (!task?.trim()) throw new Error('task is required');
+    if (typeof task !== 'string' || !task.trim()) throw new Error('task is required');
+    if (!Number.isFinite(priority)) throw new Error('priority must be a finite number');
+    if (!Array.isArray(requiredCapabilities)) throw new Error('requiredCapabilities must be an array');
     const mission = {
       id: randomUUID(), task: task.trim(), priority,
       requiredCapabilities: [...new Set(requiredCapabilities)], metadata,
@@ -28,7 +32,7 @@ export class MissionQueue {
     const capabilities = new Set(worker.capabilities ?? []);
     const eligible = [...this.missions.values()]
       .filter(m => m.status === 'queued' && m.requiredCapabilities.every(c => capabilities.has(c)))
-      .sort((a, b) => b.priority - a.priority || a.createdAt - b.createdAt);
+      .sort((a, b) => b.priority - a.priority || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
     const mission = eligible[0];
     if (!mission) return null;
     mission.status = 'running';
@@ -41,6 +45,7 @@ export class MissionQueue {
 
   heartbeat(id, workerId) {
     const mission = this.#ownedRunning(id, workerId);
+    if (mission.leaseUntil <= this.now()) throw new Error('mission lease expired');
     mission.leaseUntil = this.now() + this.leaseMs;
     mission.updatedAt = this.now();
     return structuredClone(mission);
@@ -48,6 +53,7 @@ export class MissionQueue {
 
   complete(id, workerId, result = null) {
     const mission = this.#ownedRunning(id, workerId);
+    if (mission.leaseUntil <= this.now()) throw new Error('mission lease expired');
     mission.status = 'completed'; mission.result = result;
     mission.leaseUntil = null; mission.updatedAt = this.now();
     return structuredClone(mission);
@@ -55,20 +61,34 @@ export class MissionQueue {
 
   fail(id, workerId, error) {
     const mission = this.#ownedRunning(id, workerId);
+    if (mission.leaseUntil <= this.now()) throw new Error('mission lease expired');
     mission.error = String(error ?? 'unknown failure');
     mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = this.now();
     mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
     return structuredClone(mission);
   }
 
+  cancel(id, reason = 'cancelled') {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('mission not found');
+    if (TERMINAL.has(mission.status)) throw new Error(`mission is ${mission.status}`);
+    mission.status = 'cancelled';
+    mission.error = String(reason);
+    mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = this.now();
+    return structuredClone(mission);
+  }
+
   requeueExpired() {
     const now = this.now();
+    let count = 0;
     for (const mission of this.missions.values()) {
       if (mission.status !== 'running' || mission.leaseUntil > now) continue;
       mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = now;
       mission.error = 'worker lease expired';
       mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
+      count += 1;
     }
+    return count;
   }
 
   get(id) {
@@ -79,7 +99,7 @@ export class MissionQueue {
   list({ status } = {}) {
     return [...this.missions.values()]
       .filter(m => !status || m.status === status)
-      .map(structuredClone);
+      .map(m => structuredClone(m));
   }
 
   stats() {
