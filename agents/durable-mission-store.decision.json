@@ -1,0 +1,52 @@
+{
+  "decision": "Use an atomic local JSON snapshot store guarded by an atomic mkdir lock, with per-claim fenced leases using a monotonic mission epoch plus an unguessable UUID token",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "epoch-plus-uuid-fenced-lease",
+      "correctness": "high for the current local durable coordinator; each claim increments a persistent mission-local epoch and receives a unique token, and heartbeat/complete/fail require the current worker plus the current token",
+      "robustness": "strong against stale-owner writes after lease expiry/reclaim and after coordinator restart; expired leases are rejected even before explicit requeue",
+      "latency": "negligible token-generation and comparison overhead relative to serialized JSON store mutations",
+      "resourceUse": "very low; one integer and one token per mission plus UUID generation per claim",
+      "regressionRisk": "medium because worker mutation calls now require the lease token; existing durable-queue callers must propagate the token returned by claim",
+      "qa": "8 focused tests pass locally, including restart persistence, concurrent atomic claim, lease recovery, stale-owner rejection, expired-owner rejection, fenced heartbeat, dependency gating, and 8-worker/20-mission contention"
+    },
+    {
+      "name": "uuid-only-lease-token",
+      "correctness": "prevents stale claims from matching the current claim when tokens are propagated correctly",
+      "robustness": "good, but provides no monotonic generation marker for diagnostics or downstream fencing policies",
+      "latency": "equivalent to the selected approach",
+      "resourceUse": "slightly lower metadata footprint",
+      "regressionRisk": "medium because callers still need token propagation",
+      "qa": "not selected; weaker observability and future fencing semantics for no meaningful operational savings"
+    },
+    {
+      "name": "worker-id-only-ownership",
+      "correctness": "insufficient because a delayed worker identity can remain stale across lease generations and cannot prove possession of the current claim",
+      "robustness": "weak under pauses, network partitions, process suspension, and reclaim races",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "low implementation change but high correctness risk",
+      "qa": "rejected because stale-owner scenarios are not safely fenced"
+    },
+    {
+      "name": "external-coordinator-issued-global-fencing-sequence",
+      "correctness": "strongest future option for truly distributed workers and downstream resource fencing",
+      "robustness": "strong if the coordinator is transactional and highly available",
+      "latency": "network and coordinator dependent",
+      "resourceUse": "highest operational cost",
+      "regressionRisk": "high for the current lab because worker transport, authentication, and external coordinator semantics are not finalized",
+      "qa": "deferred until separate Qubes workers use an authenticated coordinator transport"
+    }
+  ],
+  "winner": "epoch-plus-uuid-fenced-lease",
+  "whyItWon": "It directly closes the stale-owner completion/heartbeat gap with minimal runtime cost while retaining a persistent monotonic lease generation for diagnostics and future downstream fencing. It gives stronger correctness and robustness than worker-id or UUID-only ownership without prematurely adding a network coordinator dependency.",
+  "knownFailuresAndLessons": [
+    "The store remains LAB-grade and is not a real multi-host distributed database; workers must share the same filesystem for the lock to coordinate them.",
+    "The fenced lease protects mission-state mutations, but it cannot fence side effects performed against an external resource unless that resource also checks the fencing epoch/token.",
+    "Whole-state JSON rewrites remain O(n) and will become a throughput bottleneck as mission volume grows.",
+    "Stale-lock recovery is time-based and cannot by itself prove that a remote worker is dead.",
+    "The selected API intentionally requires claim-token propagation for heartbeat, complete, and fail; any durable-worker adapter must be updated before activation.",
+    "Before REAL-WORKER READY, add authenticated worker identities, a Qubes-suitable coordinator/transport, multi-process crash/fault injection with metrics, and downstream side-effect fencing or idempotency controls."
+  ]
+}
