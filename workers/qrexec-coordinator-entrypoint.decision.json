@@ -1,0 +1,36 @@
+{
+  "decision": "manifest-pinned coordinator bootstrap with owner-only per-worker secrets and stdio-only qrexec transport",
+  "winner": "explicit worker manifest + secret directory + durable registry/replay store + transactional runtime",
+  "criteria": {
+    "correctness": "high: only declared workers are bootstrapped and authenticated; mission/request mutations retain transactional semantics",
+    "robustness": "high for lab: restart-persistent registry/counters and strict secret-file checks; missing or weak configuration fails closed",
+    "latency": "low: local file reads at startup and existing framed stdio request path",
+    "resourceUse": "low: no daemon network listener or external database dependency",
+    "regressionRisk": "low-medium: composes existing tested primitives rather than replacing queue/protocol logic",
+    "qa": "tests cover explicit secret selection, POSIX secret permissions, runtime composition, duplicate identity rejection, and undeclared-secret exclusion"
+  },
+  "alternatives": [
+    {
+      "name": "scan all secret files and auto-register workers",
+      "rejectedBecause": "ambient files would become authorization state and stale secrets could silently gain access"
+    },
+    {
+      "name": "network HTTP coordinator",
+      "rejectedBecause": "adds listener attack surface and duplicates qrexec transport controls"
+    },
+    {
+      "name": "single shared worker secret",
+      "rejectedBecause": "weakens worker attribution, revocation, and blast-radius isolation"
+    },
+    {
+      "name": "external transactional coordinator database now",
+      "rejectedBecause": "stronger eventual production option but higher deployment and regression cost before real-Qubes fault evidence"
+    }
+  ],
+  "failuresAndLessons": [
+    "registration cannot safely be inferred from secret-directory contents; authorization must come from an explicit manifest",
+    "durable replay counters require workers to exist in the registry before signed requests are accepted, so bootstrap enrollment must occur before serving stdio",
+    "secret permission validation should fail closed on POSIX and should never print secret material"
+  ],
+  "readiness": "LAB READY"
+}
