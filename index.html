@@ -3,37 +3,72 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DIG-GPT</title>
+  <title>DIG-GPT Agent Console</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background:#0b0f14; color:#eef3f8; }
+    h1 { margin-bottom: 8px; }
+    .muted { color:#9fb0c0; font-size:14px; }
+    .panel { background:#121923; border:1px solid #263243; border-radius:14px; padding:14px; margin:14px 0; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    select, textarea, button { font:inherit; }
+    select, textarea { background:#0d141d; color:#eef3f8; border:1px solid #314155; border-radius:10px; padding:10px; }
+    select { min-width:220px; }
+    textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:120px; }
+    button { border:0; border-radius:10px; padding:10px 16px; cursor:pointer; background:#e7edf4; color:#0b0f14; font-weight:700; }
+    button.secondary { background:#263243; color:#eef3f8; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    #response { white-space:pre-wrap; line-height:1.65; background:#0d141d; border-radius:10px; padding:14px; min-height:80px; }
+    #agentRole { margin-top:8px; }
+    label.toggle { display:flex; gap:7px; align-items:center; }
+  </style>
 </head>
 <body>
-  <h1>DIG-GPT</h1>
+  <h1>DIG-GPT — Agent Console</h1>
+  <div class="muted">اختَر العميل اللي تبي تكلمه مباشرة، أو استخدم Orchestrator للتنسيق بينهم.</div>
 
-  <textarea id="message" rows="4" placeholder="اكتب رسالتك هنا..." autocomplete="off"></textarea>
-  <div>
-    <button id="sendButton" onclick="sendMessage()">إرسال</button>
-    <button id="clearButton" onclick="clearConversation()">مسح المحادثة</button>
+  <div class="panel">
+    <div class="row">
+      <label>العميل:
+        <select id="agentSelect"></select>
+      </label>
+      <label class="toggle"><input type="checkbox" id="ownerMode"> Owner Mode</label>
+      <button class="secondary" onclick="refreshAgents()">تحديث العملاء</button>
+    </div>
+    <div id="agentRole" class="muted"></div>
   </div>
 
-  <div id="status"></div>
-  <pre id="response"></pre>
+  <div class="panel">
+    <textarea id="message" placeholder="اكتب رسالتك للعميل المحدد..." autocomplete="off"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button id="sendButton" onclick="sendMessage()">إرسال</button>
+      <button class="secondary" onclick="clearConversation()">مسح المحادثة</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div id="status" class="muted"></div>
+    <div id="response"></div>
+  </div>
 
   <script>
-    const messageInput = document.getElementById("message");
-    const responseBox = document.getElementById("response");
-    const statusBox = document.getElementById("status");
-    const sendButton = document.getElementById("sendButton");
-    const STORAGE_KEY = "dig-gpt-history-v1";
+    const messageInput = document.getElementById('message');
+    const responseBox = document.getElementById('response');
+    const statusBox = document.getElementById('status');
+    const sendButton = document.getElementById('sendButton');
+    const agentSelect = document.getElementById('agentSelect');
+    const agentRole = document.getElementById('agentRole');
+    const ownerMode = document.getElementById('ownerMode');
+    const STORAGE_KEY = 'dig-gpt-history-v2';
+    const AGENT_KEY = 'dig-gpt-agent-v1';
     const MAX_LOCAL_HISTORY = 24;
-
     let history = loadHistory();
+    let agents = [];
 
     function loadHistory() {
       try {
-        const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
         return Array.isArray(value) ? value.slice(-MAX_LOCAL_HISTORY) : [];
-      } catch {
-        return [];
-      }
+      } catch { return []; }
     }
 
     function saveHistory() {
@@ -43,57 +78,80 @@
     function clearConversation() {
       history = [];
       localStorage.removeItem(STORAGE_KEY);
-      responseBox.textContent = "";
-      statusBox.textContent = "تم مسح ذاكرة المحادثة المحلية";
+      responseBox.textContent = '';
+      statusBox.textContent = 'تم مسح ذاكرة المحادثة المحلية';
       messageInput.focus();
+    }
+
+    function renderAgentInfo() {
+      const selected = agents.find(a => a.id === agentSelect.value);
+      agentRole.textContent = selected ? `${selected.name}: ${selected.role}` : '';
+      if (selected) localStorage.setItem(AGENT_KEY, selected.id);
+    }
+
+    async function refreshAgents() {
+      statusBox.textContent = 'جاري تحميل العملاء...';
+      try {
+        const res = await fetch('/api/agents');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'تعذر تحميل العملاء');
+        agents = data.agents || [];
+        const preferred = localStorage.getItem(AGENT_KEY) || 'orchestrator';
+        agentSelect.innerHTML = agents.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+        if (agents.some(a => a.id === preferred)) agentSelect.value = preferred;
+        renderAgentInfo();
+        statusBox.textContent = `جاهز — ${agents.length} عملاء متاحين`;
+      } catch (error) {
+        statusBox.textContent = 'خطأ: ' + error.message;
+      }
     }
 
     async function sendMessage() {
       const message = messageInput.value.trim();
       if (!message) return;
-
       sendButton.disabled = true;
-      statusBox.textContent = "جاري التفكير...";
-      responseBox.textContent = "";
-
+      statusBox.textContent = 'جاري التفكير...';
+      responseBox.textContent = '';
       try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message, history })
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            history,
+            agentId: agentSelect.value,
+            ownerMode: ownerMode.checked
+          })
         });
-
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "حدث خطأ في الخادم");
-
-        const reply = data.reply || "ما وصل رد من النموذج.";
-        history.push({ role: "user", content: message });
-        history.push({ role: "assistant", content: reply });
+        if (!response.ok) throw new Error(data.error || 'حدث خطأ في الخادم');
+        const reply = data.reply || 'ما وصل رد من النموذج.';
+        history.push({ role:'user', content:message });
+        history.push({ role:'assistant', content:reply });
         history = history.slice(-MAX_LOCAL_HISTORY);
         saveHistory();
-
-        const sourceInfo = Array.isArray(data.webSources) && data.webSources.length
-          ? ` | مصادر ويب: ${data.webSources.length}`
-          : "";
-
-        statusBox.textContent = `تم الرد | ${data.provider || "self-hosted"} | ${data.model || "local-model"}${sourceInfo}`;
+        const agentName = data.agent?.name || agentSelect.options[agentSelect.selectedIndex]?.text || 'Agent';
+        statusBox.textContent = `تم الرد — ${agentName} | ${data.model || 'local-model'}`;
         responseBox.textContent = reply;
-        messageInput.value = "";
+        messageInput.value = '';
       } catch (error) {
-        statusBox.textContent = "فشل الطلب";
-        responseBox.textContent = "خطأ: " + error.message;
+        statusBox.textContent = 'فشل الطلب';
+        responseBox.textContent = 'خطأ: ' + error.message;
       } finally {
         sendButton.disabled = false;
         messageInput.focus();
       }
     }
 
-    messageInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
+    agentSelect.addEventListener('change', renderAgentInfo);
+    messageInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
       }
     });
+
+    refreshAgents();
   </script>
 </body>
 </html>
