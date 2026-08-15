@@ -29,7 +29,8 @@ export class DurableWorkerRegistry {
       const worker = {
         id: String(id), capabilities: [...new Set(capabilities.map(String))], maxConcurrent,
         metadata: structuredClone(metadata), status: 'online', registeredAt: previous?.registeredAt ?? now,
-        updatedAt: now, expiresAt: now + this.ttlMs, lastCounter: previous?.lastCounter ?? 0
+        updatedAt: now, expiresAt: now + this.ttlMs, lastCounter: previous?.lastCounter ?? 0,
+        credentialGeneration: previous?.credentialGeneration ?? 1
       };
       state.workers[worker.id] = worker;
       return structuredClone(worker);
@@ -55,6 +56,20 @@ export class DurableWorkerRegistry {
       worker.lastCounter = counter;
       worker.updatedAt = this.now();
       return counter;
+    });
+  }
+
+  async rotateCredential(id) {
+    return this.#mutate(state => {
+      const worker = state.workers[String(id)];
+      if (!worker) throw new Error('worker not registered');
+      const now = this.now();
+      worker.credentialGeneration = (worker.credentialGeneration ?? 1) + 1;
+      worker.lastCounter = 0;
+      worker.status = 'online';
+      worker.updatedAt = now;
+      worker.expiresAt = now + this.ttlMs;
+      return { id: worker.id, credentialGeneration: worker.credentialGeneration, lastCounter: 0, status: worker.status };
     });
   }
 
