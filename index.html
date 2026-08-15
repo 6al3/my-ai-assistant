@@ -3,155 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DIG-GPT Agent Console</title>
+  <title>DIG-GPT Private Console</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background:#0b0f14; color:#eef3f8; }
-    h1 { margin-bottom: 8px; }
-    .muted { color:#9fb0c0; font-size:14px; }
-    .panel { background:#121923; border:1px solid #263243; border-radius:14px; padding:14px; margin:14px 0; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    select, textarea, button { font:inherit; }
-    select, textarea { background:#0d141d; color:#eef3f8; border:1px solid #314155; border-radius:10px; padding:10px; }
-    select { min-width:220px; }
-    textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:120px; }
-    button { border:0; border-radius:10px; padding:10px 16px; cursor:pointer; background:#e7edf4; color:#0b0f14; font-weight:700; }
-    button.secondary { background:#263243; color:#eef3f8; }
-    button:disabled { opacity:.55; cursor:not-allowed; }
-    #response { white-space:pre-wrap; line-height:1.65; background:#0d141d; border-radius:10px; padding:14px; min-height:80px; }
-    #agentRole { margin-top:8px; }
-    label.toggle { display:flex; gap:7px; align-items:center; }
+    body{font-family:system-ui,-apple-system,sans-serif;max-width:900px;margin:0 auto;padding:20px;background:#0b0f14;color:#eef3f8}h1{margin-bottom:8px}.muted{color:#9fb0c0;font-size:14px}.panel{background:#121923;border:1px solid #263243;border-radius:14px;padding:14px;margin:14px 0}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}select,textarea,input,button{font:inherit}select,textarea,input{background:#0d141d;color:#eef3f8;border:1px solid #314155;border-radius:10px;padding:10px}select{min-width:220px}textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:120px}input[type=password]{width:100%;box-sizing:border-box}button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;background:#e7edf4;color:#0b0f14;font-weight:700}button.secondary{background:#263243;color:#eef3f8}button:disabled{opacity:.55;cursor:not-allowed}#response{white-space:pre-wrap;line-height:1.65;background:#0d141d;border-radius:10px;padding:14px;min-height:80px}.hidden{display:none!important}.lock{max-width:460px;margin:15vh auto 0}.danger{color:#ffb4b4}
   </style>
 </head>
 <body>
-  <h1>DIG-GPT — Agent Console</h1>
-  <div class="muted">اختَر العميل اللي تبي تكلمه مباشرة، أو استخدم Orchestrator للتنسيق بينهم.</div>
+  <section id="loginView" class="lock panel">
+    <h1>🔒 DIG-GPT Private</h1>
+    <div class="muted">دخول المالك فقط. الجلسة محفوظة في Cookie مشفّرة التوقيع ولا يتم حفظ كلمة المرور في المتصفح.</div>
+    <div style="margin-top:14px"><input id="ownerPassword" type="password" placeholder="كلمة مرور المالك" autocomplete="current-password"></div>
+    <div class="row" style="margin-top:10px"><button id="loginButton" onclick="login()">دخول</button></div>
+    <div id="loginStatus" class="muted" style="margin-top:10px"></div>
+  </section>
 
-  <div class="panel">
-    <div class="row">
-      <label>العميل:
-        <select id="agentSelect"></select>
-      </label>
-      <label class="toggle"><input type="checkbox" id="ownerMode"> Owner Mode</label>
-      <button class="secondary" onclick="refreshAgents()">تحديث العملاء</button>
-    </div>
-    <div id="agentRole" class="muted"></div>
-  </div>
+  <main id="appView" class="hidden">
+    <div class="row" style="justify-content:space-between"><div><h1>DIG-GPT — Private Agent Console</h1><div class="muted">Owner-only session</div></div><button class="secondary" onclick="logout()">قفل وخروج</button></div>
+    <div class="panel"><div class="row"><label>العميل: <select id="agentSelect"></select></label><label><input type="checkbox" id="ownerMode"> Owner Mode</label><button class="secondary" onclick="refreshAgents()">تحديث العملاء</button></div><div id="agentRole" class="muted" style="margin-top:8px"></div></div>
+    <div class="panel"><textarea id="message" placeholder="اكتب رسالتك للعميل المحدد..." autocomplete="off"></textarea><div class="row" style="margin-top:10px"><button id="sendButton" onclick="sendMessage()">إرسال</button><button class="secondary" onclick="clearConversation()">مسح المحادثة</button></div></div>
+    <div class="panel"><div id="status" class="muted"></div><div id="response"></div></div>
+  </main>
 
-  <div class="panel">
-    <textarea id="message" placeholder="اكتب رسالتك للعميل المحدد..." autocomplete="off"></textarea>
-    <div class="row" style="margin-top:10px">
-      <button id="sendButton" onclick="sendMessage()">إرسال</button>
-      <button class="secondary" onclick="clearConversation()">مسح المحادثة</button>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div id="status" class="muted"></div>
-    <div id="response"></div>
-  </div>
-
-  <script>
-    const messageInput = document.getElementById('message');
-    const responseBox = document.getElementById('response');
-    const statusBox = document.getElementById('status');
-    const sendButton = document.getElementById('sendButton');
-    const agentSelect = document.getElementById('agentSelect');
-    const agentRole = document.getElementById('agentRole');
-    const ownerMode = document.getElementById('ownerMode');
-    const STORAGE_KEY = 'dig-gpt-history-v2';
-    const AGENT_KEY = 'dig-gpt-agent-v1';
-    const MAX_LOCAL_HISTORY = 24;
-    let history = loadHistory();
-    let agents = [];
-
-    function loadHistory() {
-      try {
-        const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-        return Array.isArray(value) ? value.slice(-MAX_LOCAL_HISTORY) : [];
-      } catch { return []; }
-    }
-
-    function saveHistory() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(-MAX_LOCAL_HISTORY)));
-    }
-
-    function clearConversation() {
-      history = [];
-      localStorage.removeItem(STORAGE_KEY);
-      responseBox.textContent = '';
-      statusBox.textContent = 'تم مسح ذاكرة المحادثة المحلية';
-      messageInput.focus();
-    }
-
-    function renderAgentInfo() {
-      const selected = agents.find(a => a.id === agentSelect.value);
-      agentRole.textContent = selected ? `${selected.name}: ${selected.role}` : '';
-      if (selected) localStorage.setItem(AGENT_KEY, selected.id);
-    }
-
-    async function refreshAgents() {
-      statusBox.textContent = 'جاري تحميل العملاء...';
-      try {
-        const res = await fetch('/api/agents');
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'تعذر تحميل العملاء');
-        agents = data.agents || [];
-        const preferred = localStorage.getItem(AGENT_KEY) || 'orchestrator';
-        agentSelect.innerHTML = agents.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-        if (agents.some(a => a.id === preferred)) agentSelect.value = preferred;
-        renderAgentInfo();
-        statusBox.textContent = `جاهز — ${agents.length} عملاء متاحين`;
-      } catch (error) {
-        statusBox.textContent = 'خطأ: ' + error.message;
-      }
-    }
-
-    async function sendMessage() {
-      const message = messageInput.value.trim();
-      if (!message) return;
-      sendButton.disabled = true;
-      statusBox.textContent = 'جاري التفكير...';
-      responseBox.textContent = '';
-      try {
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message,
-            history,
-            agentId: agentSelect.value,
-            ownerMode: ownerMode.checked
-          })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'حدث خطأ في الخادم');
-        const reply = data.reply || 'ما وصل رد من النموذج.';
-        history.push({ role:'user', content:message });
-        history.push({ role:'assistant', content:reply });
-        history = history.slice(-MAX_LOCAL_HISTORY);
-        saveHistory();
-        const agentName = data.agent?.name || agentSelect.options[agentSelect.selectedIndex]?.text || 'Agent';
-        statusBox.textContent = `تم الرد — ${agentName} | ${data.model || 'local-model'}`;
-        responseBox.textContent = reply;
-        messageInput.value = '';
-      } catch (error) {
-        statusBox.textContent = 'فشل الطلب';
-        responseBox.textContent = 'خطأ: ' + error.message;
-      } finally {
-        sendButton.disabled = false;
-        messageInput.focus();
-      }
-    }
-
-    agentSelect.addEventListener('change', renderAgentInfo);
-    messageInput.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
-      }
-    });
-
-    refreshAgents();
-  </script>
+<script>
+const $=id=>document.getElementById(id),loginView=$('loginView'),appView=$('appView'),loginStatus=$('loginStatus'),ownerPassword=$('ownerPassword'),loginButton=$('loginButton'),messageInput=$('message'),responseBox=$('response'),statusBox=$('status'),sendButton=$('sendButton'),agentSelect=$('agentSelect'),agentRole=$('agentRole'),ownerMode=$('ownerMode');
+const STORAGE_KEY='dig-gpt-history-v2',AGENT_KEY='dig-gpt-agent-v1',MAX_LOCAL_HISTORY=24;let history=loadHistory(),agents=[];
+function loadHistory(){try{const v=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');return Array.isArray(v)?v.slice(-MAX_LOCAL_HISTORY):[]}catch{return[]}}
+function saveHistory(){localStorage.setItem(STORAGE_KEY,JSON.stringify(history.slice(-MAX_LOCAL_HISTORY)))}
+function clearConversation(){history=[];localStorage.removeItem(STORAGE_KEY);responseBox.textContent='';statusBox.textContent='تم مسح ذاكرة المحادثة المحلية';messageInput.focus()}
+function showLogin(msg=''){appView.classList.add('hidden');loginView.classList.remove('hidden');loginStatus.textContent=msg;ownerPassword.focus()}
+function showApp(){loginView.classList.add('hidden');appView.classList.remove('hidden');refreshAgents()}
+async function checkAuth(){try{const r=await fetch('/api/auth',{cache:'no-store'}),d=await r.json();if(!d.configured)return showLogin('القفل مفعّل لكن إعدادات المالك غير مكتملة على الخادم.');if(d.authenticated)return showApp();showLogin()}catch{showLogin('تعذر التحقق من جلسة المالك.')}}
+async function login(){const password=ownerPassword.value;if(!password)return;loginButton.disabled=true;loginStatus.textContent='جاري التحقق...';try{const r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})}),d=await r.json();if(!r.ok)throw new Error(d.error||'فشل الدخول');ownerPassword.value='';showApp()}catch(e){loginStatus.textContent='خطأ: '+e.message}finally{loginButton.disabled=false}}
+async function logout(){await fetch('/api/auth',{method:'DELETE'}).catch(()=>{});history=[];localStorage.removeItem(STORAGE_KEY);showLogin('تم قفل الجلسة.')}
+function renderAgentInfo(){const s=agents.find(a=>a.id===agentSelect.value);agentRole.textContent=s?`${s.name}: ${s.role}`:'';if(s)localStorage.setItem(AGENT_KEY,s.id)}
+async function apiFetch(url,options={}){const r=await fetch(url,options);if(r.status===401){showLogin('انتهت الجلسة. سجل الدخول من جديد.');throw new Error('Unauthorized')}return r}
+async function refreshAgents(){statusBox.textContent='جاري تحميل العملاء...';try{const r=await apiFetch('/api/agents'),d=await r.json();if(!r.ok)throw new Error(d.error||'تعذر تحميل العملاء');agents=d.agents||[];const p=localStorage.getItem(AGENT_KEY)||'orchestrator';agentSelect.innerHTML=agents.map(a=>`<option value="${a.id}">${a.name}</option>`).join('');if(agents.some(a=>a.id===p))agentSelect.value=p;renderAgentInfo();statusBox.textContent=`جاهز — ${agents.length} عملاء متاحين`}catch(e){if(e.message!=='Unauthorized')statusBox.textContent='خطأ: '+e.message}}
+async function sendMessage(){const message=messageInput.value.trim();if(!message)return;sendButton.disabled=true;statusBox.textContent='جاري التفكير...';responseBox.textContent='';try{const r=await apiFetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message,history,agentId:agentSelect.value,ownerMode:ownerMode.checked})}),d=await r.json();if(!r.ok)throw new Error(d.error||'حدث خطأ في الخادم');const reply=d.reply||'ما وصل رد من النموذج.';history.push({role:'user',content:message},{role:'assistant',content:reply});history=history.slice(-MAX_LOCAL_HISTORY);saveHistory();statusBox.textContent=`تم الرد — ${d.agent?.name||'Agent'} | ${d.model||'local-model'}`;responseBox.textContent=reply;messageInput.value=''}catch(e){if(e.message!=='Unauthorized'){statusBox.textContent='فشل الطلب';responseBox.textContent='خطأ: '+e.message}}finally{sendButton.disabled=false;messageInput.focus()}}
+agentSelect.addEventListener('change',renderAgentInfo);messageInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});ownerPassword.addEventListener('keydown',e=>{if(e.key==='Enter')login()});checkAuth();
+</script>
 </body>
 </html>
