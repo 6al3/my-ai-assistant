@@ -1,0 +1,55 @@
+{
+  "decision": "Use dry-run-first, atomic file replacement with post-write verification and symlink refusal for qrexec lab deployment artifacts.",
+  "selected": "atomic verified installer",
+  "criteria": ["correctness", "robustness", "latency", "resource use", "regression risk", "QA"],
+  "approaches": [
+    {
+      "name": "atomic verified installer",
+      "correctness": "high: exact content and mode are checked after install",
+      "robustness": "high: temp-file rename, idempotency, symlink/non-file refusal",
+      "latency": "low: two small local files",
+      "resourceUse": "low",
+      "regressionRisk": "low: separate deployment primitive; no runtime protocol changes",
+      "qa": "dry-run, idempotency, drift detection, permissions, symlink refusal",
+      "result": "winner"
+    },
+    {
+      "name": "blind shell copy/chmod",
+      "correctness": "medium: depends on operator/script sequencing",
+      "robustness": "low: weak verification and partial-write handling",
+      "latency": "low",
+      "resourceUse": "low",
+      "regressionRisk": "medium: deployment drift can go unnoticed",
+      "qa": "mostly manual",
+      "result": "rejected"
+    },
+    {
+      "name": "package-manager installation",
+      "correctness": "high when packaging is mature",
+      "robustness": "high",
+      "latency": "medium",
+      "resourceUse": "medium",
+      "regressionRisk": "high for current lab stage due to packaging surface",
+      "qa": "requires packaging/repository CI not yet present",
+      "result": "deferred"
+    },
+    {
+      "name": "configuration-management agent",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "medium",
+      "resourceUse": "high relative to two-file lab install",
+      "regressionRisk": "medium-high: adds another privileged control plane",
+      "qa": "strong but disproportionate for current scope",
+      "result": "rejected for lab"
+    }
+  ],
+  "lessons": [
+    "Deployment verification must treat content drift and permission drift as failures.",
+    "Installer output should report hashes and paths, never worker secret material.",
+    "Existing symlink targets are refused to avoid redirecting privileged writes.",
+    "Dry-run is the default so a Qubes operator can inspect the exact plan before applying it.",
+    "Secret rotation remains a separate gate because safe revocation also requires worker re-enrollment/counter semantics and coordinator lifecycle handling."
+  ],
+  "safetyScope": "Synthetic defensive Qubes lab orchestration only; no financial transactions, exploitation, stolen payment data, or weakened security controls."
+}
