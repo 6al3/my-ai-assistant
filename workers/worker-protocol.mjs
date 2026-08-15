@@ -74,7 +74,12 @@ export class AuthenticatedCoordinator {
 
   async handle(envelope) {
     const request = await this.authenticator.verify(envelope);
-    const { workerId, action, payload } = request;
+    return this.handleVerified(request);
+  }
+
+  async handleVerified(request) {
+    const { workerId, action, payload = {} } = request;
+    if (!workerId || !action) throw new Error('verified request requires workerId and action');
     if (action === 'register') {
       if (!this.registry) throw new Error('worker registry unavailable');
       return this.registry.register({ id: workerId, capabilities: payload.capabilities ?? [], maxConcurrent: payload.maxConcurrent ?? 1, metadata: payload.metadata ?? {} });

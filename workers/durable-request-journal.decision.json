@@ -1,0 +1,51 @@
+{
+  "decision": "Use an authenticated requestId plus durable request-result journal and status lookup for mutation ambiguity recovery",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "durable-request-result-journal",
+      "correctness": "retries can return the committed result without repeating a mutation, and workers can query outcome after a lost response",
+      "robustness": "survives coordinator restart, binds requestId to worker and action, and records failures as terminal outcomes",
+      "latency": "adds one small durable journal write before and after each mutation plus optional status lookup after transport ambiguity",
+      "resourceUse": "linear in retained request history and whole-file JSON rewrites at current lab scale",
+      "regressionRisk": "medium-low because AuthenticatedCoordinator keeps its existing public handle API and only exposes handleVerified for composition",
+      "qa": "tests cover lost-response status recovery, exact-once retry result reuse, coordinator restart persistence, cross-action requestId rejection, and failed-mutation replay suppression"
+    },
+    {
+      "name": "blind-retry-with-fenced-leases",
+      "correctness": "lease fencing prevents stale ownership but does not prove whether a mutation committed before the response was lost",
+      "robustness": "can duplicate non-queue side effects or consume a second mission on repeated claim",
+      "latency": "lowest implementation overhead",
+      "resourceUse": "lowest",
+      "regressionRisk": "high correctness risk under transport loss",
+      "qa": "rejected"
+    },
+    {
+      "name": "in-memory-request-cache",
+      "correctness": "works only within one coordinator lifetime",
+      "robustness": "loses ambiguity state on restart and cannot recover committed outcomes after crash",
+      "latency": "best",
+      "resourceUse": "bounded only with eviction",
+      "regressionRisk": "low implementation cost but unsafe restart semantics",
+      "qa": "rejected"
+    },
+    {
+      "name": "transactional-external-database",
+      "correctness": "strongest long-term approach for atomic mission+journal transactions and multi-coordinator operation",
+      "robustness": "best when deployed with a transactional highly available store",
+      "latency": "network/storage dependent",
+      "resourceUse": "highest operational footprint",
+      "regressionRisk": "high before the real Qubes deployment topology is finalized",
+      "qa": "deferred for REAL-WORKER scale"
+    }
+  ],
+  "winner": "durable-request-result-journal",
+  "whyItWon": "It closes the highest-value current correctness gap with minimal new protocol surface: authenticated request IDs are durable, retries are idempotent at the coordinator boundary, and a worker can explicitly recover a committed result after a lost response. It composes with existing HMAC counters, fenced leases, and stdio transport.",
+  "knownFailuresAndLessons": [
+    "The journal and mission store are still separate files, so a process crash between mission commit and journal finish can leave an in-progress ambiguous record. A transactional store or reconciliation procedure is still required before claiming strong exactly-once semantics.",
+    "Whole-file JSON snapshots are LAB-scale and will require compaction or a transactional database as request history grows.",
+    "requestId must be generated uniquely by the worker and persisted long enough to recover after worker restart.",
+    "External side effects still require downstream idempotency keys or fencing; coordinator-level idempotency alone cannot undo a side effect committed outside DIG.",
+    "REAL-WORKER readiness still requires qrexec policy/service deployment, worker-side requestId persistence/recovery flow, secret rotation, and multi-Qube crash/partition testing."
+  ]
+}
