@@ -1,3 +1,5 @@
+import { getAgents } from '../agents/orchestrator.mjs';
+
 const SYSTEM_PROMPT = `You are DIG-GPT, the owner's private self-hosted AI assistant.
 
 CORE BEHAVIOR
@@ -114,7 +116,13 @@ function normalizeBaseUrl(raw) {
   return url.toString().replace(/\/$/, "");
 }
 
-async function callSelfHostedModel({ message, history, webContext, ownerMode, signal }) {
+function resolveAgent(agentId) {
+  const agents = getAgents();
+  const requested = typeof agentId === 'string' ? agentId.trim() : '';
+  return agents.find(a => a.id === requested) || agents.find(a => a.id === 'orchestrator') || agents[0];
+}
+
+async function callSelfHostedModel({ message, history, webContext, ownerMode, agent, signal }) {
   const baseUrl = normalizeBaseUrl(process.env.AI_BASE_URL);
   const model = (process.env.AI_MODEL || "local-model").trim();
   const maxTokens = clampNumber(process.env.AI_MAX_TOKENS, 256, 8192, DEFAULT_MAX_TOKENS);
@@ -130,8 +138,12 @@ async function callSelfHostedModel({ message, history, webContext, ownerMode, si
     ? "\n\nOWNER MODE ACTIVE: use the owner's concise, command-oriented response preference."
     : "";
 
+  const agentBlock = agent
+    ? `\n\nACTIVE AGENT PROFILE:\n- id: ${agent.id}\n- name: ${agent.name}\n- role: ${agent.role}\nAct primarily in this specialist role while still following the core assistant rules.`
+    : "";
+
   const messages = [
-    { role: "system", content: SYSTEM_PROMPT + ownerBlock + webBlock },
+    { role: "system", content: SYSTEM_PROMPT + ownerBlock + agentBlock + webBlock },
     ...history,
     { role: "user", content: message }
   ];
@@ -163,7 +175,14 @@ async function callSelfHostedModel({ message, history, webContext, ownerMode, si
   const reply = data?.choices?.[0]?.message?.content?.trim?.() || "";
   if (!reply) throw new Error("The self-hosted model returned an empty response.");
 
-  return { reply, provider: "self-hosted", model, ownerMode: Boolean(ownerMode), webSources: webContext.map((x) => x.url) };
+  return {
+    reply,
+    provider: "self-hosted",
+    model,
+    ownerMode: Boolean(ownerMode),
+    agent: agent ? { id: agent.id, name: agent.name, role: agent.role } : null,
+    webSources: webContext.map((x) => x.url)
+  };
 }
 
 export default async function handler(request) {
@@ -181,6 +200,7 @@ export default async function handler(request) {
     const message = typeof body?.message === "string" ? body.message.trim() : "";
     const history = cleanHistory(body?.history);
     const ownerMode = body?.ownerMode === true;
+    const agent = resolveAgent(body?.agentId);
 
     if (!message) return json({ error: "Message is required." }, 400);
     if (message.length > MAX_MESSAGE_CHARS) return json({ error: "Message is too long." }, 413);
@@ -191,7 +211,7 @@ export default async function handler(request) {
     try {
       const urls = extractPublicUrls(message);
       const webContext = await fetchWebContext(urls, request.url, controller.signal);
-      const result = await callSelfHostedModel({ message, history, webContext, ownerMode, signal: controller.signal });
+      const result = await callSelfHostedModel({ message, history, webContext, ownerMode, agent, signal: controller.signal });
       return json(result);
     } finally {
       clearTimeout(timeout);
