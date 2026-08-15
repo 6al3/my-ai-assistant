@@ -1,0 +1,48 @@
+{
+  "decision": "benchmark-arena-v1",
+  "status": "accepted-for-lab",
+  "goal": "Run independent agent attempts, gate review until all attempts finish, compare candidates, retain the strongest result, and preserve failures and lessons.",
+  "selectedApproach": "Mission DAG dependencies plus BenchmarkArena weighted scoring",
+  "weights": {
+    "correctness": 0.45,
+    "robustness": 0.20,
+    "qa": 0.15,
+    "regressionRisk": 0.10,
+    "latency": 0.05,
+    "resourceUse": 0.05
+  },
+  "whyItWon": "Correctness and robustness dominate the score while latency and resource use still break close contests. Review missions cannot run before all independent attempts complete.",
+  "rejectedAttempt": {
+    "weights": {
+      "correctness": 0.35,
+      "robustness": 0.20,
+      "qa": 0.15,
+      "regressionRisk": 0.15,
+      "latency": 0.075,
+      "resourceUse": 0.075
+    },
+    "failure": "A faster, lower-resource candidate beat a materially more correct candidate in the benchmark fixture.",
+    "lesson": "For DIG reliability work, speed and resource use must not outweigh correctness when the quality gap is meaningful."
+  },
+  "validation": {
+    "localNodeTests": "8/8 passed",
+    "covered": [
+      "priority and capability routing",
+      "lease expiry and retry exhaustion",
+      "worker ownership enforcement",
+      "dependency gating",
+      "unknown dependency rejection",
+      "multi-agent review gating",
+      "weighted winner selection",
+      "metric validation and premature-finalization rejection"
+    ]
+  },
+  "remainingGates": [
+    "durable mission persistence",
+    "atomic multi-process or multi-VM claim semantics",
+    "restart recovery",
+    "worker identity/authentication",
+    "persistent audit/experience history",
+    "concurrency and fault-injection benchmarks"
+  ]
+}
