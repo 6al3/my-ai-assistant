@@ -1,0 +1,55 @@
+{
+  "task": "Validate DIG request recovery and lease fencing end to end under realistic coordinator/worker faults",
+  "date": "2026-08-15",
+  "candidates": [
+    {
+      "name": "full end-to-end deterministic fault harness",
+      "correctness": 5,
+      "robustness": 5,
+      "latency": 4,
+      "resourceUse": 4,
+      "regressionRisk": 4,
+      "qa": 5,
+      "notes": "Exercises WorkerRequestState -> QubesWorkerClient -> framed exchange -> TransactionalWorkerRuntime -> TransactionalMissionStore. Covers lost response after commit, worker/coordinator restart reconciliation, lease reclaim fencing, and 8-worker contention."
+    },
+    {
+      "name": "component-only unit tests",
+      "correctness": 3,
+      "robustness": 2,
+      "latency": 5,
+      "resourceUse": 5,
+      "regressionRisk": 5,
+      "qa": 3,
+      "notes": "Fast and cheap, but misses failures created only by composition across request persistence, transport, runtime, and store boundaries."
+    },
+    {
+      "name": "real Qubes fault injection immediately",
+      "correctness": 5,
+      "robustness": 5,
+      "latency": 2,
+      "resourceUse": 2,
+      "regressionRisk": 2,
+      "qa": 4,
+      "notes": "Highest realism but premature before deterministic semantics are proven; harder to reproduce failures and distinguish transport/policy errors from state-machine defects."
+    },
+    {
+      "name": "blind retry stress benchmark",
+      "correctness": 1,
+      "robustness": 1,
+      "latency": 4,
+      "resourceUse": 4,
+      "regressionRisk": 1,
+      "qa": 2,
+      "notes": "Rejected because retries with fresh identities can duplicate committed mutations and would test the wrong safety contract."
+    }
+  ],
+  "winner": "full end-to-end deterministic fault harness",
+  "why": "Best combined correctness, robustness, and QA coverage while remaining reproducible and cheap enough for every CI run. It validates the exact recovery contract before introducing real Qubes deployment variability.",
+  "failuresAndLessons": [
+    "A transport failure after commit must remain an unknown outcome until request-status reconciliation; it must never be treated as an automatic mutation failure.",
+    "Lease expiry and reclaim must fence the stale owner even when the stale complete request has a valid durable requestId.",
+    "Concurrency tests should assert unique completed mission IDs, not only a final completed count, to expose duplicate completion paths.",
+    "Real Qubes tests remain necessary, but deterministic fault injection should gate them rather than replace them."
+  ],
+  "safetyScope": "Synthetic defensive orchestration only; no real financial transactions, stolen payment data, external exploitation, or security-control weakening."
+}
