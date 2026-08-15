@@ -1,0 +1,41 @@
+{
+  "decision": "Use an atomic local JSON snapshot store guarded by an atomic mkdir lock for the first durable worker milestone",
+  "status": "accepted-for-lab",
+  "evaluatedApproaches": [
+    {
+      "name": "atomic-json-plus-lockdir",
+      "correctness": "high for multiple local processes sharing one filesystem; claim/update mutations are serialized",
+      "robustness": "good for process restarts and stale locks; atomic rename prevents partial snapshots",
+      "latency": "good for current small queue sizes; whole-state JSON rewrite is O(n)",
+      "resourceUse": "low; no external service or dependency",
+      "regressionRisk": "low-to-medium because it is introduced as a separate DurableMissionQueue rather than replacing the in-memory queue",
+      "qa": "4 focused tests pass: restart persistence, concurrent atomic claim, lease recovery, dependency gating"
+    },
+    {
+      "name": "sqlite",
+      "correctness": "potentially stronger transactional semantics",
+      "robustness": "strong on one host, but adds runtime/version/dependency questions not represented in the current package",
+      "latency": "likely better at larger queue sizes",
+      "resourceUse": "low-to-medium",
+      "regressionRisk": "medium because it changes runtime assumptions and requires an additional integration surface",
+      "qa": "not selected for this milestone"
+    },
+    {
+      "name": "external-coordinator-db",
+      "correctness": "best path for truly distributed multi-host workers",
+      "robustness": "strong if deployed redundantly",
+      "latency": "network-dependent",
+      "resourceUse": "highest operational cost",
+      "regressionRisk": "high for the current lab because it introduces a service dependency before worker protocol/authentication is finalized",
+      "qa": "deferred until Qubes worker transport and authentication exist"
+    }
+  ],
+  "winner": "atomic-json-plus-lockdir",
+  "whyItWon": "It closes the immediate restart-loss and duplicate local-claim gaps with minimal dependencies and preserves the existing queue implementation for fallback. It is the strongest risk-adjusted lab step before introducing a real distributed coordinator.",
+  "knownFailuresAndLessons": [
+    "The store is not a real multi-host distributed database; workers must share the same filesystem for the lock to coordinate them.",
+    "Whole-state JSON rewrites will become a throughput bottleneck as mission volume grows.",
+    "Stale-lock recovery is time-based and cannot by itself prove that a remote worker is dead.",
+    "Before REAL-WORKER READY, add worker authentication, fenced lease tokens, fault-injection stress tests, and a coordinator suitable for separate Qubes VMs."
+  ]
+}
