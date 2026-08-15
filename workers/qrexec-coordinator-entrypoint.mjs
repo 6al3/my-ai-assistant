@@ -18,22 +18,22 @@ function readJson(filePath, label) {
   return value;
 }
 
-export function loadWorkerSecrets({ directory, workerIds } = {}) {
+export function readWorkerSecret({ directory, workerId } = {}) {
   const dir = absolute(directory, 'secret directory');
+  const id = String(workerId);
+  if (!/^[A-Za-z0-9_.-]{1,63}$/.test(id)) throw new Error(`invalid worker id: ${id}`);
+  const secretPath = path.join(dir, `${id}.key`);
+  const stat = fs.statSync(secretPath);
+  if (!stat.isFile()) throw new Error(`worker secret is not a file: ${id}`);
+  if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) throw new Error(`worker secret permissions are too broad: ${id}`);
+  const secret = fs.readFileSync(secretPath, 'utf8').trim();
+  if (secret.length < 32) throw new Error(`worker secret is too short: ${id}`);
+  return secret;
+}
+
+export function loadWorkerSecrets({ directory, workerIds } = {}) {
   if (!Array.isArray(workerIds) || workerIds.length === 0) throw new Error('workerIds must be a non-empty array');
-  const secrets = {};
-  for (const rawId of workerIds) {
-    const workerId = String(rawId);
-    if (!/^[A-Za-z0-9_.-]{1,63}$/.test(workerId)) throw new Error(`invalid worker id: ${workerId}`);
-    const secretPath = path.join(dir, `${workerId}.key`);
-    const stat = fs.statSync(secretPath);
-    if (!stat.isFile()) throw new Error(`worker secret is not a file: ${workerId}`);
-    if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) throw new Error(`worker secret permissions are too broad: ${workerId}`);
-    const secret = fs.readFileSync(secretPath, 'utf8').trim();
-    if (secret.length < 32) throw new Error(`worker secret is too short: ${workerId}`);
-    secrets[workerId] = secret;
-  }
-  return secrets;
+  return Object.fromEntries(workerIds.map(workerId => [String(workerId), readWorkerSecret({ directory, workerId })]));
 }
 
 export async function buildQrexecCoordinator({
@@ -49,7 +49,8 @@ export async function buildQrexecCoordinator({
   if (!Array.isArray(manifest.workers) || manifest.workers.length === 0) throw new Error('worker manifest requires workers');
   const ids = manifest.workers.map(worker => String(worker.id));
   if (new Set(ids).size !== ids.length) throw new Error('worker manifest contains duplicate ids');
-  const secrets = loadWorkerSecrets({ directory: secretDirectory, workerIds: ids });
+  const allowedIds = new Set(ids);
+  for (const id of ids) readWorkerSecret({ directory: secretDirectory, workerId: id });
   const registry = new DurableWorkerRegistry({ filePath: absolute(registryFile, 'registryFile'), ttlMs: workerTtlMs, now });
   for (const worker of manifest.workers) {
     await registry.register({
@@ -60,7 +61,11 @@ export async function buildQrexecCoordinator({
     });
   }
   const store = new TransactionalMissionStore({ filePath: absolute(stateFile, 'stateFile') });
-  const authenticator = new WorkerAuthenticator({ secrets, replayStore: registry, now });
+  const secretResolver = workerId => {
+    if (!allowedIds.has(String(workerId))) throw new Error(`worker secret unavailable or too short: ${workerId}`);
+    return readWorkerSecret({ directory: secretDirectory, workerId });
+  };
+  const authenticator = new WorkerAuthenticator({ secrets: secretResolver, replayStore: registry, now });
   const runtime = new TransactionalWorkerRuntime({ store, authenticator, registry, leaseMs, now });
   const transport = new QubesStdioCoordinatorTransport({ coordinator: runtime });
   return { transport, runtime, store, registry, workerIds: ids };
