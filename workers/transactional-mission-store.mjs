@@ -39,14 +39,15 @@ export class TransactionalMissionStore {
   async mutateRequest({ workerId, requestId, action, mutation, now = Date.now() }) {
     if (!workerId || !requestId || !action) throw new Error('workerId, requestId, and action are required');
     if (typeof mutation !== 'function') throw new Error('mutation callback is required');
-    return this.transaction(async state => {
+
+    const outcome = await this.transaction(async state => {
       const key = `${workerId}:${requestId}`;
       const existing = state.requests[key];
       if (existing) {
-        if (existing.action !== action) throw new Error('requestId reused for a different action');
-        if (existing.status === 'completed') return structuredClone(existing.result);
-        if (existing.status === 'failed') throw new Error(`previous request failed: ${existing.error}`);
-        throw new Error('request outcome is ambiguous');
+        if (existing.action !== action) return { ok: false, error: 'requestId reused for a different action' };
+        if (existing.status === 'completed') return { ok: true, result: structuredClone(existing.result) };
+        if (existing.status === 'failed') return { ok: false, error: `previous request failed: ${existing.error}` };
+        return { ok: false, error: 'request outcome is ambiguous' };
       }
 
       const record = {
@@ -66,14 +67,17 @@ export class TransactionalMissionStore {
         record.status = 'completed';
         record.result = result ?? null;
         record.updatedAt = now;
-        return structuredClone(result ?? null);
+        return { ok: true, result: structuredClone(result ?? null) };
       } catch (error) {
         record.status = 'failed';
         record.error = String(error?.message ?? error ?? 'unknown failure');
         record.updatedAt = now;
-        throw error;
+        return { ok: false, error: record.error };
       }
     });
+
+    if (!outcome.ok) throw new Error(outcome.error);
+    return outcome.result;
   }
 
   getRequest(workerId, requestId) {
