@@ -1,15 +1,25 @@
 {
-  "problem": "Eliminate the crash window between mission mutation commit and durable request-result journal completion.",
+  "problem": "Eliminate the crash window between mission mutation commit and durable request-result journal completion, then expose that guarantee on the worker runtime path.",
   "candidates": [
     {
-      "name": "unified-atomic-snapshot",
+      "name": "unified-atomic-snapshot-runtime",
+      "correctness": 9,
+      "robustness": 9,
+      "latency": 7,
+      "resourceUse": 7,
+      "regressionRisk": 8,
+      "qa": 9,
+      "notes": "Mission mutation and request outcome share one lock/rename and a dedicated runtime composes authenticated request handling with the transactional store without rewriting the legacy queue path."
+    },
+    {
+      "name": "in-place-durable-queue-refactor",
       "correctness": 9,
       "robustness": 8,
       "latency": 7,
       "resourceUse": 7,
-      "regressionRisk": 7,
-      "qa": 9,
-      "notes": "Mission state and request outcome share one lock and one atomic rename. Straightforward deterministic crash testing. Full-file rewrite remains LAB-scale."
+      "regressionRisk": 5,
+      "qa": 7,
+      "notes": "Could make the legacy queue transactional directly, but touches mature lease/dependency code and expands regression scope before the new persistence contract is fully exercised."
     },
     {
       "name": "two-store-reconciliation",
@@ -22,32 +32,24 @@
       "notes": "Smaller initial refactor, but ambiguous in-progress outcomes require action-specific inference and more recovery branches."
     },
     {
-      "name": "sqlite-transaction",
-      "correctness": 10,
-      "robustness": 9,
-      "latency": 9,
-      "resourceUse": 8,
-      "regressionRisk": 5,
-      "qa": 8,
-      "notes": "Strongest local transactional semantics and scale, but adds a new dependency/storage migration before the existing JSON queue is stabilized."
-    },
-    {
-      "name": "external-transactional-coordinator",
+      "name": "sqlite-or-external-transaction",
       "correctness": 10,
       "robustness": 10,
-      "latency": 6,
-      "resourceUse": 5,
-      "regressionRisk": 3,
-      "qa": 6,
-      "notes": "Best future multi-Qube direction, but premature before qrexec deployment, secret lifecycle, and local failure semantics are fully validated."
+      "latency": 8,
+      "resourceUse": 7,
+      "regressionRisk": 4,
+      "qa": 7,
+      "notes": "Best future scale/multi-Qube direction, but adds migration/deployment complexity before qrexec and secret lifecycle are validated."
     }
   ],
-  "winner": "unified-atomic-snapshot",
-  "why": "It closes the known LAB crash-consistency gap with one atomic persistence boundary, minimal new dependencies, low protocol churn, and strong deterministic QA. SQLite/external coordination remain stronger future migration targets once multi-Qube throughput and deployment requirements justify them.",
+  "winner": "unified-atomic-snapshot-runtime",
+  "why": "It closes the LAB crash-consistency gap on a concrete worker runtime path with one persistence boundary and lower regression risk than rewriting the established DurableMissionQueue immediately. It preserves a clean migration path to SQLite or an external coordinator later.",
   "failuresAndLessons": [
     "Separate atomic files are not a transaction: either file may commit before coordinator death.",
-    "Reconciliation pushes ambiguity into action-specific recovery logic and increases regression surface.",
+    "A failed request record must be committed before surfacing the error; throwing inside the transaction callback rolled back the intended failed outcome and could permit unsafe retry semantics.",
+    "A narrow transactional runtime adapter gives stronger QA isolation than an immediate broad refactor of the legacy queue.",
     "Atomic rename protects the visible snapshot, but full-file JSON rewrite is not the final high-throughput distributed design.",
-    "The unified store must be integrated into DurableMissionQueue and JournaledCoordinator before this gate is considered fully closed."
+    "Registry heartbeat remains a separate state update; this is acceptable for LAB liveness but is not a cross-resource distributed transaction.",
+    "REAL-WORKER readiness still requires qrexec deployment/policy, secret lifecycle, worker requestId persistence, and multi-Qube crash/partition testing."
   ]
 }
