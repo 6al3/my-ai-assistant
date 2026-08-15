@@ -30,3 +30,19 @@ test('only owning worker can complete', () => {
   assert.throws(() => q.complete(m.id, 'other'), /not owned/);
   assert.equal(q.complete(m.id, 'owner', { score: 1 }).status, 'completed');
 });
+
+test('dependencies block claims until prerequisites complete', () => {
+  const q = new MissionQueue();
+  const first = q.enqueue({ task: 'attempt', requiredCapabilities: ['coder'] });
+  const review = q.enqueue({ task: 'review', requiredCapabilities: ['qa'], dependsOn: [first.id] });
+  assert.equal(q.stats().blocked, 1);
+  assert.equal(q.claim({ id: 'qa', capabilities: ['qa'] }), null);
+  q.claim({ id: 'coder', capabilities: ['coder'] });
+  q.complete(first.id, 'coder');
+  assert.equal(q.claim({ id: 'qa', capabilities: ['qa'] }).id, review.id);
+});
+
+test('unknown dependency is rejected', () => {
+  const q = new MissionQueue();
+  assert.throws(() => q.enqueue({ task: 'bad', dependsOn: ['missing'] }), /dependency not found/);
+});
