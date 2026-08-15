@@ -5,7 +5,12 @@ const SAFE_CASES = Object.freeze([
   { id: 'visa-approved', token: 'TEST_VISA_APPROVED', outcome: 'approved' },
   { id: 'visa-declined', token: 'TEST_VISA_DECLINED', outcome: 'declined' },
   { id: 'visa-3ds', token: 'TEST_VISA_3DS_REQUIRED', outcome: '3ds_required' },
-  { id: 'visa-funds', token: 'TEST_VISA_INSUFFICIENT_FUNDS', outcome: 'insufficient_funds' }
+  { id: 'visa-funds', token: 'TEST_VISA_INSUFFICIENT_FUNDS', outcome: 'insufficient_funds' },
+  { id: 'visa-expired', token: 'TEST_VISA_EXPIRED', outcome: 'expired_card' },
+  { id: 'visa-cvv', token: 'TEST_VISA_CVV_MISMATCH', outcome: 'cvv_mismatch' },
+  { id: 'visa-duplicate', token: 'TEST_VISA_DUPLICATE', outcome: 'duplicate_transaction' },
+  { id: 'visa-timeout', token: 'TEST_VISA_TIMEOUT', outcome: 'processor_timeout' },
+  { id: 'visa-refund', token: 'TEST_VISA_REFUND_APPROVED', outcome: 'refund_approved' }
 ]);
 
 const OBJECTIVES = Object.freeze({
