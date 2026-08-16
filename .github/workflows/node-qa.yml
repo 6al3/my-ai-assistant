@@ -1,0 +1,53 @@
+name: DIG Node QA
+
+on:
+  pull_request:
+    paths:
+      - 'agents/**'
+      - 'api/**'
+      - 'box/**'
+      - 'memory/**'
+      - 'security/**'
+      - 'tools/**'
+      - 'package.json'
+      - '.github/workflows/node-qa.yml'
+  push:
+    branches:
+      - 'dig/mission-queue-durable-state'
+    paths:
+      - 'agents/**'
+      - 'api/**'
+      - 'box/**'
+      - 'memory/**'
+      - 'security/**'
+      - 'tools/**'
+      - 'package.json'
+      - '.github/workflows/node-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dig-node-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run complete DIG Node QA
+        run: npm test
