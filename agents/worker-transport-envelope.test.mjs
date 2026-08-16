@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { signWorkerEnvelope, WorkerEnvelopeVerifier } from './worker-transport-envelope.mjs';
 
@@ -23,7 +24,7 @@ test('rejects tampered operation, body, timestamp, and mac', () => {
     value => ({ ...value, mac: `0${value.mac.slice(1)}` })
   ]) {
     const verifier = new WorkerEnvelopeVerifier({ secret, now: () => now });
-    const signed = signWorkerEnvelope({ requestId: crypto.randomUUID(), issuedAt: now, op: 'claim', body: { workerId: 'worker-a' }, secret });
+    const signed = signWorkerEnvelope({ requestId: randomUUID(), issuedAt: now, op: 'claim', body: { workerId: 'worker-a' }, secret });
     assert.throws(() => verifier.verify(mutate(signed)), /authentication failed/);
   }
 });
