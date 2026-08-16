@@ -14,6 +14,10 @@ final class OwnerModeManager: ObservableObject {
         return true
     }
 
+    func enable() {
+        isActive = true
+    }
+
     func disable() {
         isActive = false
     }
