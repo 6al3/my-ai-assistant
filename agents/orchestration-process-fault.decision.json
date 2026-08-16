@@ -1,0 +1,54 @@
+{
+  "decision": "process-boundary orchestration fault campaign before real Qubes activation",
+  "scope": "defensive synthetic orchestration only",
+  "winner": "spawned coordinator process using the real durable OrchestratedMissionRuntime and MissionQueueStore",
+  "comparison": [
+    {
+      "approach": "spawned coordinator process + real durable DAG + kill/restart",
+      "correctness": "high: exercises the actual orchestration graph, persisted queue, idempotent submission, worker ownership, restart recovery, and QA dependency join across an OS process boundary",
+      "robustness": "high for the current single-store/single-live-coordinator design; covers committed-response loss and interrupted specialist recovery",
+      "latency": "moderate test overhead from Node process startup, still suitable for CI",
+      "resourceUse": "low: one short-lived child process at a time plus a temporary JSON store",
+      "regressionRisk": "low: production queue/runtime semantics are unchanged; this adds a test harness and acceptance campaign",
+      "qa": "asserts committed specialist attempts remain 1, interrupted specialist is reclaimed at attempt 2, stale old-session completion is rejected, idempotent resubmission creates no extra missions, QA stays blocked until recovery completes, and final graph is fully completed",
+      "result": "selected"
+    },
+    {
+      "approach": "in-process restart simulation only",
+      "correctness": "medium-high",
+      "robustness": "medium",
+      "latency": "best",
+      "resourceUse": "best",
+      "regressionRisk": "low",
+      "qa": "cannot expose child lifecycle, stdio/process termination, or process-start recovery faults",
+      "result": "rejected as sole gate"
+    },
+    {
+      "approach": "jump directly to real Qubes fault injection",
+      "correctness": "eventually highest environment fidelity",
+      "robustness": "environment-dependent until deterministic process behavior is proven",
+      "latency": "highest",
+      "resourceUse": "highest",
+      "regressionRisk": "high diagnostic ambiguity because VM policy/transport failures can mask orchestration-state failures",
+      "qa": "still mandatory after this gate passes",
+      "result": "deferred to next gate"
+    }
+  ],
+  "whyItWon": "It is the smallest step that materially crosses a real process boundary while still exercising the exact durable orchestration implementation. It separates queue/DAG restart correctness from Qubes policy and qrexec transport noise, giving failures a narrow diagnosis surface before VM-boundary testing.",
+  "hardInvariants": {
+    "duplicateGraphMissions": 0,
+    "committedSpecialistAttempts": 1,
+    "staleCompletionAccepted": 0,
+    "qaBeforeAllSpecialistsComplete": 0,
+    "finalCompletedMissions": 5,
+    "realFinancialOperations": 0
+  },
+  "failuresAndLessons": [
+    "A process restart intentionally requeues work that was running but not durably completed; such work can execute again, so downstream side effects still require idempotency/fencing before real workers.",
+    "A completion persisted before response loss must remain completed after restart and must not be re-executed.",
+    "Session-scoped worker identities reject stale completions after restart, but a queue-level per-claim fencing token remains stronger for future multi-coordinator designs.",
+    "This test proves a single-live-coordinator process boundary, not simultaneous writers to one JSON snapshot and not a real Qubes/qrexec boundary."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "run the complete Node suite green on this head, then execute the same committed-response-loss and interrupted-specialist recovery invariants across an isolated qrexec worker/coordinator Qube boundary"
+}
