@@ -42,11 +42,12 @@ export function createQrexecClientVmExchange({
       let stdoutBytes = 0;
       let stderrBytes = 0;
       let settled = false;
+      let timer = null;
 
       const finish = (fn, value) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         fn(value);
       };
 
@@ -83,7 +84,7 @@ export function createQrexecClientVmExchange({
         finish(resolve, Buffer.concat(stdout));
       });
 
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         fail(new Error(`qrexec-client-vm timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       timer.unref?.();
