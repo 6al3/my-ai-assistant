@@ -1,0 +1,48 @@
+name: DIG iOS Build
+
+on:
+  push:
+    branches:
+      - 'dig/local-agent-chat'
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build DIG for iPhone Simulator
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project DIGAssistant.xcodeproj \
+            -scheme DIGAssistant \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
