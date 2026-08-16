@@ -1,45 +1,57 @@
 {
-  "decision": "convert orchestrator plans into durable capability-gated mission chains",
+  "decision": "deterministic coordination chain, parallel specialist fan-out, and QA review join",
   "scope": "lab orchestration and synthetic workers only",
-  "winner": "thin OrchestratedMissionRuntime adapter over existing planner and MissionCoordinator",
+  "winner": "coordination chain -> parallel specialists -> QA join",
   "comparison": [
     {
-      "approach": "thin adapter over planner + durable coordinator",
-      "correctness": "high: planner output becomes persisted dependency-ordered missions with per-agent capability gates",
-      "robustness": "high for coordinator restart and submission retry through derived idempotency keys",
-      "latency": "moderate: one durable snapshot per planned agent mission",
-      "resourceUse": "low at lab scale",
-      "regressionRisk": "low: existing planner and queue semantics remain separate",
-      "qa": "restart persistence, submission idempotency, capability and dependency ordering",
+      "approach": "coordination chain -> parallel specialists -> QA join",
+      "correctness": "high: orchestrator/planner remain ordered, independent specialists share the same planning dependency, and QA cannot run until every selected specialist completes",
+      "robustness": "high: uses existing durable MissionCoordinator dependencies and failure propagation without adding a second scheduler",
+      "latency": "best safe critical-path latency when two or more specialists are selected because their execution overlaps",
+      "resourceUse": "moderate: parallel workers may consume more CPU/RAM concurrently, bounded by selected agents and worker availability",
+      "regressionRisk": "low-to-moderate: dependency graph generation changes, but queue, persistence, worker ownership, and planner routing contracts remain unchanged",
+      "qa": "tests cover graph shape, concurrent specialist claims, QA join blocking, restart persistence/idempotency, and failed-specialist cancellation propagation",
       "result": "selected"
     },
     {
-      "approach": "rewrite orchestrator to own persistence and worker state",
-      "correctness": "potentially high",
-      "robustness": "medium until duplicated queue semantics are proven",
-      "latency": "similar",
-      "resourceUse": "low",
-      "regressionRisk": "high due to duplicated scheduling/state-machine behavior",
-      "qa": "would require replacing broad existing coverage",
+      "approach": "fully serial agent chain",
+      "correctness": "high and simple",
+      "robustness": "high",
+      "latency": "worst for independent specialists because total latency grows approximately with the sum of specialist runtimes",
+      "resourceUse": "lowest peak concurrency",
+      "regressionRisk": "lowest",
+      "qa": "already covered by previous runtime tests",
+      "result": "rejected as unnecessarily slow"
+    },
+    {
+      "approach": "full fan-out including orchestrator/planner and QA",
+      "correctness": "low: specialists could execute before planning and QA could review incomplete outputs",
+      "robustness": "low due to missing phase barriers",
+      "latency": "lowest theoretical wall time",
+      "resourceUse": "highest peak concurrency",
+      "regressionRisk": "high semantic risk",
+      "qa": "fails orchestration-order requirements",
       "result": "rejected"
     },
     {
-      "approach": "direct dispatch from planner without durable missions",
-      "correctness": "low across restart",
-      "robustness": "low",
-      "latency": "best",
-      "resourceUse": "best",
-      "regressionRisk": "medium operational risk from lost work",
-      "qa": "cannot prove recovery/idempotency",
-      "result": "rejected"
+      "approach": "new external DAG scheduler",
+      "correctness": "potentially high",
+      "robustness": "potentially high at larger scale",
+      "latency": "service dependent",
+      "resourceUse": "highest operational footprint",
+      "regressionRisk": "high before current durable worker contracts are fully proven",
+      "qa": "would require a new scheduler integration and distributed fault suite",
+      "result": "deferred"
     }
   ],
-  "whyItWon": "It closes the actual planner-to-durable-queue integration gap without merging routing, persistence, and worker execution into one component. It preserves low regression surface while making every selected agent explicit, durable, capability-gated work.",
-  "lessons": [
-    "Serial dependency chaining is conservative and deterministic but sacrifices parallelism among independent agents; fan-out plus review joins should be evaluated next.",
-    "Derived per-agent idempotency keys make submission retry stable only when planner membership is stable for the same logical submission.",
-    "This is not evidence for multiple live coordinators sharing one snapshot file.",
-    "Real Qubes remains blocked until full QA is green and process/VM-boundary fault tests pass."
+  "whyItWon": "It removes the largest avoidable orchestration latency while preserving deterministic phase ordering and reusing the durable queue's existing dependency and failure semantics. It adds no network service and no new persistence model.",
+  "failuresAndLessons": [
+    "Parallelism improves wall-clock latency only when multiple specialists are selected and worker capacity exists; otherwise behavior approaches the serial baseline.",
+    "Peak CPU/RAM can rise because specialist work overlaps, so later benchmark gates should include worker-concurrency limits and resource telemetry.",
+    "QA is a hard join: one terminal specialist failure cancels QA through existing dependency propagation instead of reviewing an incomplete result set.",
+    "Submission idempotency remains derived per agent and assumes stable planner membership for a logical idempotency key.",
+    "This graph does not solve shared-snapshot multi-coordinator safety or prove a real Qubes boundary."
   ],
-  "readiness": "LAB READY"
+  "readiness": "LAB READY",
+  "nextGate": "run full Node QA on this head, then add a benchmark that compares serial-vs-fan-out critical-path latency and resource consumption under deterministic synthetic worker delays before Qubes activation"
 }
