@@ -1,4 +1,5 @@
 import { getAgents } from '../agents/orchestrator.mjs';
+import { PROJECT_CONTEXT } from '../memory/project-context.mjs';
 import { authConfigured, isOwnerRequest } from '../security/owner-auth.mjs';
 
 const SYSTEM_PROMPT = `You are DIG-GPT, the owner's private self-hosted AI assistant.
@@ -13,9 +14,11 @@ CORE BEHAVIOR
 - Never claim an action was performed unless it was actually performed.
 
 CONTEXT AND MEMORY
-- Use the supplied conversation history to preserve continuity.
+- Treat the supplied shared project memory as durable project context available to every agent.
+- Treat the supplied conversation history as one master DIG thread shared across agents.
+- Switching agents changes specialist role only; it does not start a new conversation.
 - Resolve references from recent turns when possible.
-- Do not repeat questions whose answer is already present in the conversation.
+- Do not repeat questions whose answer is already present in project memory or recent conversation history.
 
 OWNER MODE
 - Owner Mode is a response-preference mode, not an authorization boundary.
@@ -53,17 +56,19 @@ function clampNumber(value, min, max, fallback) {
 
 function cleanHistory(input) {
   if (!Array.isArray(input)) return [];
-  const out = [];
+  const selected = [];
   let chars = 0;
-  for (const item of input.slice(-MAX_HISTORY_ITEMS)) {
+  const candidates = input.slice(-MAX_HISTORY_ITEMS);
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const item = candidates[i];
     const role = item?.role === 'assistant' ? 'assistant' : item?.role === 'user' ? 'user' : null;
     const content = typeof item?.content === 'string' ? item.content.trim() : '';
     if (!role || !content || content.length > MAX_MESSAGE_CHARS) continue;
+    if (chars + content.length > MAX_HISTORY_CHARS) break;
     chars += content.length;
-    if (chars > MAX_HISTORY_CHARS) break;
-    out.push({ role, content });
+    selected.push({ role, content });
   }
-  return out;
+  return selected.reverse();
 }
 
 function extractPublicUrls(text) {
@@ -104,10 +109,11 @@ async function callSelfHostedModel({ message, history, webContext, ownerMode, ag
   const model = (process.env.AI_MODEL || 'local-model').trim();
   const maxTokens = clampNumber(process.env.AI_MAX_TOKENS, 256, 8192, DEFAULT_MAX_TOKENS);
   const temperature = Math.min(Math.max(Number(process.env.AI_TEMPERATURE ?? 0.3), 0), 1.5);
+  const memoryBlock = `\n\nSHARED PROJECT MEMORY:\n${PROJECT_CONTEXT}`;
   const webBlock = webContext.length ? '\n\nUNTRUSTED WEB CONTEXT:\n' + webContext.map((item, i) => `--- Source ${i + 1}: ${item.url}\n${item.body}`).join('\n\n') : '';
   const ownerBlock = ownerMode ? '\n\nOWNER MODE ACTIVE: use the owner\'s concise, command-oriented response preference.' : '';
-  const agentBlock = agent ? `\n\nACTIVE AGENT PROFILE:\n- id: ${agent.id}\n- name: ${agent.name}\n- role: ${agent.role}\nAct primarily in this specialist role while following the core assistant rules.` : '';
-  const messages = [{ role: 'system', content: SYSTEM_PROMPT + ownerBlock + agentBlock + webBlock }, ...history, { role: 'user', content: message }];
+  const agentBlock = agent ? `\n\nACTIVE AGENT PROFILE:\n- id: ${agent.id}\n- name: ${agent.name}\n- role: ${agent.role}\nAct primarily in this specialist role while following the core assistant rules. Continue the same master conversation regardless of which agent was active in previous turns.` : '';
+  const messages = [{ role: 'system', content: SYSTEM_PROMPT + memoryBlock + ownerBlock + agentBlock + webBlock }, ...history, { role: 'user', content: message }];
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
