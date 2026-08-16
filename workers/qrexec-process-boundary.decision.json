@@ -1,0 +1,38 @@
+{
+  "decision": "qrexec process-boundary reliability harness",
+  "scope": "defensive synthetic worker orchestration only",
+  "winner": "spawned coordinator process over real framed stdio before real-Qubes execution",
+  "criteria": {
+    "correctness": "exercises the production coordinator entrypoint, durable stores, authentication, credential rotation, and request reconciliation across a real OS process boundary",
+    "robustness": "covers response loss after commit, old-key revocation, coordinator stop/start, and pending request recovery",
+    "latency": "slower than in-process tests but fast enough for CI and materially closer to qrexec semantics",
+    "resourceUse": "one short-lived Node child process and temporary files; no daemon or network listener",
+    "regressionRisk": "test-only change using existing production entrypoint and stdio framing",
+    "qa": "CI-gated invariant: old key rejected, pending request reconciled, committed mutation attempts remain exactly one"
+  },
+  "alternatives": [
+    {
+      "approach": "in-process exchange only",
+      "result": "rejected as sole gate",
+      "lesson": "cannot expose process lifecycle, stdio pipe, startup, or restart integration faults"
+    },
+    {
+      "approach": "move directly to real Qubes",
+      "result": "deferred, still mandatory",
+      "lesson": "environment variance is useful only after process-boundary behavior is deterministic in CI"
+    },
+    {
+      "approach": "HTTP loopback emulator",
+      "result": "rejected",
+      "lesson": "adds a network transport absent from the selected qrexec architecture and tests the wrong boundary"
+    }
+  ],
+  "successCriteria": {
+    "oldKeyAcceptance": 0,
+    "duplicateMutations": 0,
+    "unresolvedCommittedRequests": 0,
+    "networkListener": false,
+    "realQubesRequiredForReadiness": true
+  },
+  "next": "Run this harness in CI, then repeat the same invariants across an actual qrexec VM boundary with worker/coordinator kill and session interruption."
+}
