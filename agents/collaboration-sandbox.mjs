@@ -56,7 +56,7 @@ export function createCollaborativePaymentDrill({ caseId = 'visa-approved', amou
     drillId,
     case: structuredClone(testCase),
     queue,
-    missions: [...byStage.values()].map(structuredClone)
+    missions: [...byStage.values()].map(mission => structuredClone(mission))
   };
 }
 
