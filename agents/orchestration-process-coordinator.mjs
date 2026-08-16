@@ -9,6 +9,7 @@ export async function runProcessCoordinator({
   storePath,
   requestJournalPath = null,
   transportSecret = null,
+  crashAfterRequestId = null,
   input = process.stdin,
   output = process.stdout
 } = {}) {
@@ -38,12 +39,6 @@ export async function runProcessCoordinator({
         setImmediate(() => process.exit(0));
         return { exiting: true, completed };
       }
-      case 'completeAndCrashBeforeJournalCommit': {
-        const completed = await runtime.complete(command.id, command.workerId, command.result ?? null);
-        await runtime.coordinator.flush();
-        setImmediate(() => process.exit(86));
-        return { exiting: true, completed };
-      }
       default: throw new Error(`unknown op: ${command?.op}`);
     }
   };
@@ -70,7 +65,11 @@ export async function runProcessCoordinator({
     }
 
     const result = await execute(command);
-    if (verified.op === 'completeAndCrashBeforeJournalCommit') return null;
+    if (crashAfterRequestId === verified.requestId) {
+      await runtime.coordinator.flush();
+      setImmediate(() => process.exit(86));
+      return null;
+    }
 
     const response = { ok: true, result };
     await journal.commit(verified.requestId, response);
@@ -102,7 +101,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   runProcessCoordinator({
     storePath: process.env.DIG_ORCHESTRATION_STORE,
     requestJournalPath: process.env.DIG_REQUEST_JOURNAL || null,
-    transportSecret: process.env.DIG_TRANSPORT_SECRET || null
+    transportSecret: process.env.DIG_TRANSPORT_SECRET || null,
+    crashAfterRequestId: process.env.DIG_CRASH_AFTER_REQUEST_ID || null
   }).catch(error => {
     process.stderr.write(`DIG orchestration coordinator failed: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
