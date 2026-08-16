@@ -4,41 +4,56 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DIG-GPT</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:0 auto;padding:24px;background:#0b0d10;color:#f5f7fa}
+    textarea,select,button{font:inherit} textarea,select{width:100%;box-sizing:border-box;background:#14181f;color:#fff;border:1px solid #2a3039;border-radius:12px;padding:12px;margin:8px 0} button{border:0;border-radius:10px;padding:10px 16px;margin-left:8px;background:#2563eb;color:#fff;font-weight:700} button.secondary{background:#252a32}.panel{border:1px solid #242a33;border-radius:16px;background:#12161c;padding:16px;margin-top:14px}.muted{color:#9ca3af;font-size:13px}#response{white-space:pre-wrap;line-height:1.6}
+  </style>
 </head>
 <body>
   <h1>DIG-GPT</h1>
+  <p class="muted">اختر الوكيل وتكلم معه مباشرة. Qubes/qrexec غير مستخدم في واجهة الدردشة هذه.</p>
 
-  <textarea id="message" rows="4" placeholder="اكتب رسالتك هنا..." autocomplete="off"></textarea>
+  <label for="agent">الوكيل</label>
+  <select id="agent">
+    <option value="researcher" selected>Security Researcher</option>
+    <option value="coder">Coder</option>
+    <option value="system">System</option>
+    <option value="qa">QA</option>
+  </select>
+
+  <textarea id="message" rows="5" placeholder="اكتب رسالتك هنا..." autocomplete="off"></textarea>
   <div>
     <button id="sendButton" onclick="sendMessage()">إرسال</button>
-    <button id="clearButton" onclick="clearConversation()">مسح المحادثة</button>
+    <button class="secondary" onclick="clearConversation()">مسح المحادثة</button>
   </div>
 
-  <div id="status"></div>
-  <pre id="response"></pre>
+  <div class="panel">
+    <div id="status" class="muted"></div>
+    <pre id="response"></pre>
+  </div>
 
   <script>
     const messageInput = document.getElementById("message");
+    const agentInput = document.getElementById("agent");
     const responseBox = document.getElementById("response");
     const statusBox = document.getElementById("status");
     const sendButton = document.getElementById("sendButton");
-    const STORAGE_KEY = "dig-gpt-history-v1";
+    const STORAGE_KEY = "dig-gpt-history-v2";
+    const AGENT_KEY = "dig-gpt-agent-v1";
     const MAX_LOCAL_HISTORY = 24;
 
     let history = loadHistory();
+    agentInput.value = localStorage.getItem(AGENT_KEY) || "researcher";
+    agentInput.addEventListener("change", () => localStorage.setItem(AGENT_KEY, agentInput.value));
 
     function loadHistory() {
       try {
         const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
         return Array.isArray(value) ? value.slice(-MAX_LOCAL_HISTORY) : [];
-      } catch {
-        return [];
-      }
+      } catch { return []; }
     }
 
-    function saveHistory() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(-MAX_LOCAL_HISTORY)));
-    }
+    function saveHistory() { localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(-MAX_LOCAL_HISTORY))); }
 
     function clearConversation() {
       history = [];
@@ -60,7 +75,7 @@
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message, history })
+          body: JSON.stringify({ message, history, agent: agentInput.value })
         });
 
         const data = await response.json();
@@ -72,11 +87,8 @@
         history = history.slice(-MAX_LOCAL_HISTORY);
         saveHistory();
 
-        const sourceInfo = Array.isArray(data.webSources) && data.webSources.length
-          ? ` | مصادر ويب: ${data.webSources.length}`
-          : "";
-
-        statusBox.textContent = `تم الرد | ${data.provider || "self-hosted"} | ${data.model || "local-model"}${sourceInfo}`;
+        const sourceInfo = Array.isArray(data.webSources) && data.webSources.length ? ` | مصادر ويب: ${data.webSources.length}` : "";
+        statusBox.textContent = `${data.agentName || agentInput.options[agentInput.selectedIndex].text} | ${data.model || "model"}${sourceInfo}`;
         responseBox.textContent = reply;
         messageInput.value = "";
       } catch (error) {
