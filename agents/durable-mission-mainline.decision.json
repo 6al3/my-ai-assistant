@@ -1,0 +1,70 @@
+{
+  "decision": "Promote the fenced durable JSON mission coordinator onto current mainline as the next lab-grade queue layer, while retaining the in-memory MissionQueue for lightweight local planning.",
+  "status": "lab-ready-candidate",
+  "reviewModel": "independent-approach comparison from existing DIG queue experiments plus mainline regression review",
+  "evaluatedApproaches": [
+    {
+      "name": "current-main-in-memory-queue",
+      "correctness": "Good dependency gating and worker capability matching, but process restart loses all mission state and worker ownership.",
+      "robustness": "Low for worker crashes or coordinator restarts because state is process-local.",
+      "latency": "Best; all mutations are in-memory.",
+      "resourceUse": "Lowest.",
+      "regressionRisk": "Lowest because it is already on main.",
+      "qa": "Existing mission queue suite remains part of npm test. Not sufficient for distributed-worker reliability."
+    },
+    {
+      "name": "worker-id-only durable ownership",
+      "correctness": "Insufficient under lease expiry and reclaim because a stale worker identity can write after a new claim generation.",
+      "robustness": "Weak under process suspension, delayed messages, and reclaim races.",
+      "latency": "Slightly better than fenced ownership.",
+      "resourceUse": "Slightly lower metadata footprint.",
+      "regressionRisk": "Low implementation complexity but high stale-owner correctness risk.",
+      "qa": "Rejected by stale-owner scenarios."
+    },
+    {
+      "name": "epoch-plus-uuid-fenced durable JSON store",
+      "correctness": "High for a single shared-filesystem coordinator: each claim increments a persistent lease epoch and receives a unique token; heartbeat, complete, and fail require the active worker and current token.",
+      "robustness": "Strong against coordinator restart, duplicate claim races, expired owners, and stale completion within the shared-filesystem lab model.",
+      "latency": "Higher than in-memory because mutations serialize through an atomic directory lock and whole-state JSON rewrite.",
+      "resourceUse": "Low at lab scale; one JSON snapshot plus one lock directory and small lease metadata per mission.",
+      "regressionRisk": "Medium: durable callers must propagate leaseToken, but the existing in-memory queue remains unchanged.",
+      "qa": "Selected test suite covers persistence, concurrent atomic claim, restart recovery, stale-owner fencing, lease expiry, fenced heartbeat, dependency gating, 12-worker/32-mission contention, clone isolation, malformed inputs, and cancellation."
+    },
+    {
+      "name": "external transactional coordinator",
+      "correctness": "Potentially strongest for real multi-host workers and downstream fencing.",
+      "robustness": "Potentially strongest with durable consensus/transaction semantics.",
+      "latency": "Network and service dependent.",
+      "resourceUse": "Highest operational cost.",
+      "regressionRisk": "High before worker transport and authentication contracts stabilize.",
+      "qa": "Deferred until the Qubes transport boundary and authenticated worker protocol are accepted together."
+    }
+  ],
+  "winner": "epoch-plus-uuid-fenced durable JSON store",
+  "whyItWon": "It closes the highest-value reliability gap on current mainline—loss of queued/running missions across restart—without prematurely requiring an external database or network coordinator. It also provides explicit stale-owner fencing while preserving the existing in-memory queue as a low-risk fallback.",
+  "changesThisIteration": [
+    "Rebased the durable coordinator concept onto the current main branch instead of the older experiment branch.",
+    "Added constructor and scheduling-input validation.",
+    "Added deterministic tie-breaking for equal priority/time claims.",
+    "Fixed list cloning to avoid passing Array.map callback arguments into structuredClone.",
+    "Added explicit cancellation that clears active ownership and fencing state.",
+    "Expanded contention coverage from 8 workers/20 missions to 12 workers/32 missions.",
+    "Wired durable queue syntax and tests into npm check/test."
+  ],
+  "failuresAndLessons": [
+    "A shared-filesystem JSON store is not a distributed database and is not safe evidence for REAL-WORKER READY across separate Qubes domains.",
+    "Time-based stale-lock breaking can evict a slow but live lock holder; the real-worker gate needs a stronger process/transport-aware ownership strategy.",
+    "Whole-state JSON rewrites are O(n), so throughput and tail latency will degrade with large mission volumes.",
+    "Lease fencing protects queue state only; external side effects require idempotency keys or downstream fencing to prevent duplicate effects.",
+    "Cancellation currently behaves as an operator override; worker-aware cancellation acknowledgment should be added before remote workers are activated.",
+    "Real financial data and transactions remain explicitly out of scope; financial-system testing must remain synthetic and defensive."
+  ],
+  "readiness": "LAB READY",
+  "realWorkerGates": [
+    "Run the branch test suite in CI or a local Node environment and record actual pass/fail and duration.",
+    "Integrate authenticated worker identity and durable worker sessions with the durable queue lease token.",
+    "Exercise crash, process-kill, lock-stall, malformed-store, and power-loss-style fault injection across process boundaries.",
+    "Validate qrexec transport behavior in an isolated synthetic Qubes lab with no real financial credentials or transactions.",
+    "Add downstream idempotency/fencing contract for any side-effecting worker action."
+  ]
+}
