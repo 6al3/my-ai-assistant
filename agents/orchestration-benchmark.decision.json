@@ -1,0 +1,35 @@
+{
+  "decision": "Benchmark the real submitted mission DAG with deterministic synthetic durations and enforce a latency/concurrency readiness gate before real Qubes workers.",
+  "winner": "critical-path DAG benchmark over OrchestratedMissionRuntime output",
+  "criteria": {
+    "correctness": "Uses the actual durable mission graph, validates missing dependencies/cycles, and derives timing from dependency completion rather than a hand-written phase formula.",
+    "robustness": "Deterministic inputs make regressions reproducible and independent of host timing noise.",
+    "latency": "Measures serial baseline, fan-out critical path, latency saved, and speedup directly.",
+    "resourceUse": "Measures peak concurrent missions while verifying total synthetic work does not increase.",
+    "regressionRisk": "Read-only benchmark logic; no changes to queue persistence, claims, worker transport, or orchestration semantics.",
+    "qa": "Covers a real runtime-generated two-specialist DAG, readiness pass/fail behavior, missing dependency rejection, cycle rejection, and incomplete fixture rejection."
+  },
+  "alternatives": [
+    {
+      "approach": "wall-clock sleeps with live worker loops",
+      "result": "rejected as primary gate",
+      "reason": "Closer to runtime latency but noisy in CI, slower, and vulnerable to host scheduling variance. Keep for later process/Qubes acceptance testing."
+    },
+    {
+      "approach": "hand-coded serial-vs-fan-out arithmetic",
+      "result": "rejected",
+      "reason": "Fast but can pass even if the real mission dependency graph regresses."
+    },
+    {
+      "approach": "external distributed tracing benchmark",
+      "result": "deferred",
+      "reason": "Highest observability but adds infrastructure and operational surface before real-worker readiness."
+    }
+  ],
+  "lessons": [
+    "Benchmark the graph that workers actually consume, not a parallel model of intended behavior.",
+    "Separate deterministic structural performance gates from noisy end-to-end wall-clock acceptance tests.",
+    "Latency wins are not sufficient alone; cap peak concurrency so fan-out cannot hide excessive resource pressure."
+  ],
+  "safety": "Synthetic timing only. No real financial transactions, payment data, external exploitation, or weakened controls."
+}
