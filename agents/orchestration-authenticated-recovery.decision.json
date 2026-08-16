@@ -1,0 +1,47 @@
+{
+  "decision": "authenticated durable request reconciliation at the process coordinator boundary",
+  "scope": "synthetic lab workers only",
+  "winner": "HMAC authentication + durable request journal + idempotent terminal mission completion",
+  "comparison": [
+    {
+      "approach": "HMAC authentication + durable request journal + idempotent terminal mission completion",
+      "correctness": "high: authenticated command identity is bound to requestId and command digest; pending requests survive coordinator restart; terminal completion retry is mutation-idempotent",
+      "robustness": "high for single-coordinator process crash and committed-response loss",
+      "latency": "moderate: journal write before execution plus response commit write after execution",
+      "resourceUse": "low at lab scale; two local atomic JSON persistence domains",
+      "regressionRisk": "low-moderate: authenticated mode is opt-in while legacy raw process tests remain available",
+      "qa": "process kill after mission commit and before response journal commit; retry after restart; cached committed response; command substitution rejection; HMAC tamper rejection",
+      "result": "selected"
+    },
+    {
+      "approach": "process-local replay cache only",
+      "correctness": "low across restart because accepted requestIds are forgotten",
+      "robustness": "insufficient for committed-response loss",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "low",
+      "qa": "passes same-process replay tests but cannot prove restart reconciliation",
+      "result": "rejected"
+    },
+    {
+      "approach": "single external transactional database for mission state and request journal",
+      "correctness": "potentially highest and can provide one atomic transaction across both records",
+      "robustness": "highest eventual multi-host direction",
+      "latency": "higher and service dependent",
+      "resourceUse": "highest",
+      "regressionRisk": "high before qrexec transport and worker contracts stabilize",
+      "qa": "requires database lifecycle and distributed fault-injection infrastructure",
+      "result": "deferred"
+    }
+  ],
+  "whyItWon": "It closes the immediate restart/replay gap using the existing queue and transport primitives, proves the committed-response-loss window at a real OS process boundary, and avoids introducing distributed infrastructure before the Qubes boundary is tested.",
+  "failuresAndLessons": [
+    "A process-local replay cache is not a durable idempotency mechanism.",
+    "Authentication and idempotency solve different problems; both are required.",
+    "The mission snapshot and request journal are separate atomic files, so there is intentionally a recoverable pending window rather than cross-file atomicity.",
+    "Retry after a crash must re-sign the same logical request with the same requestId and command body; timestamp may change while command digest remains stable.",
+    "Real external side effects still require their own idempotency key or fencing token before REAL-WORKER readiness."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "obtain green CI for the authenticated recovery fault test, then exercise the same signed journal protocol across a real qrexec worker/coordinator boundary using synthetic work only"
+}
