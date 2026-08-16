@@ -1,0 +1,46 @@
+{
+  "decision": "persistent coordinator wrapper around MissionQueue + MissionQueueStore",
+  "scope": "lab orchestration and synthetic worker reliability",
+  "winner": "serialized coordinator wrapper with fail-closed persistence",
+  "comparison": [
+    {
+      "approach": "serialized coordinator wrapper with fail-closed persistence",
+      "correctness": "high: every queue mutation is serialized and acknowledged only after atomic snapshot save",
+      "robustness": "high for single-process coordinator restart and concurrent callers; storage failure poisons the coordinator instead of continuing with false durability",
+      "latency": "moderate: one whole-snapshot write per mutation",
+      "resourceUse": "low at current lab scale; no external service",
+      "regressionRisk": "low: leaves MissionQueue semantics unchanged and composes the tested store",
+      "qa": "restart recovery, idempotency, concurrent mutation serialization, and persistence-failure fail-closed tests",
+      "result": "selected"
+    },
+    {
+      "approach": "modify every MissionQueue method to persist internally",
+      "correctness": "medium-high",
+      "robustness": "medium",
+      "latency": "similar",
+      "resourceUse": "low",
+      "regressionRisk": "high: mixes state-machine logic with I/O and changes all existing queue methods",
+      "qa": "would require broad regression expansion",
+      "result": "rejected for this stage"
+    },
+    {
+      "approach": "external transactional database coordinator now",
+      "correctness": "potentially highest for multi-host operation",
+      "robustness": "potentially highest",
+      "latency": "network/service dependent",
+      "resourceUse": "highest",
+      "regressionRisk": "high before worker transport contracts stabilize",
+      "qa": "requires infrastructure and distributed fault injection",
+      "result": "deferred until real Qubes boundary is proven"
+    }
+  ],
+  "whyItWon": "It closes the current orchestration persistence gap with the smallest change surface. Queue behavior remains independently testable, writes are serialized, restart recovery is explicit, and a failed store cannot silently leave the coordinator operating as if state were durable.",
+  "failuresAndLessons": [
+    "Atomic rename protects against partial snapshot replacement but whole-state snapshots remain O(n) per mutation.",
+    "Fail-closed persistence prevents further mutation after a write failure, but production recovery still needs an operator restart/reconciliation procedure.",
+    "This coordinator serializes callers only inside one process; it is not evidence of safe multi-process or multi-Qube shared-file concurrency.",
+    "Queue persistence is not downstream side-effect idempotency; worker actions still need fenced/idempotent contracts before real work."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "wire the persistent coordinator into the actual worker dispatch entrypoint, then run process-kill/restart and duplicate-result fault tests before any real Qubes worker activation"
+}
