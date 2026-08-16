@@ -7,9 +7,9 @@ struct ContentView: View {
     @StateObject private var chat = ChatService()
 
     @State private var input = ""
-    @State private var boxURL = ""
-    @State private var fileBoxURL = UserDefaults.standard.string(forKey: "fileBoxURL") ?? "http://127.0.0.1:8788"
-    @State private var ownerToken = OwnerSecretStore.shared.loadToken()
+    @State private var serverURL = UserDefaults.standard.string(forKey: "digServerURL") ?? ""
+    @State private var selectedAgent: DIGAgent = .researcher
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -20,10 +20,16 @@ struct ContentView: View {
                     lockedView
                 }
             }
-            .navigationTitle("DIG Assistant")
+            .navigationTitle("DIG")
             .toolbar {
                 if security.isUnlocked {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                        }
+
                         Button("قفل") {
                             audit.record("lock")
                             ownerMode.disable()
@@ -33,9 +39,12 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(isPresented: $showSettings) {
+            settingsView
+        }
         .task {
-            if let url = chat.boxURL {
-                boxURL = url.absoluteString
+            if let url = chat.serverURL, serverURL.isEmpty {
+                serverURL = url.absoluteString
             }
             audit.record("app_open")
         }
@@ -45,9 +54,13 @@ struct ContentView: View {
         VStack(spacing: 20) {
             Image(systemName: "faceid")
                 .font(.system(size: 56))
-            Text("التطبيق مقفول")
+            Text("DIG مقفول")
                 .font(.title2.bold())
-            Button("فتح بـ Face ID / رمز الجهاز") {
+            Text("الدخول محمي بـ Face ID أو رمز الجهاز")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button("فتح") {
                 Task {
                     let ok = await security.authenticateOwner()
                     audit.record(ok ? "login_success" : "login_failed", detail: security.lastError ?? "")
@@ -59,52 +72,86 @@ struct ContentView: View {
     }
 
     private var chatView: some View {
-        VStack(spacing: 12) {
-            HStack {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Circle()
+                    .fill(ownerMode.isActive ? .green : .secondary)
                     .frame(width: 9, height: 9)
-                Text(ownerMode.isActive ? "Owner Mode" : "Private Mode")
+
+                Text(ownerMode.isActive ? "OWNER MODE" : "PRIVATE MODE")
                     .font(.caption.bold())
+
                 Spacer()
-                Button("مسح المحادثة") {
+
+                if let model = chat.lastModel {
+                    Text(model)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Button("مسح") {
                     chat.clear()
                     audit.record("chat_cleared")
                 }
                 .font(.caption)
             }
 
-            TextField("عنوان الـBox مثل https://box.example", text: $boxURL)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(saveBoxURL)
-
-            if ownerMode.isActive {
-                ownerPanel
+            Picker("Agent", selection: $selectedAgent) {
+                ForEach(DIGAgent.allCases) { agent in
+                    Text(agent.title).tag(agent)
+                }
             }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(chat.messages) { item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.role == "user" ? "أنت" : "DIG")
-                                .font(.caption.bold())
-                            Text(item.content)
-                                .textSelection(.enabled)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(chat.messages) { item in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.speaker ?? (item.role == "user" ? "أنت" : "DIG"))
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.secondary)
+                                Text(item.content)
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(item.role == "user" ? Color.blue.opacity(0.12) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                            .id(item.id)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onChange(of: chat.messages.count) { _, _ in
+                    if let id = chat.messages.last?.id {
+                        withAnimation { proxy.scrollTo(id, anchor: .bottom) }
                     }
                 }
             }
 
-            HStack(alignment: .bottom) {
-                TextField("اكتب أمرك...", text: $input, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+            if let error = chat.lastError {
+                Text(error)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+            }
 
-                Button("إرسال") {
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("اكتب لـ \(selectedAgent.title)…", text: $input, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...6)
+
+                Button {
                     send()
+                } label: {
+                    if chat.isSending {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title2)
+                    }
                 }
                 .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat.isSending)
             }
@@ -112,60 +159,75 @@ struct ContentView: View {
         .padding()
     }
 
-    private var ownerPanel: some View {
-        VStack(spacing: 8) {
-            TextField("عنوان خدمة ملفات الـBox", text: $fileBoxURL)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-                .textFieldStyle(.roundedBorder)
+    private var settingsView: some View {
+        NavigationStack {
+            Form {
+                Section("الاتصال") {
+                    TextField("https://your-project.vercel.app", text: $serverURL)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
 
-            SecureField("Owner pairing token", text: $ownerToken)
-                .textFieldStyle(.roundedBorder)
-
-            HStack {
-                Button("حفظ إعدادات المالك") {
-                    UserDefaults.standard.set(fileBoxURL, forKey: "fileBoxURL")
-                    OwnerSecretStore.shared.saveToken(ownerToken)
-                    audit.record("owner_settings_saved")
-                }
-
-                Spacer()
-
-                if let fileURL = URL(string: fileBoxURL), !ownerToken.isEmpty {
-                    NavigationLink("ملفات النظام") {
-                        FileEditorView(boxURL: fileURL, ownerToken: ownerToken)
+                    Button("حفظ عنوان DIG") {
+                        saveServerURL()
                     }
                 }
+
+                Section("المالك") {
+                    Toggle("Owner Mode", isOn: Binding(
+                        get: { ownerMode.isActive },
+                        set: { enabled in
+                            if enabled {
+                                guard security.ownerVerified else { return }
+                                ownerMode.enable()
+                                audit.record("owner_mode_activated")
+                            } else {
+                                ownerMode.disable()
+                                audit.record("owner_mode_disabled")
+                            }
+                        }
+                    ))
+                    Text("Owner Mode يغير أسلوب الإدارة داخل DIG. الدخول نفسه يبقى مرتبطًا بفتح الجهاز الموثق.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("الحالة") {
+                    LabeledContent("Qubes", value: "غير مربوط")
+                    LabeledContent("Agent", value: selectedAgent.title)
+                }
             }
-            .font(.caption.bold())
+            .navigationTitle("إعدادات DIG")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("تم") { showSettings = false }
+                }
+            }
         }
-        .padding(10)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func saveBoxURL() {
-        guard let url = URL(string: boxURL), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            audit.record("box_url_invalid")
+    private func saveServerURL() {
+        let raw = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: raw), url.scheme?.lowercased() == "https" else {
+            audit.record("server_url_invalid")
             return
         }
-        chat.boxURL = url
-        audit.record("box_url_changed", detail: url.host ?? "")
+        chat.serverURL = url
+        audit.record("server_url_changed", detail: url.host ?? "")
     }
 
     private func send() {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        input = ""
-
-        let activated = ownerMode.inspect(message: text, ownerVerified: security.ownerVerified)
-        if activated {
-            audit.record("owner_mode_activated")
+        guard chat.serverURL != nil else {
+            showSettings = true
+            return
         }
+        input = ""
 
         Task {
             do {
-                _ = try await chat.send(text, ownerMode: ownerMode.isActive)
-                audit.record("message_sent", detail: ownerMode.isActive ? "owner_mode" : "private_mode")
+                _ = try await chat.send(text, agent: selectedAgent, ownerMode: ownerMode.isActive)
+                audit.record("message_sent", detail: "\(selectedAgent.rawValue):\(ownerMode.isActive ? "owner" : "private")")
             } catch {
                 audit.record("message_failed", detail: error.localizedDescription)
             }
