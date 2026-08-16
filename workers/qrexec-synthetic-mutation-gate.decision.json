@@ -1,0 +1,48 @@
+{
+  "selected": "repeated synthetic mutation gate after read-only qrexec readiness",
+  "why": "It advances from transport/auth proof to state-changing reliability while keeping all missions synthetic and enforcing zero-tolerance invariants before any real-Qubes mutation campaign.",
+  "comparison": [
+    {
+      "approach": "repeated synthetic mutation gate",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "low-to-moderate",
+      "resourceUse": "low",
+      "regressionRisk": "low",
+      "qa": "deterministic CI assertions for duplicate mutation, unresolved commit, old-key acceptance, exactly-once attempts, and p95 latency",
+      "result": "selected"
+    },
+    {
+      "approach": "single synthetic claim smoke test",
+      "correctness": "medium",
+      "robustness": "low",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "medium",
+      "qa": "can miss intermittent replay/recovery races",
+      "result": "rejected"
+    },
+    {
+      "approach": "jump directly to mutable real-Qubes campaign",
+      "correctness": "potentially high but noisy",
+      "robustness": "environment-dependent",
+      "latency": "high",
+      "resourceUse": "high",
+      "regressionRisk": "high",
+      "qa": "harder to separate VM/policy failures from state-machine failures",
+      "result": "deferred until deterministic synthetic gate is green"
+    }
+  ],
+  "hardInvariants": {
+    "duplicateMutations": 0,
+    "unresolvedCommittedRequests": 0,
+    "oldKeyAcceptance": 0,
+    "missionAttempts": "exactly 1 per sample",
+    "scope": "synthetic only"
+  },
+  "lessons": [
+    "Read-only qrexec readiness proves transport/auth stability but not exactly-once mutation semantics.",
+    "A single successful mutation is insufficient evidence for restart/replay safety.",
+    "Latency budgets belong in the readiness gate so correctness does not hide pathological recovery time."
+  ]
+}
