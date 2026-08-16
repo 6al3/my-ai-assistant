@@ -46,3 +46,34 @@ test('unknown dependency is rejected', () => {
   const q = new MissionQueue();
   assert.throws(() => q.enqueue({ task: 'bad', dependsOn: ['missing'] }), /dependency not found/);
 });
+
+test('cancel releases running mission and rejects stale completion', () => {
+  const q = new MissionQueue();
+  const m = q.enqueue({ task: 'long synthetic task' });
+  q.claim({ id: 'w1' });
+  assert.equal(q.cancel(m.id, 'operator stop').status, 'cancelled');
+  assert.throws(() => q.complete(m.id, 'w1'), /cancelled/);
+  assert.equal(q.get(m.id).workerId, null);
+});
+
+test('failed dependency cancels downstream chain instead of blocking forever', () => {
+  const q = new MissionQueue({ maxAttempts: 1 });
+  const root = q.enqueue({ task: 'root' });
+  const child = q.enqueue({ task: 'child', dependsOn: [root.id] });
+  const grandchild = q.enqueue({ task: 'grandchild', dependsOn: [child.id] });
+  q.claim({ id: 'w1' });
+  q.fail(root.id, 'w1', 'synthetic failure');
+  assert.equal(q.get(root.id).status, 'failed');
+  assert.equal(q.get(child.id).status, 'cancelled');
+  assert.equal(q.get(grandchild.id).status, 'cancelled');
+  assert.deepEqual(q.stats(), { total: 3, queued: 0, running: 0, completed: 0, failed: 1, cancelled: 2, blocked: 0 });
+});
+
+test('cancelled dependency propagates downstream', () => {
+  const q = new MissionQueue();
+  const root = q.enqueue({ task: 'root' });
+  const child = q.enqueue({ task: 'child', dependsOn: [root.id] });
+  q.cancel(root.id, 'superseded');
+  assert.equal(q.get(child.id).status, 'cancelled');
+  assert.equal(q.claim({ id: 'worker' }), null);
+});
