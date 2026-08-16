@@ -115,7 +115,7 @@ test('process restart during specialist fan-out preserves committed result, recl
 
   const retrySubmission = await restarted.request({
     op: 'submit',
-    text: 'retry payload must not duplicate graph',
+    text: 'plan project debug code and system reliability retry',
     options: { idempotencyKey: 'process-fault-job' }
   });
   assert.deepEqual(retrySubmission.missions.map(x => x.id), submitted.missions.map(x => x.id));
