@@ -1,0 +1,37 @@
+{
+  "decision": "credential-rotation fault campaign",
+  "scope": "defensive synthetic worker orchestration only",
+  "winner": "deterministic end-to-end rotation campaign before real-Qubes execution",
+  "criteria": {
+    "correctness": "must prove old-key acceptance = 0 and duplicate mutations = 0",
+    "robustness": "covers pending mutation, lost response, worker/coordinator restart, and counter reset",
+    "latency": "deterministic local transport keeps feedback fast before VM-boundary testing",
+    "resourceUse": "reuses existing framed transport/runtime with no new daemon or network listener",
+    "regressionRisk": "test-only composition; no production protocol changes",
+    "qa": "CI-gated assertions plus explicit real-Qubes gate"
+  },
+  "alternatives": [
+    {
+      "approach": "move directly to real Qubes",
+      "result": "rejected for now",
+      "lesson": "higher environmental variance makes protocol regressions harder to isolate"
+    },
+    {
+      "approach": "component-only rotation tests",
+      "result": "rejected",
+      "lesson": "cannot prove composition across signer, pending request state, transport, runtime, and coordinator restart"
+    },
+    {
+      "approach": "dual-key grace period during faults",
+      "result": "rejected",
+      "lesson": "keeps a revoked credential valid and weakens the old-key rejection invariant"
+    }
+  ],
+  "successCriteria": {
+    "oldKeyAcceptance": 0,
+    "duplicateMutations": 0,
+    "unresolvedCommittedRequests": 0,
+    "realQubesRequiredForReadiness": true
+  },
+  "next": "Implement the deterministic campaign in CI, then repeat the same scenarios across an actual qrexec VM boundary before REAL-WORKER READY."
+}
