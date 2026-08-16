@@ -6,21 +6,40 @@
   <title>DIG Agent Room</title>
   <style>
     :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark;background:#0b0d10;color:#f5f7fa}
-    *{box-sizing:border-box} body{margin:0;background:#0b0d10} .app{max-width:900px;margin:auto;min-height:100vh;display:flex;flex-direction:column;padding:16px;gap:12px}
+    *{box-sizing:border-box}body{margin:0;background:#0b0d10}.app{max-width:980px;margin:auto;min-height:100vh;display:flex;flex-direction:column;padding:16px;gap:12px}
     header{display:flex;align-items:center;gap:10px;padding:8px 0}.dot{width:10px;height:10px;border-radius:50%;background:#4ade80;box-shadow:0 0 14px #4ade80}.muted{color:#9ca3af;font-size:13px}.spacer{flex:1}
-    select,textarea,button{font:inherit} select,textarea{background:#14181f;color:#fff;border:1px solid #2a3039;border-radius:12px;padding:12px} select{min-width:190px} button{border:0;border-radius:12px;padding:11px 16px;background:#2563eb;color:#fff;font-weight:700} button.secondary{background:#20252d;color:#d1d5db} button:disabled{opacity:.5}
+    select,input,textarea,button{font:inherit}select,input,textarea{background:#14181f;color:#fff;border:1px solid #2a3039;border-radius:12px;padding:12px}select{min-width:190px}button{border:0;border-radius:12px;padding:11px 16px;background:#2563eb;color:#fff;font-weight:700}button.secondary{background:#20252d;color:#d1d5db}button:disabled{opacity:.5}
     #messages{flex:1;display:flex;flex-direction:column;gap:10px;overflow:auto;padding:6px 0 110px}.msg{padding:12px 14px;border:1px solid #242a33;border-radius:16px;background:#12161c;white-space:pre-wrap;line-height:1.55}.msg.user{background:#172554;border-color:#243b76}.who{font-size:12px;color:#9ca3af;margin-bottom:5px;font-weight:700}
-    .composer{position:sticky;bottom:0;background:linear-gradient(transparent,#0b0d10 18%);padding-top:24px}.row{display:flex;gap:8px;align-items:flex-end} textarea{flex:1;min-height:54px;max-height:180px;resize:vertical}
-    .status{font-size:12px;color:#9ca3af;padding-inline:4px}.badge{border:1px solid #2a3039;border-radius:999px;padding:5px 9px;font-size:12px;color:#cbd5e1}
+    .composer{position:sticky;bottom:0;background:linear-gradient(transparent,#0b0d10 18%);padding-top:24px}.row{display:flex;gap:8px;align-items:flex-end}.col{display:flex;flex-direction:column;gap:8px}textarea{flex:1;min-height:54px;max-height:220px;resize:vertical}.status{font-size:12px;color:#9ca3af;padding-inline:4px}.badge{border:1px solid #2a3039;border-radius:999px;padding:5px 9px;font-size:12px;color:#cbd5e1}.owner{border:1px solid #3f3f46;border-radius:16px;padding:12px;background:#111318}.hidden{display:none}.owner textarea{min-height:120px}.owner .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.owner-active{border-color:#f59e0b;color:#fbbf24}
   </style>
 </head>
 <body>
 <div class="app">
   <header>
     <span class="dot"></span><strong>DIG Agent Room</strong>
-    <span class="badge">LOCAL ONLY</span><span class="badge">QUBES OFF</span>
-    <span class="spacer"></span><button class="secondary" id="clear">مسح</button>
+    <span class="badge">LOCAL ONLY</span><span class="badge">QUBES OFF</span><span class="badge" id="ownerBadge">OWNER OFF</span>
+    <span class="spacer"></span><button class="secondary" id="ownerToggle">Owner</button><button class="secondary" id="clear">مسح</button>
   </header>
+
+  <section class="owner hidden" id="ownerPanel">
+    <div class="col">
+      <strong>Owner Mode</strong>
+      <input id="ownerPhrase" type="password" placeholder="Owner phrase" autocomplete="off" />
+      <div class="grid">
+        <input id="model" placeholder="Model مثل qwen2.5:7b" />
+        <input id="temperature" type="number" min="0" max="2" step="0.1" placeholder="Temperature" />
+      </div>
+      <select id="promptAgent">
+        <option value="researcher">Security Researcher prompt</option>
+        <option value="coder">Coder prompt</option>
+        <option value="system">System prompt</option>
+        <option value="qa">QA prompt</option>
+      </select>
+      <textarea id="promptText" placeholder="اكتب prompt مخصص لهذا الـAgent. اتركه فارغًا للرجوع إلى الافتراضي."></textarea>
+      <div class="row"><button id="ownerLoad">تحميل الإعدادات</button><button id="ownerSave">حفظ</button><span class="muted" id="ownerStatus"></span></div>
+    </div>
+  </section>
+
   <div class="row">
     <select id="agent">
       <option value="researcher" selected>Security Researcher</option>
@@ -41,23 +60,25 @@
   </div>
 </div>
 <script>
-const $ = id => document.getElementById(id);
-const key='dig-local-agent-room-v2';
-let history=[];
+const $=id=>document.getElementById(id);
+const key='dig-local-agent-room-v3';
+let history=[];let ownerConfig={model:'',temperature:0.3,prompts:{}};let ownerOn=false;
 try{history=JSON.parse(localStorage.getItem(key)||'[]')}catch{}
 function save(){localStorage.setItem(key,JSON.stringify(history.slice(-100)))}
 function add(role,content,who){const el=document.createElement('div');el.className='msg '+(role==='user'?'user':'');const w=document.createElement('div');w.className='who';w.textContent=who||role;const c=document.createElement('div');c.textContent=content;el.append(w,c);$('messages').append(el);el.scrollIntoView({behavior:'smooth',block:'end'})}
-function render(){ $('messages').innerHTML=''; for(const x of history)add(x.role,x.content,x.who) }
-render();
-async function health(){try{const r=await fetch('/api/health');const d=await r.json();$('health').textContent=`جاهز — ${d.model}`;}catch{$('health').textContent='النموذج المحلي غير متصل';}}
-health();
+function render(){$('messages').innerHTML='';for(const x of history)add(x.role,x.content,x.who)}render();
+function ownerHeaders(){const phrase=$('ownerPhrase').value;return phrase?{'x-dig-owner':phrase}:{}}
+function updateOwnerBadge(){ownerOn=$('ownerPhrase').value.length>0;$('ownerBadge').textContent=ownerOn?'OWNER ON':'OWNER OFF';$('ownerBadge').classList.toggle('owner-active',ownerOn)}
+$('ownerPhrase').addEventListener('input',updateOwnerBadge);
+$('ownerToggle').onclick=()=>$('ownerPanel').classList.toggle('hidden');
+async function health(){try{const r=await fetch('/api/health');const d=await r.json();$('health').textContent=`جاهز — ${d.model}${d.ownerConfigured?' — Owner configured':''}`;}catch{$('health').textContent='النموذج المحلي غير متصل';}}health();
 $('clear').onclick=()=>{history=[];save();render()};
-$('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
-$('send').onclick=send;
-async function send(){const text=$('input').value.trim();if(!text)return;$('input').value='';history.push({role:'user',content:text,who:'أنت'});save();render();$('send').disabled=true;$('status').textContent='يفكرون محليًا…';
-try{const payload={message:text,agent:$('agent').value,history:history.map(x=>({role:x.role,content:x.content}))};const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw new Error(d.detail||d.error||'request failed');
-if(Array.isArray(d.replies)){for(const x of d.replies)history.push({role:'assistant',content:x.reply,who:x.name})}else{history.push({role:'assistant',content:d.reply,who:d.name||'DIG'})}save();render();$('status').textContent='محلي فقط — لا Qubes ولا API cloud.';
-}catch(e){history.push({role:'assistant',content:'تعذر الوصول للنموذج المحلي. تأكد أن Ollama شغال وأن الموديل مثبت.',who:'System'});save();render();$('status').textContent=String(e.message||e)}finally{$('send').disabled=false}}
+$('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});$('send').onclick=send;
+$('promptAgent').onchange=()=>{$('promptText').value=ownerConfig.prompts?.[$('promptAgent').value]||''};
+$('ownerLoad').onclick=async()=>{try{const r=await fetch('/api/owner/config',{headers:ownerHeaders()});const d=await r.json();if(!r.ok)throw new Error(d.error||'auth failed');ownerConfig=d;$('model').value=d.model||'';$('temperature').value=d.temperature??0.3;$('promptText').value=d.prompts?.[$('promptAgent').value]||'';$('ownerStatus').textContent='تم التحميل';updateOwnerBadge();}catch(e){$('ownerStatus').textContent='Owner auth فشل'}};
+$('ownerSave').onclick=async()=>{try{ownerConfig.model=$('model').value.trim();ownerConfig.temperature=Number($('temperature').value||0.3);ownerConfig.prompts=ownerConfig.prompts||{};ownerConfig.prompts[$('promptAgent').value]=$('promptText').value;const r=await fetch('/api/owner/config',{method:'POST',headers:{'content-type':'application/json',...ownerHeaders()},body:JSON.stringify(ownerConfig)});const d=await r.json();if(!r.ok)throw new Error(d.error||'save failed');ownerConfig=d;$('ownerStatus').textContent='تم الحفظ';updateOwnerBadge();health();}catch(e){$('ownerStatus').textContent='الحفظ فشل'}};
+async function send(){const text=$('input').value.trim();if(!text)return;$('input').value='';history.push({role:'user',content:text,who:'أنت'});save();render();$('send').disabled=true;$('status').textContent=ownerOn?'Owner Mode — ينفذ طلبات إدارة التطبيق مباشرة…':'يفكرون محليًا…';
+try{const payload={message:text,agent:$('agent').value,history:history.map(x=>({role:x.role,content:x.content}))};const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json',...ownerHeaders()},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw new Error(d.detail||d.error||'request failed');if(Array.isArray(d.replies)){for(const x of d.replies)history.push({role:'assistant',content:x.reply,who:x.name})}else{history.push({role:'assistant',content:d.reply,who:d.name||'DIG'})}save();render();$('status').textContent=d.ownerMode?'OWNER MODE ACTIVE — app management enabled.':'محلي فقط — لا Qubes ولا API cloud.';}catch(e){history.push({role:'assistant',content:'تعذر الوصول للنموذج المحلي أو فشل Owner authentication.',who:'System'});save();render();$('status').textContent=String(e.message||e)}finally{$('send').disabled=false}}
 </script>
 </body>
 </html>
