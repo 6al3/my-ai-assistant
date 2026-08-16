@@ -51,9 +51,17 @@ export class MissionQueue {
     return structuredClone(mission);
   }
   heartbeat(id, workerId) { const m=this.#ownedRunning(id,workerId); m.leaseUntil=this.now()+this.leaseMs; m.updatedAt=this.now(); return structuredClone(m); }
-  complete(id, workerId, result=null) { const m=this.#ownedRunning(id,workerId); m.status='completed'; m.result=result; m.leaseUntil=null; m.updatedAt=this.now(); return structuredClone(m); }
-  fail(id, workerId, error) { const m=this.#ownedRunning(id,workerId); m.error=String(error??'unknown failure'); m.workerId=null; m.leaseUntil=null; m.updatedAt=this.now(); m.status=m.attempts>=this.maxAttempts?'failed':'queued'; if(m.status==='failed')this.#propagateDependencyFailures(); return structuredClone(m); }
-  cancel(id, reason='cancelled') { const m=this.missions.get(id); if(!m)throw new Error('mission not found'); if(TERMINAL.has(m.status))throw new Error(`mission is ${m.status}`); m.status='cancelled';m.error=String(reason);m.workerId=null;m.leaseUntil=null;m.updatedAt=this.now();this.#propagateDependencyFailures();return structuredClone(m); }
+  complete(id, workerId, result=null) {
+    const existing=this.missions.get(id);
+    if(!existing)throw new Error('mission not found');
+    if(existing.status==='completed'){
+      if(existing.workerId!==workerId||JSON.stringify(existing.result)!==JSON.stringify(result))throw new Error('mission completion conflicts with committed result');
+      return structuredClone(existing);
+    }
+    const m=this.#ownedRunning(id,workerId); m.status='completed'; m.result=result; m.leaseUntil=null; m.updatedAt=this.now(); return structuredClone(m);
+  }
+  fail(id, workerId, error) { const m=this.#ownedRunning(id,workerId); m.error=String(error??'unknown failure'); m.workerId=null;m.leaseUntil=null;m.updatedAt=this.now();m.status=m.attempts>=this.maxAttempts?'failed':'queued';if(m.status==='failed')this.#propagateDependencyFailures();return structuredClone(m); }
+  cancel(id, reason='cancelled') { const m=this.missions.get(id);if(!m)throw new Error('mission not found');if(TERMINAL.has(m.status))throw new Error(`mission is ${m.status}`);m.status='cancelled';m.error=String(reason);m.workerId=null;m.leaseUntil=null;m.updatedAt=this.now();this.#propagateDependencyFailures();return structuredClone(m); }
   requeueExpired() { const now=this.now();let terminalized=false;for(const m of this.missions.values()){if(m.status!=='running'||m.leaseUntil>now)continue;m.workerId=null;m.leaseUntil=null;m.updatedAt=now;m.error='worker lease expired';m.status=m.attempts>=this.maxAttempts?'failed':'queued';terminalized ||= m.status==='failed';}if(terminalized)this.#propagateDependencyFailures(); }
   get(id){const m=this.missions.get(id);return m?structuredClone(m):null;}
   list({status}={}){return [...this.missions.values()].filter(m=>!status||m.status===status).map(m=>structuredClone(m));}
