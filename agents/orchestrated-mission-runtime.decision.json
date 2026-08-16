@@ -1,0 +1,45 @@
+{
+  "decision": "convert orchestrator plans into durable capability-gated mission chains",
+  "scope": "lab orchestration and synthetic workers only",
+  "winner": "thin OrchestratedMissionRuntime adapter over existing planner and MissionCoordinator",
+  "comparison": [
+    {
+      "approach": "thin adapter over planner + durable coordinator",
+      "correctness": "high: planner output becomes persisted dependency-ordered missions with per-agent capability gates",
+      "robustness": "high for coordinator restart and submission retry through derived idempotency keys",
+      "latency": "moderate: one durable snapshot per planned agent mission",
+      "resourceUse": "low at lab scale",
+      "regressionRisk": "low: existing planner and queue semantics remain separate",
+      "qa": "restart persistence, submission idempotency, capability and dependency ordering",
+      "result": "selected"
+    },
+    {
+      "approach": "rewrite orchestrator to own persistence and worker state",
+      "correctness": "potentially high",
+      "robustness": "medium until duplicated queue semantics are proven",
+      "latency": "similar",
+      "resourceUse": "low",
+      "regressionRisk": "high due to duplicated scheduling/state-machine behavior",
+      "qa": "would require replacing broad existing coverage",
+      "result": "rejected"
+    },
+    {
+      "approach": "direct dispatch from planner without durable missions",
+      "correctness": "low across restart",
+      "robustness": "low",
+      "latency": "best",
+      "resourceUse": "best",
+      "regressionRisk": "medium operational risk from lost work",
+      "qa": "cannot prove recovery/idempotency",
+      "result": "rejected"
+    }
+  ],
+  "whyItWon": "It closes the actual planner-to-durable-queue integration gap without merging routing, persistence, and worker execution into one component. It preserves low regression surface while making every selected agent explicit, durable, capability-gated work.",
+  "lessons": [
+    "Serial dependency chaining is conservative and deterministic but sacrifices parallelism among independent agents; fan-out plus review joins should be evaluated next.",
+    "Derived per-agent idempotency keys make submission retry stable only when planner membership is stable for the same logical submission.",
+    "This is not evidence for multiple live coordinators sharing one snapshot file.",
+    "Real Qubes remains blocked until full QA is green and process/VM-boundary fault tests pass."
+  ],
+  "readiness": "LAB READY"
+}
