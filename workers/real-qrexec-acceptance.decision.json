@@ -1,0 +1,58 @@
+{
+  "decision": "real-qrexec-client-vm-read-only-acceptance",
+  "status": "selected-for-lab-gate",
+  "criteria": ["correctness", "robustness", "latency", "resourceUse", "regressionRisk", "qa"],
+  "approaches": [
+    {
+      "name": "qrexec-client-vm adapter plus read-only authenticated probe",
+      "correctness": 5,
+      "robustness": 5,
+      "latency": 4,
+      "resourceUse": 4,
+      "regressionRisk": 4,
+      "qa": 5,
+      "result": "selected",
+      "why": "Uses the production VM-to-VM qrexec client boundary and existing framed protocol while proving transport, authentication, persistent counters, timeout handling, policy-denial propagation, and pending-request reconciliation without mutating mission state."
+    },
+    {
+      "name": "jump directly to synthetic claim mutation over real qrexec",
+      "correctness": 4,
+      "robustness": 3,
+      "latency": 4,
+      "resourceUse": 4,
+      "regressionRisk": 2,
+      "qa": 3,
+      "result": "deferred",
+      "why": "Closer to final behavior but unnecessarily changes coordinator mission state before the transport/auth boundary itself is proven in a real Qube."
+    },
+    {
+      "name": "HTTP or socket acceptance proxy",
+      "correctness": 2,
+      "robustness": 2,
+      "latency": 3,
+      "resourceUse": 3,
+      "regressionRisk": 2,
+      "qa": 2,
+      "result": "rejected",
+      "why": "Exercises a different trust and transport boundary and introduces a network/socket surface not used by the selected qrexec design."
+    },
+    {
+      "name": "process-boundary stdio simulation only",
+      "correctness": 4,
+      "robustness": 4,
+      "latency": 5,
+      "resourceUse": 5,
+      "regressionRisk": 5,
+      "qa": 4,
+      "result": "completed-previous-gate",
+      "why": "Excellent deterministic CI coverage but cannot validate Qubes policy evaluation, qrexec-client-vm invocation, or a real VM boundary."
+    }
+  ],
+  "failuresAndLessons": [
+    "Treat qrexec process timeout and policy denial as explicit fail-closed errors rather than transport retries.",
+    "Bound stdout and stderr collection so a faulty remote service cannot grow worker memory without limit.",
+    "Validate target/service names before spawn and never invoke through a shell.",
+    "Use a read-only request-status probe as the first real-Qubes acceptance gate; synthetic mission mutation is the next gate only after this succeeds.",
+    "A green fake-qrexec CI test is not evidence of a real Qubes deployment. REAL-WORKER readiness still requires execution inside isolated Qubes with installed policy/service."
+  ]
+}
