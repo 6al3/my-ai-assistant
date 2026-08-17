@@ -22,12 +22,14 @@ final class MissionControlPlane: ObservableObject {
     @Published private(set) var revision: String?
     @Published private(set) var lastChecked: Date?
     @Published private(set) var isLoading = false
+    @Published private(set) var requiresOwnerSession = false
     @Published private(set) var error: String?
 
     /// Read-only by design. Mutating worker controls must use a separately
     /// authenticated command channel and are intentionally not exposed here.
     func refresh(baseURL: URL) async {
-        guard baseURL.scheme == "https" else {
+        guard baseURL.scheme?.lowercased() == "https" else {
+            requiresOwnerSession = false
             error = "Mission telemetry requires HTTPS"
             return
         }
@@ -44,8 +46,15 @@ final class MissionControlPlane: ObservableObject {
             request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else {
+                throw URLError(.badServerResponse)
+            }
+            if http.statusCode == 401 {
+                requiresOwnerSession = true
+                error = "Owner session required"
+                return
+            }
+            guard (200..<300).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
 
@@ -57,6 +66,7 @@ final class MissionControlPlane: ObservableObject {
             missions = decoded.missions
             revision = decoded.revision
             lastChecked = Date()
+            requiresOwnerSession = false
             error = nil
         } catch {
             self.error = error.localizedDescription
