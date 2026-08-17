@@ -1,41 +1,43 @@
 {
-  "decision": "read-only HTTPS mission telemetry first",
+  "decision": "read-only HTTPS mission telemetry with explicit owner-session bootstrap",
   "status": "selected",
-  "context": "The iPhone app needs visibility into distributed mission state without becoming a new authority boundary before Qubes worker semantics are proven.",
+  "context": "The iPhone app needs visibility into distributed mission state without becoming a new authority boundary before Qubes worker semantics are proven. The server /api/missions endpoint is owner-authenticated, so the phone must establish the existing cookie session rather than inventing a second authentication scheme.",
   "approaches": [
     {
-      "name": "read-only HTTPS snapshot client",
-      "correctness": "strong separation: phone observes state but cannot mutate workers",
-      "robustness": "fail-closed on non-HTTPS, malformed response, non-2xx, or missing revision",
-      "latency": "one bounded GET per refresh",
-      "resourceUse": "low; no persistent socket or background daemon",
-      "regressionRisk": "low; additive Swift model/service only",
-      "qa": "requires Swift build plus server contract tests once /api/missions is implemented"
+      "name": "existing owner cookie session + read-only HTTPS snapshot",
+      "correctness": "strongest separation: phone authenticates through /api/auth, then only performs GET /api/missions; worker mutation remains exclusively server-side",
+      "robustness": "fail-closed on non-HTTPS, malformed response, non-2xx, expired session, missing revision, or unavailable telemetry",
+      "latency": "one bounded auth status GET and one bounded mission GET per refresh; login only when session is absent or expired",
+      "resourceUse": "low; shared URLSession cookie handling and no persistent socket/background daemon",
+      "regressionRisk": "low; reuses established server authentication and adds no new authorization semantics",
+      "qa": "Node contract tests verify HTTPS-only access, GET-only mission telemetry, 401 handling, no password persistence, and no worker mutation controls; native Swift build remains a separate environment gate"
     },
     {
-      "name": "bidirectional command API from iPhone",
-      "correctness": "weaker at this stage because it creates a second mutation/authentication path",
-      "robustness": "requires nonce, replay, authorization, reconciliation, and command fencing",
-      "latency": "low interactive latency but higher protocol complexity",
-      "resourceUse": "moderate",
+      "name": "new bearer or pairing token dedicated to mission telemetry",
+      "correctness": "can work but duplicates authentication and revocation semantics",
+      "robustness": "would require new token issuance, storage, rotation, scope, expiration, and revocation logic",
+      "latency": "slightly fewer auth requests after token provisioning",
+      "resourceUse": "low",
+      "regressionRisk": "medium-high because it creates another credential path",
+      "qa": "rejected for this stage"
+    },
+    {
+      "name": "bidirectional command API or websocket from iPhone",
+      "correctness": "weaker at this stage because it creates a second mutation/ordering boundary",
+      "robustness": "requires durable nonce/replay protection, command fencing, reconnect ordering, and reconciliation",
+      "latency": "best interactive/live-update latency",
+      "resourceUse": "moderate to high",
       "regressionRisk": "high",
       "qa": "deferred until worker boundary is REAL-WORKER READY"
-    },
-    {
-      "name": "persistent websocket control plane",
-      "correctness": "good eventual UX but adds ordering/reconnect semantics",
-      "robustness": "requires durable cursor and reconnect reconciliation",
-      "latency": "best live-update latency",
-      "resourceUse": "highest phone/server lifecycle cost",
-      "regressionRisk": "medium-high",
-      "qa": "deferred"
     }
   ],
-  "winnerReason": "The read-only snapshot client gives immediate owner visibility with the smallest authority surface, resource footprint, and regression risk. It preserves the existing durable coordinator as the sole mutation authority.",
+  "winnerReason": "Reusing the existing HttpOnly Secure SameSite owner session is the strongest approach because it closes the actual integration gap without weakening server controls or creating a new credential system. The dashboard remains read-only, requires HTTPS, does not persist the typed owner password, and relies on the server's existing 12-hour session cookie.",
   "failuresAndLessons": [
-    "Do not expose mission mutation from the phone merely for UI convenience.",
-    "A telemetry response needs a revision so stale or reordered snapshots can be detected when the server contract is implemented.",
-    "Transport security alone is not sufficient for future command mutations; those must reuse durable request identity and replay/fencing semantics."
+    "The first MissionControlPlane client could not successfully call /api/missions because it did not establish the owner-authenticated cookie session required by the server endpoint.",
+    "Local Face ID/device authentication and server owner authentication are distinct trust boundaries; one must not silently substitute for the other.",
+    "Do not persist the server owner password merely for convenience; establish a bounded server session and clear the typed password immediately after login.",
+    "Do not expose claim, complete, cancel, retry, or dispatch controls from the phone while Qubes worker correctness is still only LAB READY.",
+    "Static contract QA protects authority and endpoint semantics but does not replace a native Swift/Xcode build and runtime test."
   ],
-  "nextGate": "Implement a read-only /api/missions contract backed by a safe mission snapshot source, add Node contract tests, then compile/test the Swift client."
+  "nextGate": "Get DIG Node QA green on the new contract tests, then run a native Swift build/runtime test when an Apple build environment is available. REAL-WORKER readiness remains gated separately on a real Qube-to-Qube qrexec campaign."
 }
