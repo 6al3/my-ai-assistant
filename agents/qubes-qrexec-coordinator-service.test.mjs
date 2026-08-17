@@ -77,8 +77,10 @@ test('qrexec-style one-process-per-call retries return committed response withou
     assert.equal(first.code, 0);
     assert.equal(first.responses.length, 1);
     assert.equal(first.responses[0].ok, true);
-    const missionId = first.responses[0].result?.missions?.find?.(mission => mission.agent === 'coder')?.id ?? first.responses[0].result?.id;
-    assert.ok(missionId, 'submit should return a durable mission id');
+    const coderMission = first.responses[0].result?.missions?.find?.(mission =>
+      mission.metadata?.agentId === 'coder' || mission.requiredCapabilities?.includes?.('coder')
+    );
+    assert.ok(coderMission?.id, 'submit should return the durable coder mission produced by the runtime contract');
 
     const retry = await invokeService({ storePath, journalPath, envelope: submit });
     assert.equal(retry.code, 0);
