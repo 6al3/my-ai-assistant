@@ -100,3 +100,47 @@ test('qrexec-style one-process-per-call retries return committed response withou
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('qrexec process-per-call preserves live claim fencing through complete', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dig-qrexec-lease-'));
+  const storePath = path.join(dir, 'queue.json');
+  const journalPath = path.join(dir, 'journal.json');
+  try {
+    const submit = await invokeService({
+      storePath,
+      journalPath,
+      envelope: signed('submit', { text: 'Coder: synthetic durable lease task', options: { idempotencyKey: 'qrexec-lease-task' } })
+    });
+    assert.equal(submit.responses[0].ok, true);
+
+    for (const agentId of ['orchestrator', 'planner', 'coder']) {
+      const claim = await invokeService({
+        storePath,
+        journalPath,
+        envelope: signed('claim', { worker: { id: `${agentId}-worker`, capabilities: [agentId] } })
+      });
+      assert.equal(claim.code, 0);
+      assert.equal(claim.responses[0].ok, true);
+      const mission = claim.responses[0].result;
+      assert.ok(mission?.id, `${agentId} should claim a mission`);
+      assert.equal(typeof mission.leaseToken, 'string');
+      assert.ok(mission.leaseToken.length >= 16);
+
+      const complete = await invokeService({
+        storePath,
+        journalPath,
+        envelope: signed('complete', {
+          id: mission.id,
+          workerId: `${agentId}-worker`,
+          leaseToken: mission.leaseToken,
+          result: { synthetic: true, agentId }
+        })
+      });
+      assert.equal(complete.code, 0);
+      assert.equal(complete.responses[0].ok, true, complete.responses[0].error);
+      assert.equal(complete.responses[0].result.status, 'completed');
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
