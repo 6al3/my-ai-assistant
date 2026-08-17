@@ -43,6 +43,7 @@ test('clean campaign emits zero blocker counters with measured latency', async (
   });
 
   assert.deepEqual(collectQrexecCampaign(events), {
+    provenance: null,
     duplicateCommittedMutations: 0,
     staleCompletions: 0,
     unresolvedPendingRequests: 0,
@@ -74,6 +75,7 @@ test('crash retry uses fault then recovery service and records one committed mut
   });
 
   assert.deepEqual(collectQrexecCampaign(events), {
+    provenance: null,
     duplicateCommittedMutations: 0,
     staleCompletions: 0,
     unresolvedPendingRequests: 0,
