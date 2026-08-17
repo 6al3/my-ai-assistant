@@ -33,17 +33,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  node-test:
+  syntax-check:
+    name: syntax-check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v5
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
+      - name: Run syntax checks
+        run: npm run check
 
-      - name: Run complete DIG Node QA
-        run: npm test
+  test-suite:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: queue-core
+            tests: >-
+              box/project-files.test.mjs
+              api/missions-core.test.mjs
+              agents/mission-queue.test.mjs
+              agents/mission-queue-store.test.mjs
+              agents/mission-coordinator.test.mjs
+          - name: worker-reliability
+            tests: >-
+              agents/worker-runtime.test.mjs
+              agents/worker-transport-envelope.test.mjs
+              agents/durable-request-journal.test.mjs
+              agents/worker-lease-fencing.test.mjs
+              agents/orchestrated-mission-runtime.test.mjs
+          - name: distributed-faults
+            tests: >-
+              agents/orchestration-benchmark.test.mjs
+              agents/orchestration-process-fault.test.mjs
+              agents/orchestration-authenticated-recovery.test.mjs
+              agents/qubes-qrexec-coordinator-service.test.mjs
+              agents/qubes-qrexec-readiness-gate.test.mjs
+              agents/qubes-qrexec-campaign-collector.test.mjs
+              agents/qubes-qrexec-campaign-harness.test.mjs
+          - name: synthetic-sandboxes
+            tests: >-
+              agents/benchmark-arena.test.mjs
+              agents/payment-sandbox.test.mjs
+              agents/collaboration-sandbox.test.mjs
+              ios/DIGAssistant/mission-control-plane-contract.test.mjs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Run ${{ matrix.name }}
+        run: node --test ${{ matrix.tests }}
