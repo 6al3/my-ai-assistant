@@ -22,6 +22,12 @@ export async function runProcessCoordinator({
   const journal = requestJournalPath ? await DurableRequestJournal.open(requestJournalPath) : null;
   const lines = readline.createInterface({ input, crlfDelay: Infinity });
   const reply = value => output.write(`${JSON.stringify(value)}\n`);
+  const publicMission = mission => {
+    if (!mission || typeof mission !== 'object' || Array.isArray(mission)) return mission;
+    const copy = structuredClone(mission);
+    delete copy.leaseToken;
+    return copy;
+  };
   const requireLeaseToken = command => {
     if (!authenticatedTransport) return command?.leaseToken ?? null;
     if (typeof command?.leaseToken !== 'string' || command.leaseToken.length < 16) throw new Error('leaseToken is required for authenticated worker mutation');
@@ -34,7 +40,7 @@ export async function runProcessCoordinator({
       case 'heartbeat': return runtime.heartbeat(command.id, command.workerId, requireLeaseToken(command));
       case 'complete': return runtime.complete(command.id, command.workerId, command.result ?? null, requireLeaseToken(command));
       case 'fail': return runtime.fail(command.id, command.workerId, command.error ?? 'synthetic failure', requireLeaseToken(command));
-      case 'get': return runtime.get(command.id);
+      case 'get': return publicMission(runtime.get(command.id));
       case 'stats': return runtime.stats();
       case 'completeAndExit': {
         const completed = await runtime.complete(command.id, command.workerId, command.result ?? null, requireLeaseToken(command));
