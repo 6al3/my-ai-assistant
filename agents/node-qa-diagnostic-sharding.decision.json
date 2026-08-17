@@ -1,0 +1,46 @@
+{
+  "decision": "diagnostic sharding for DIG Node QA",
+  "scope": "CI observability and regression isolation for orchestration, queue, worker, Qubes, and synthetic sandbox tests",
+  "winner": "four semantic test shards plus a dedicated syntax-check job",
+  "comparison": [
+    {
+      "approach": "single monolithic npm test job",
+      "correctness": "high when green but weak diagnostic value when red",
+      "robustness": "low during failures because one exit code hides the failing subsystem when logs are unavailable",
+      "latency": "lowest runner overhead but serial critical path",
+      "resourceUse": "lowest concurrent runner use",
+      "regressionRisk": "high operational debugging risk because unrelated suites are coupled into one opaque result",
+      "qa": "previous DIG Node QA #133 failed with only an aggregate exit code visible to the connected tooling",
+      "result": "rejected"
+    },
+    {
+      "approach": "one GitHub Actions job per test file",
+      "correctness": "highest fault localization",
+      "robustness": "high",
+      "latency": "low wall-clock if runners are immediately available",
+      "resourceUse": "highest; excessive runner fan-out for the current project size",
+      "regressionRisk": "moderate due to workflow maintenance and duplicated setup overhead",
+      "qa": "would identify every failing file directly",
+      "result": "rejected for current scale"
+    },
+    {
+      "approach": "four semantic test shards plus a dedicated syntax-check job",
+      "correctness": "high; every prior npm-test file remains covered",
+      "robustness": "high; failures isolate to queue-core, worker-reliability, distributed-faults, or synthetic-sandboxes",
+      "latency": "lower critical path through bounded parallelism",
+      "resourceUse": "moderate and bounded to five jobs",
+      "regressionRisk": "low; production code is untouched and fail-fast is disabled so all subsystem results are collected",
+      "qa": "same test inventory, explicit syntax gate, semantic fault localization",
+      "result": "selected"
+    }
+  ],
+  "whyItWon": "It preserves complete coverage while turning an opaque aggregate failure into actionable subsystem evidence. The bounded parallelism improves time-to-diagnosis without the runner cost and maintenance burden of one job per file.",
+  "failuresAndLessons": [
+    "A green monolithic suite is sufficient for release confidence, but a red monolithic suite is poor operational telemetry when job logs are unavailable through the connected interface.",
+    "CI observability is part of reliability engineering: diagnostic resolution determines how quickly regressions in distributed worker semantics can be isolated safely.",
+    "Syntax checking should remain independent from behavioral tests so parser/import regressions do not obscure runtime fault-test outcomes.",
+    "The shard boundaries must stay semantic and must be updated whenever new test files are added to package.json."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "use the first sharded run to identify the failing subsystem, repair the root cause with a regression test, then require all shards green before Qubes worker testing"
+}
