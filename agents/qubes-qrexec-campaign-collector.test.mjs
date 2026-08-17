@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectQrexecCampaign, parseCampaignJsonl } from './qubes-qrexec-campaign-collector.mjs';
 
-test('collects a clean synthetic Qubes campaign into readiness-gate shape', () => {
+const start = { type: 'campaign_start', runId: 'run-1', transport: 'qrexec', sourceQube: 'AI', targetQube: 'DIG-Coordinator', service: 'dig.Coordinator', gitSha: 'a'.repeat(40), startedAt: '2026-08-17T15:00:00.000Z' };
+const end = { type: 'campaign_end', runId: 'run-1', finishedAt: '2026-08-17T15:01:00.000Z' };
+
+test('collects a clean synthetic Qubes campaign into readiness-gate shape with provenance', () => {
   const report = collectQrexecCampaign([
+    start,
     { type: 'request_pending', requestId: 'r1' },
     { type: 'mutation_committed', mutationKey: 'r1:complete:coder' },
     { type: 'request_resolved', requestId: 'r1' },
@@ -13,10 +17,14 @@ test('collects a clean synthetic Qubes campaign into readiness-gate shape', () =
     { type: 'round_trip', durationMs: 18 },
     { type: 'recovery', durationMs: 110 },
     { type: 'recovery', durationMs: 120 },
-    { type: 'recovery', durationMs: 130 }
+    { type: 'recovery', durationMs: 130 },
+    end
   ]);
 
   assert.deepEqual(report, {
+    provenance: {
+      runId: 'run-1', transport: 'qrexec', sourceQube: 'AI', targetQube: 'DIG-Coordinator', service: 'dig.Coordinator', gitSha: 'a'.repeat(40), startedAt: '2026-08-17T15:00:00.000Z', finishedAt: '2026-08-17T15:01:00.000Z'
+    },
     duplicateCommittedMutations: 0,
     staleCompletions: 0,
     unresolvedPendingRequests: 0,
@@ -34,11 +42,11 @@ test('derives duplicate, stale, unresolved, and QA-before-join failures from eve
     { type: 'stale_completion' },
     { type: 'qa_started', pendingDependencies: 2 }
   ]);
-
   assert.equal(report.duplicateCommittedMutations, 1);
   assert.equal(report.staleCompletions, 1);
   assert.equal(report.unresolvedPendingRequests, 1);
   assert.equal(report.qaBeforeJoin, 1);
+  assert.equal(report.provenance, null);
 });
 
 test('request resolution is idempotent and only open request IDs remain unresolved', () => {
@@ -50,6 +58,14 @@ test('request resolution is idempotent and only open request IDs remain unresolv
     { type: 'request_resolved', requestId: 'a' }
   ]);
   assert.equal(report.unresolvedPendingRequests, 1);
+});
+
+test('provenance framing rejects duplicates, mismatches, same-qube, and inverted time', () => {
+  assert.throws(() => collectQrexecCampaign([start, start]), /only once/);
+  assert.throws(() => collectQrexecCampaign([end]), /requires campaign_start/);
+  assert.throws(() => collectQrexecCampaign([start, { ...end, runId: 'other' }]), /runId mismatch/);
+  assert.throws(() => collectQrexecCampaign([{ ...start, targetQube: 'AI' }]), /must differ/);
+  assert.throws(() => collectQrexecCampaign([start, { ...end, finishedAt: '2026-08-17T14:59:00.000Z' }]), /precedes/);
 });
 
 test('rejects malformed and unsupported events fail-closed', () => {
