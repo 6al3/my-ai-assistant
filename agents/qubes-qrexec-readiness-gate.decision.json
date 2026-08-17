@@ -1,0 +1,62 @@
+{
+  "decision": "deterministic-report-gate",
+  "scope": "synthetic defensive Qubes/qrexec worker readiness only",
+  "winner": {
+    "approach": "deterministic report evaluator over measured VM-boundary campaign outputs",
+    "why": [
+      "keeps the existing qrexec protocol semantics unchanged",
+      "separates environment execution from readiness policy",
+      "fails closed on malformed or insufficient evidence",
+      "gates both correctness invariants and latency budgets",
+      "adds negligible runtime/resource overhead and low regression risk",
+      "is replayable in CI from captured synthetic campaign reports"
+    ]
+  },
+  "alternatives": [
+    {
+      "approach": "hard-code Qubes command execution directly into the Node test suite",
+      "correctness": "medium",
+      "robustness": "low outside Qubes runners",
+      "latency": "high and noisy",
+      "resourceUse": "high",
+      "regressionRisk": "high",
+      "qa": "would make ordinary CI environment-dependent",
+      "rejectedBecause": "couples correctness tests to Qubes availability and produces noisy CI"
+    },
+    {
+      "approach": "manual operator review of raw qrexec logs",
+      "correctness": "operator-dependent",
+      "robustness": "low",
+      "latency": "low implementation cost but high review cost",
+      "resourceUse": "low compute",
+      "regressionRisk": "medium due to inconsistent interpretation",
+      "qa": "not machine-gated",
+      "rejectedBecause": "cannot provide a deterministic readiness decision"
+    },
+    {
+      "approach": "deterministic report evaluator over measured VM-boundary campaign outputs",
+      "correctness": "high when the campaign collector is trustworthy",
+      "robustness": "high",
+      "latency": "negligible evaluator overhead",
+      "resourceUse": "minimal",
+      "regressionRisk": "low",
+      "qa": "fully unit-testable and replayable",
+      "selected": true
+    }
+  ],
+  "gates": {
+    "duplicateCommittedMutations": 0,
+    "staleCompletions": 0,
+    "unresolvedPendingRequests": 0,
+    "qaBeforeJoin": 0,
+    "minimumLatencySamples": 3,
+    "recoveryP95MsMax": 5000,
+    "roundTripP95MsMax": 1000
+  },
+  "lessons": [
+    "A green process-boundary test is not evidence of a green VM-boundary test.",
+    "Readiness must be derived from captured evidence, not inferred from transport similarity.",
+    "Correctness counters are release blockers even when latency is excellent.",
+    "Insufficient sample size must fail closed rather than silently classify the worker as ready."
+  ]
+}
