@@ -9,6 +9,12 @@ function assertString(value, name) {
   return value.trim();
 }
 
+function assertIsoDate(value, name) {
+  const text = assertString(value, name);
+  if (!Number.isFinite(Date.parse(text))) throw new TypeError(`${name} must be an ISO date`);
+  return text;
+}
+
 export function collectQrexecCampaign(events) {
   if (!Array.isArray(events)) throw new TypeError('events must be an array');
 
@@ -19,12 +25,38 @@ export function collectQrexecCampaign(events) {
   let duplicateCommittedMutations = 0;
   let staleCompletions = 0;
   let qaBeforeJoin = 0;
+  let provenance = null;
+  let endedAt = null;
 
   for (const [index, event] of events.entries()) {
     if (!event || typeof event !== 'object' || Array.isArray(event)) throw new TypeError(`event[${index}] must be an object`);
     const type = assertString(event.type, `event[${index}].type`);
 
     switch (type) {
+      case 'campaign_start': {
+        if (provenance) throw new Error('campaign_start may appear only once');
+        const sourceQube = assertString(event.sourceQube, `event[${index}].sourceQube`);
+        const targetQube = assertString(event.targetQube, `event[${index}].targetQube`);
+        if (sourceQube === targetQube) throw new Error('sourceQube and targetQube must differ');
+        provenance = {
+          runId: assertString(event.runId, `event[${index}].runId`),
+          transport: assertString(event.transport, `event[${index}].transport`),
+          sourceQube,
+          targetQube,
+          service: assertString(event.service, `event[${index}].service`),
+          gitSha: assertString(event.gitSha, `event[${index}].gitSha`),
+          startedAt: assertIsoDate(event.startedAt, `event[${index}].startedAt`)
+        };
+        break;
+      }
+      case 'campaign_end': {
+        if (!provenance) throw new Error('campaign_end requires campaign_start');
+        if (endedAt) throw new Error('campaign_end may appear only once');
+        if (assertString(event.runId, `event[${index}].runId`) !== provenance.runId) throw new Error('campaign_end runId mismatch');
+        endedAt = assertIsoDate(event.finishedAt, `event[${index}].finishedAt`);
+        if (Date.parse(endedAt) < Date.parse(provenance.startedAt)) throw new Error('campaign_end precedes campaign_start');
+        break;
+      }
       case 'round_trip': {
         assertFiniteDuration(event.durationMs, `event[${index}].durationMs`);
         roundTripLatencyMs.push(event.durationMs);
@@ -41,31 +73,20 @@ export function collectQrexecCampaign(events) {
         else committedMutationKeys.add(mutationKey);
         break;
       }
-      case 'stale_completion': {
-        staleCompletions += 1;
-        break;
-      }
-      case 'request_pending': {
-        pendingRequests.add(assertString(event.requestId, `event[${index}].requestId`));
-        break;
-      }
-      case 'request_resolved': {
-        pendingRequests.delete(assertString(event.requestId, `event[${index}].requestId`));
-        break;
-      }
+      case 'stale_completion': staleCompletions += 1; break;
+      case 'request_pending': pendingRequests.add(assertString(event.requestId, `event[${index}].requestId`)); break;
+      case 'request_resolved': pendingRequests.delete(assertString(event.requestId, `event[${index}].requestId`)); break;
       case 'qa_started': {
-        if (!Number.isInteger(event.pendingDependencies) || event.pendingDependencies < 0) {
-          throw new TypeError(`event[${index}].pendingDependencies must be a non-negative integer`);
-        }
+        if (!Number.isInteger(event.pendingDependencies) || event.pendingDependencies < 0) throw new TypeError(`event[${index}].pendingDependencies must be a non-negative integer`);
         if (event.pendingDependencies > 0) qaBeforeJoin += 1;
         break;
       }
-      default:
-        throw new Error(`unsupported campaign event type: ${type}`);
+      default: throw new Error(`unsupported campaign event type: ${type}`);
     }
   }
 
   return {
+    provenance: provenance && endedAt ? { ...provenance, finishedAt: endedAt } : null,
     duplicateCommittedMutations,
     staleCompletions,
     unresolvedPendingRequests: pendingRequests.size,
@@ -79,11 +100,8 @@ export function parseCampaignJsonl(input) {
   if (typeof input !== 'string') throw new TypeError('input must be a string');
   const lines = input.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   return lines.map((line, index) => {
-    try {
-      return JSON.parse(line);
-    } catch (error) {
-      throw new Error(`invalid campaign JSON on line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    try { return JSON.parse(line); }
+    catch (error) { throw new Error(`invalid campaign JSON on line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`); }
   });
 }
 
