@@ -92,4 +92,22 @@ jobs:
         with:
           node-version: '22'
       - name: Run ${{ matrix.name }}
+        if: matrix.name != 'distributed-faults'
         run: node --test ${{ matrix.tests }}
+      - name: Run distributed-faults with file diagnostics
+        if: matrix.name == 'distributed-faults'
+        shell: bash
+        run: |
+          set +e
+          failed=0
+          for test_file in ${{ matrix.tests }}; do
+            echo "::group::${test_file}"
+            node --test "$test_file"
+            status=$?
+            echo "::endgroup::"
+            if [ "$status" -ne 0 ]; then
+              echo "::error file=${test_file}::DIG distributed-fault test failed: ${test_file} (exit ${status})"
+              failed=1
+            fi
+          done
+          exit "$failed"
