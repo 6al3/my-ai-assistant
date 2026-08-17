@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import test from 'node:test';
+import { randomUUID } from 'node:crypto';
+import { signWorkerEnvelope } from './worker-transport-envelope.mjs';
+
+const SECRET = 'dig-qrexec-synthetic-secret-000000000000';
+const SERVICE = new URL('./qubes-qrexec-coordinator-service.mjs', import.meta.url);
+
+function invokeService({ storePath, journalPath, envelope, extraEnv = {} }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [SERVICE.pathname], {
+      env: {
+        ...process.env,
+        DIG_ORCHESTRATION_STORE: storePath,
+        DIG_REQUEST_JOURNAL: journalPath,
+        DIG_TRANSPORT_SECRET: SECRET,
+        ...extraEnv
+      },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', code => {
+      const lines = stdout.trim().split('\n').filter(Boolean);
+      resolve({ code, stderr, responses: lines.map(line => JSON.parse(line)) });
+    });
+
+    child.stdin.end(`${JSON.stringify(envelope)}\n`);
+  });
+}
+
+function signed(op, body, requestId = randomUUID()) {
+  return signWorkerEnvelope({ requestId, op, body, secret: SECRET });
+}
+
+test('qrexec service is fail-closed when durable/auth config is incomplete', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dig-qrexec-config-'));
+  try {
+    const child = spawn(process.execPath, [SERVICE.pathname], {
+      env: { ...process.env, DIG_ORCHESTRATION_STORE: path.join(dir, 'queue.json') },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    child.stdin.end('{}\n');
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const code = await new Promise((resolve, reject) => {
+      child.on('error', reject);
+      child.on('close', resolve);
+    });
+    assert.equal(code, 1);
+    assert.match(stderr, /DIG_REQUEST_JOURNAL is required/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('qrexec-style one-process-per-call retries return committed response without duplicate mutation', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dig-qrexec-contract-'));
+  const storePath = path.join(dir, 'queue.json');
+  const journalPath = path.join(dir, 'journal.json');
+  try {
+    const submitRequestId = randomUUID();
+    const submit = signed('submit', { text: 'Coder: synthetic qrexec contract task', options: { idempotencyKey: 'qrexec-contract-task' } }, submitRequestId);
+
+    const first = await invokeService({ storePath, journalPath, envelope: submit });
+    assert.equal(first.code, 0);
+    assert.equal(first.responses.length, 1);
+    assert.equal(first.responses[0].ok, true);
+    const missionId = first.responses[0].result?.missions?.find?.(mission => mission.agent === 'coder')?.id ?? first.responses[0].result?.id;
+    assert.ok(missionId, 'submit should return a durable mission id');
+
+    const retry = await invokeService({ storePath, journalPath, envelope: submit });
+    assert.equal(retry.code, 0);
+    assert.deepEqual(retry.responses, first.responses);
+
+    const stats = await invokeService({ storePath, journalPath, envelope: signed('stats', null) });
+    assert.equal(stats.code, 0);
+    assert.equal(stats.responses[0].ok, true);
+    assert.equal(stats.responses[0].result.total >= 1, true);
+
+    const tampered = { ...submit, body: { text: 'Coder: changed command', options: { idempotencyKey: 'qrexec-contract-task' } } };
+    const rejected = await invokeService({ storePath, journalPath, envelope: tampered });
+    assert.equal(rejected.code, 0);
+    assert.equal(rejected.responses[0].ok, false);
+    assert.match(rejected.responses[0].error, /authentication failed|different command/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
