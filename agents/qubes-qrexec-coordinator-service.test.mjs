@@ -109,7 +109,7 @@ test('qrexec process-per-call preserves live claim fencing through complete', as
     const submit = await invokeService({
       storePath,
       journalPath,
-      envelope: signed('submit', { text: 'Coder: synthetic durable lease task', options: { idempotencyKey: 'qrexec-lease-task' } })
+      envelope: signed('submit', { text: 'Build code for a synthetic durable lease task', options: { idempotencyKey: 'qrexec-lease-task' } })
     });
     assert.equal(submit.responses[0].ok, true);
 
