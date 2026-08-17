@@ -1,0 +1,37 @@
+{
+  "decision": "derive readiness metrics from append-only campaign events",
+  "selected": "deterministic JSONL event collector",
+  "alternatives": [
+    {
+      "name": "trust a precomputed campaign summary",
+      "correctness": "weakest; producer bugs can hide duplicate or unresolved operations",
+      "robustness": "medium",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "high because metric derivation is outside the tested gate"
+    },
+    {
+      "name": "deterministic JSONL event collector",
+      "correctness": "strong; readiness counters are derived from raw synthetic campaign events",
+      "robustness": "strong; malformed or unknown events fail closed",
+      "latency": "low and linear in event count",
+      "resourceUse": "low; bounded by unique mutation/request keys plus latency samples",
+      "regressionRisk": "low; output matches the existing readiness-gate contract"
+    },
+    {
+      "name": "central telemetry/database service",
+      "correctness": "potentially strongest at scale",
+      "robustness": "strong but adds network and service dependencies",
+      "latency": "highest",
+      "resourceUse": "highest",
+      "regressionRisk": "highest for the current lab stage"
+    }
+  ],
+  "whyItWon": "The JSONL collector independently reconstructs the four correctness gates and latency samples from raw events while preserving the existing readiness evaluator. It adds no network listener or external infrastructure and can consume qrexec-produced logs offline.",
+  "failuresAndLessons": [
+    "A readiness gate is only as trustworthy as its input; accepting counters directly allows instrumentation bugs to mask regressions.",
+    "Unknown event types must fail closed so schema drift cannot silently reduce coverage.",
+    "Mutation identity must be stable across retries; the campaign harness must emit the same mutationKey for the same logical committed mutation."
+  ],
+  "safety": "synthetic defensive Qubes validation only; no real financial transactions or payment data"
+}
