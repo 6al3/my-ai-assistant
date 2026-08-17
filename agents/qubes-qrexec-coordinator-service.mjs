@@ -16,7 +16,8 @@ export function loadQrexecCoordinatorConfig(env = process.env) {
     storePath,
     requestJournalPath,
     transportSecret,
-    crashAfterRequestId: env.DIG_CRASH_AFTER_REQUEST_ID?.trim() || null
+    crashAfterRequestId: env.DIG_CRASH_AFTER_REQUEST_ID?.trim() || null,
+    preserveRunningLeasesOnRestore: true
   };
 }
 
