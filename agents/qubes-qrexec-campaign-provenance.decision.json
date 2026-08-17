@@ -1,0 +1,66 @@
+{
+  "decision": "Bind REAL-WORKER readiness to fresh qrexec campaign provenance and the exact tested commit.",
+  "status": "selected",
+  "selectedApproach": "campaign_start/campaign_end framing carried through collector into readiness gate",
+  "reviewers": [
+    {
+      "role": "correctness-review",
+      "assessment": "Counters and latency alone are insufficient because a clean synthetic or stale report can satisfy the gate. Provenance must be part of the evaluated artifact."
+    },
+    {
+      "role": "security-review",
+      "assessment": "Require qrexec transport, distinct source/target Qubes, service identity, run identity, timestamps, and exact git SHA. Fail closed when any evidence is absent."
+    },
+    {
+      "role": "performance-regression-review",
+      "assessment": "Event framing adds constant-size metadata only at campaign boundaries, avoiding per-request cryptographic or database overhead and preserving transport latency measurements."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "trust numeric collector output only",
+      "correctness": "weak",
+      "robustness": "weak",
+      "latency": "best",
+      "resourceUse": "best",
+      "regressionRisk": "low",
+      "rejectedBecause": "cannot distinguish real Qubes execution from simulation, stale output, or a different commit"
+    },
+    {
+      "name": "per-event signed attestation",
+      "correctness": "strongest",
+      "robustness": "strongest",
+      "latency": "higher",
+      "resourceUse": "higher",
+      "regressionRisk": "medium-high",
+      "rejectedBecause": "requires key lifecycle and trusted signer placement before the first real Qubes campaign is proven"
+    },
+    {
+      "name": "campaign boundary provenance plus freshness and git binding",
+      "correctness": "strong for current lab gate",
+      "robustness": "strong",
+      "latency": "negligible overhead",
+      "resourceUse": "negligible",
+      "regressionRisk": "low",
+      "selected": true
+    }
+  ],
+  "qa": {
+    "required": [
+      "real qrexec transport marker",
+      "distinct source and target Qube names",
+      "single matching campaign start/end run ID",
+      "ordered timestamps",
+      "freshness window",
+      "40-hex commit SHA matching the expected tested head",
+      "existing correctness counters and latency budgets"
+    ],
+    "currentEvidence": "Source and regression tests added; GitHub Actions result still inaccessible to the current integration and must not be inferred."
+  },
+  "failuresAndLessons": [
+    "A readiness gate that validates only outcome metrics can accidentally bless simulation evidence.",
+    "Provenance should be generated at the harness boundary and preserved by the collector rather than manually appended later.",
+    "Commit binding prevents a successful campaign for older code from certifying newer untested code.",
+    "Cryptographic dom0-backed attestation remains a later hardening option after real qrexec execution is available."
+  ]
+}
