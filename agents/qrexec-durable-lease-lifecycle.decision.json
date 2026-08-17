@@ -33,12 +33,13 @@
   "qa": [
     "MissionQueue regression: live lease and fencing token survive restore when preserveRunningLeasesOnRestore=true.",
     "MissionQueue regression: complete/heartbeat reject an expired lease even before another worker claims.",
-    "qrexec service regression: orchestrator, planner and coder each claim in one process and complete in a fresh process using the returned fencing token."
+    "qrexec service regression: a deliberately complex build/code fixture routes orchestrator -> planner -> coder, and each agent claims in one process then completes in a fresh process using the returned fencing token."
   ],
   "failuresAndLessons": [
     "Process-boundary durability is not sufficient if process lifecycle semantics are conflated with crash semantics.",
     "A stateless transport service must persist lease ownership across clean invocations; crash recovery and clean service termination are different events.",
-    "Lease expiry must be checked on mutation, not only when another claim happens, or a late worker can mutate after leaseUntil."
+    "Lease expiry must be checked on mutation, not only when another claim happens, or a late worker can mutate after leaseUntil.",
+    "QA #159 initially failed at the planner claim because the test text selected coder but did not satisfy the planner routing rule. The strongest fix was to make the fixture explicitly complex (build + code) so it exercises the intended orchestrator/planner/coder chain; changing production routing or deleting the planner assertion would have weakened correctness coverage."
   ],
   "safety": "Synthetic defensive orchestration only. No real financial transactions or external side effects are enabled by this change."
 }
