@@ -34,13 +34,12 @@ jobs:
       - name: Type-check iPhone control plane
         run: |
           set -euo pipefail
-          mapfile=()
-          while IFS= read -r file; do mapfile+=("$file"); done < <(find ios/DIGAssistant -type f -name '*.swift' -print | sort)
-          if [ "${#mapfile[@]}" -eq 0 ]; then
+          swift_source_count="$(find ios/DIGAssistant -type f -name '*.swift' -print | wc -l | tr -d ' ')"
+          if [ "$swift_source_count" -eq 0 ]; then
             echo 'No Swift sources found' >&2
             exit 1
           fi
-          xcrun swiftc -typecheck "${mapfile[@]}"
+          find ios/DIGAssistant -type f -name '*.swift' -print0 | sort -z | xargs -0 xcrun swiftc -typecheck
 
       - name: Run iPhone contract tests
         run: node --test ios/DIGAssistant/mission-control-plane-contract.test.mjs
