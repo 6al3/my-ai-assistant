@@ -33,6 +33,10 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
+    // A fault-injection service may terminate before consuming stdin. The child
+    // exit status remains the transport authority; do not let an expected EPIPE
+    // crash the harness itself.
+    child.stdin.on('error', () => {});
     child.stdin.end(`${JSON.stringify(envelope)}\n`);
 
     const exit = await new Promise((resolve, reject) => {
