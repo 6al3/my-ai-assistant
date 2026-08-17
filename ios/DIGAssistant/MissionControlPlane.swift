@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 struct DIGMissionSummary: Codable, Identifiable, Equatable {
     let id: String
