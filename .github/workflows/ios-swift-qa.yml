@@ -1,0 +1,46 @@
+name: DIG iPhone Swift QA
+
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-swift-qa.yml'
+  push:
+    branches:
+      - 'dig/mission-queue-durable-state'
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-swift-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dig-ios-swift-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-typecheck:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Swift toolchain
+        run: swift --version
+
+      - name: Type-check iPhone control plane
+        run: |
+          set -euo pipefail
+          mapfile=()
+          while IFS= read -r file; do mapfile+=("$file"); done < <(find ios/DIGAssistant -type f -name '*.swift' -print | sort)
+          if [ "${#mapfile[@]}" -eq 0 ]; then
+            echo 'No Swift sources found' >&2
+            exit 1
+          fi
+          xcrun swiftc -typecheck "${mapfile[@]}"
+
+      - name: Run iPhone contract tests
+        run: node --test ios/DIGAssistant/mission-control-plane-contract.test.mjs
