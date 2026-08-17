@@ -26,7 +26,9 @@
   "lessons": [
     "Transport adaptation should not own mission semantics.",
     "A qrexec service should fail closed when durability or authentication configuration is missing.",
-    "Process-per-call retries are a useful local approximation of qrexec lifecycle behavior, but they do not prove Qubes policy, VM identity, or real qrexec latency."
+    "Process-per-call retries are a useful local approximation of qrexec lifecycle behavior, but they do not prove Qubes policy, VM identity, or real qrexec latency.",
+    "CI run 42 failed twice because the new qrexec fixture searched for a non-contract mission.agent field. The runtime contract identifies agents through metadata.agentId and requiredCapabilities. Fix the fixture rather than adding a redundant production field solely to satisfy a test.",
+    "When an integration test crosses subsystem boundaries, assertions should target documented persisted/runtime fields, not convenience shapes invented by the fixture."
   ],
   "safety": "Synthetic/defensive orchestration only; no real financial operations or payment data."
 }
