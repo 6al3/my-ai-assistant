@@ -1,0 +1,44 @@
+{
+  "decision": "per-claim random lease fencing token for authenticated distributed worker mutations",
+  "scope": "distributed lab workers and future Qubes qrexec workers",
+  "winner": "worker identity plus per-claim leaseToken, enforced on authenticated heartbeat/complete/fail",
+  "comparison": [
+    {
+      "approach": "workerId only",
+      "correctness": "low-medium: rejects different workers but cannot distinguish an old process from a new lease using the same stable worker identity",
+      "robustness": "low after lease expiry/reclaim or process replacement",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "lowest but leaves stale-completion gap",
+      "qa": "existing ownership tests only",
+      "result": "rejected"
+    },
+    {
+      "approach": "workerId plus per-claim random leaseToken",
+      "correctness": "high for coordinator-owned mission state: each claim generation receives a distinct capability token and stale generations are rejected",
+      "robustness": "high across lease expiry/reclaim and stable worker identity reuse; running-token state is cleared on recovery/requeue",
+      "latency": "negligible local equality check; no extra network round trip",
+      "resourceUse": "one UUID-sized token per claimed mission",
+      "regressionRisk": "moderate and bounded: enforced only when requireLeaseToken is enabled; authenticated coordinator enables it by default while legacy in-process tests remain compatible",
+      "qa": "same-worker reclaim regression, missing-token rejection, stale-token rejection, authenticated crash/retry replay with original token",
+      "result": "selected"
+    },
+    {
+      "approach": "central transactional fencing counter/database",
+      "correctness": "highest potential for multi-coordinator deployments",
+      "robustness": "high if all side effects participate in the same fencing authority",
+      "latency": "higher due to external transactional service",
+      "resourceUse": "highest",
+      "regressionRisk": "high before single-coordinator Qubes transport is proven",
+      "qa": "would require external service and distributed failure matrix",
+      "result": "deferred"
+    }
+  ],
+  "whyItWon": "It closes the concrete stale-worker gap with almost no runtime cost and without adding infrastructure. A worker that is restarted or loses its lease cannot complete with an old claim token even when it reuses the same workerId. The authenticated qrexec/process boundary enforces the token, while internal compatibility is preserved until all local callers migrate.",
+  "failuresAndLessons": [
+    "worker identity is not a lease generation; stable worker names can be reused after restart",
+    "request HMAC authentication proves message authenticity but does not prove the sender still owns the current mission lease",
+    "fencing the coordinator state does not fence an external side effect by itself; future real side-effect adapters must carry the lease generation/idempotency key to the downstream system",
+    "completed-response replay must retain and require the original lease token so retries remain idempotent without accepting a different lease generation"
+  ]
+}
