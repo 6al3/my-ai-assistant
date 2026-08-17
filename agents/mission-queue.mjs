@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 export class MissionQueue {
-  constructor({ maxAttempts = 3, leaseMs = 30_000, now = () => Date.now(), snapshot = null, requireLeaseToken = false } = {}) {
+  constructor({ maxAttempts = 3, leaseMs = 30_000, now = () => Date.now(), snapshot = null, requireLeaseToken = false, preserveRunningLeasesOnRestore = false } = {}) {
     this.maxAttempts = maxAttempts;
     this.leaseMs = leaseMs;
     this.now = now;
     this.requireLeaseToken = requireLeaseToken;
+    this.preserveRunningLeasesOnRestore = preserveRunningLeasesOnRestore;
     this.missions = new Map();
     this.idempotency = new Map();
     if (snapshot) this.restore(snapshot);
@@ -33,7 +34,22 @@ export class MissionQueue {
       const mission = structuredClone(raw);
       if (!mission.id || !mission.task || !['queued','running','completed','failed','cancelled'].includes(mission.status)) throw new Error('invalid mission queue snapshot');
       if (!Object.hasOwn(mission, 'leaseToken')) mission.leaseToken = null;
-      if (mission.status === 'running') { mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued'; mission.workerId = null; mission.leaseToken = null; mission.leaseUntil = null; mission.error = 'recovered after process restart'; mission.updatedAt = this.now(); }
+      if (mission.status === 'running') {
+        const hasLiveDurableLease = this.preserveRunningLeasesOnRestore
+          && typeof mission.workerId === 'string'
+          && typeof mission.leaseToken === 'string'
+          && mission.leaseToken.length > 0
+          && Number.isFinite(mission.leaseUntil)
+          && mission.leaseUntil > this.now();
+        if (!hasLiveDurableLease) {
+          mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
+          mission.workerId = null;
+          mission.leaseToken = null;
+          mission.leaseUntil = null;
+          mission.error = this.preserveRunningLeasesOnRestore ? 'worker lease expired during restore' : 'recovered after process restart';
+          mission.updatedAt = this.now();
+        }
+      }
       this.missions.set(mission.id, mission);
       if (mission.idempotencyKey) {
         if (this.idempotency.has(mission.idempotencyKey)) throw new Error('duplicate idempotency key in snapshot');
@@ -71,5 +87,5 @@ export class MissionQueue {
   #dependenciesCompleted(m){return m.dependsOn.every(id=>this.missions.get(id)?.status==='completed');}
   #propagateDependencyFailures(){let changed=true;while(changed){changed=false;for(const m of this.missions.values()){if(m.status!=='queued')continue;const blocker=m.dependsOn.map(id=>this.missions.get(id)).find(d=>d&&(d.status==='failed'||d.status==='cancelled'));if(!blocker)continue;m.status='cancelled';m.error=`dependency ${blocker.id} ${blocker.status}`;m.workerId=null;m.leaseToken=null;m.leaseUntil=null;m.updatedAt=this.now();changed=true;}}}
   #tokenMatches(m,leaseToken){if(this.requireLeaseToken)return typeof leaseToken==='string'&&leaseToken.length>0&&m.leaseToken===leaseToken;return leaseToken==null||m.leaseToken===leaseToken;}
-  #ownedRunning(id,workerId,leaseToken){const m=this.missions.get(id);if(!m)throw new Error('mission not found');if(TERMINAL.has(m.status))throw new Error(`mission is ${m.status}`);if(m.status!=='running'||m.workerId!==workerId)throw new Error('mission is not owned by worker');if(!this.#tokenMatches(m,leaseToken))throw new Error('mission lease token is stale or missing');return m;}
+  #ownedRunning(id,workerId,leaseToken){const m=this.missions.get(id);if(!m)throw new Error('mission not found');if(TERMINAL.has(m.status))throw new Error(`mission is ${m.status}`);if(m.status==='running'&&Number.isFinite(m.leaseUntil)&&m.leaseUntil<=this.now())throw new Error('mission lease expired');if(m.status!=='running'||m.workerId!==workerId)throw new Error('mission is not owned by worker');if(!this.#tokenMatches(m,leaseToken))throw new Error('mission lease token is stale or missing');return m;}
 }
