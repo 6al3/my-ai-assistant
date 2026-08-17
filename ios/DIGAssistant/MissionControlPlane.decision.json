@@ -10,7 +10,7 @@
       "latency": "one bounded auth status GET and one bounded mission GET per refresh; login only when session is absent or expired",
       "resourceUse": "low; shared URLSession cookie handling and no persistent socket/background daemon",
       "regressionRisk": "low; reuses established server authentication and adds no new authorization semantics",
-      "qa": "Node contract tests plus native macOS Swift compiler type-check; both remain separate from a full signed iOS archive/runtime gate"
+      "qa": "Node contract tests plus native iPhone Simulator SDK Swift compiler type-check; both remain separate from a full signed iOS archive/runtime gate"
     },
     {
       "name": "new bearer or pairing token dedicated to mission telemetry",
@@ -31,7 +31,7 @@
       "qa": "deferred until worker boundary is REAL-WORKER READY"
     }
   ],
-  "winnerReason": "Reusing the existing HttpOnly Secure SameSite owner session is the strongest approach because it closes the actual integration gap without weakening server controls or creating a new credential system. The dashboard remains read-only, requires HTTPS, does not persist the typed owner password, and relies on the server's existing bounded session cookie.",
+  "winnerReason": "Reusing the existing HttpOnly Secure SameSite owner session is the strongest approach because it closes the actual integration gap without weakening server controls or creating a new credential system. The dashboard remains read-only, requires HTTPS, does not persist the typed owner password, and relies on the server's existing bounded session cookie. For compiler QA, targeting the iPhone Simulator SDK is stronger than host-macOS type-checking because it validates against the platform the code actually runs on without requiring signing or deployment infrastructure.",
   "failuresAndLessons": [
     "The first MissionControlPlane client could not successfully call /api/missions because it did not establish the owner-authenticated cookie session required by the server endpoint.",
     "Local Face ID/device authentication and server owner authentication are distinct trust boundaries; one must not silently substitute for the other.",
@@ -40,7 +40,9 @@
     "Static contract QA protects authority and endpoint semantics but does not replace a native Swift/Xcode build and runtime test.",
     "The first macOS Swift CI gate used the Bash mapfile builtin, which is unavailable on the default older Bash shipped on macOS runners; compiler gates must avoid shell-version-specific builtins.",
     "ObservableObject and Published belong to Combine and must be imported explicitly in files that declare those symbols; relying on imports from SwiftUI files is invalid because Swift imports are file-scoped.",
-    "For this repository, a find -print0 | xargs -0 compiler invocation is preferred over Bash arrays: it handles spaces safely, works on the macOS runner, has negligible resource overhead, and does not change production code."
+    "For this repository, a find -print0 | xargs -0 compiler invocation is preferred over Bash arrays: it handles spaces safely, works on the macOS runner, has negligible resource overhead, and does not change production code.",
+    "A macOS-host swiftc type-check is the wrong platform contract for an iPhone app: it can reject valid iOS-only APIs or validate against the wrong SDK. The compiler gate must explicitly use the iPhone Simulator SDK and an iOS simulator target.",
+    "The strongest low-cost compiler gate is iPhone Simulator SDK type-checking of the complete Swift source set; excluding failing legacy files would hide regressions and weaken confidence."
   ],
-  "nextGate": "Get DIG iPhone Swift QA green after the shell-portability and explicit Combine import fixes. Then add a full iOS target/archive or simulator-runtime gate when project/signing infrastructure is available. REAL-WORKER readiness remains gated separately on a real Qube-to-Qube qrexec campaign."
+  "nextGate": "Get DIG iPhone Swift QA green with the iPhone Simulator SDK target. If compiler errors remain, fix the concrete source regression rather than excluding files. Then add a simulator-runtime or full Xcode target/archive gate when project/signing infrastructure is available. REAL-WORKER readiness remains gated separately on a real Qube-to-Qube qrexec campaign."
 }
