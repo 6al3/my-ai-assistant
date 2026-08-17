@@ -111,6 +111,30 @@ test('restart recovers in-flight lease without double ownership', () => {
   assert.throws(() => recovered.complete(m.id, 'old'), /not owned/);
 });
 
+test('stateless service restore preserves a live durable lease and fencing token', () => {
+  let now = 100;
+  const q = new MissionQueue({ leaseMs: 50, now: () => now, requireLeaseToken: true });
+  const m = q.enqueue({ task: 'qrexec worker task' });
+  const claimed = q.claim({ id: 'worker-1' });
+  now = 120;
+  const restored = new MissionQueue({ now: () => now, requireLeaseToken: true, preserveRunningLeasesOnRestore: true, snapshot: q.snapshot() });
+  const durable = restored.get(m.id);
+  assert.equal(durable.status, 'running');
+  assert.equal(durable.workerId, 'worker-1');
+  assert.equal(durable.leaseToken, claimed.leaseToken);
+  assert.equal(restored.complete(m.id, 'worker-1', { ok: true }, claimed.leaseToken).status, 'completed');
+});
+
+test('expired durable lease cannot mutate even before another worker claims', () => {
+  let now = 100;
+  const q = new MissionQueue({ leaseMs: 10, now: () => now, requireLeaseToken: true });
+  const m = q.enqueue({ task: 'qrexec expiry task' });
+  const claimed = q.claim({ id: 'worker-1' });
+  now = 111;
+  assert.throws(() => q.complete(m.id, 'worker-1', { late: true }, claimed.leaseToken), /lease expired/);
+  assert.throws(() => q.heartbeat(m.id, 'worker-1', claimed.leaseToken), /lease expired/);
+});
+
 test('restart terminalizes exhausted in-flight mission and propagates dependency failure', () => {
   const q = new MissionQueue({ maxAttempts: 1 });
   const root = q.enqueue({ task: 'root' });
