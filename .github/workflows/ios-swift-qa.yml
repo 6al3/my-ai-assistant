@@ -39,7 +39,24 @@ jobs:
             echo 'No Swift sources found' >&2
             exit 1
           fi
-          find ios/DIGAssistant -type f -name '*.swift' -print0 | sort -z | xargs -0 xcrun swiftc -typecheck
+
+          ios_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          host_arch="$(uname -m)"
+          case "$host_arch" in
+            arm64|x86_64) ;;
+            *)
+              echo "Unsupported macOS runner architecture: $host_arch" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "Type-checking $swift_source_count Swift sources against iPhone Simulator SDK ($host_arch)"
+          find ios/DIGAssistant -type f -name '*.swift' -print0 \
+            | sort -z \
+            | xargs -0 xcrun swiftc \
+                -sdk "$ios_sdk" \
+                -target "${host_arch}-apple-ios17.0-simulator" \
+                -typecheck
 
       - name: Run iPhone contract tests
         run: node --test ios/DIGAssistant/mission-control-plane-contract.test.mjs
