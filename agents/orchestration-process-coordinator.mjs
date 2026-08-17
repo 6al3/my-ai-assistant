@@ -10,6 +10,7 @@ export async function runProcessCoordinator({
   requestJournalPath = null,
   transportSecret = null,
   crashAfterRequestId = null,
+  preserveRunningLeasesOnRestore = false,
   input = process.stdin,
   output = process.stdout
 } = {}) {
@@ -18,7 +19,7 @@ export async function runProcessCoordinator({
 
   const authenticatedTransport = Boolean(requestJournalPath && transportSecret);
   const store = new MissionQueueStore(storePath);
-  const runtime = await OrchestratedMissionRuntime.open({ store, queueOptions: { maxAttempts: 3, requireLeaseToken: authenticatedTransport } });
+  const runtime = await OrchestratedMissionRuntime.open({ store, queueOptions: { maxAttempts: 3, requireLeaseToken: authenticatedTransport, preserveRunningLeasesOnRestore } });
   const journal = requestJournalPath ? await DurableRequestJournal.open(requestJournalPath) : null;
   const lines = readline.createInterface({ input, crlfDelay: Infinity });
   const reply = value => output.write(`${JSON.stringify(value)}\n`);
