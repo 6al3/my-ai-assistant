@@ -1,0 +1,41 @@
+{
+  "decision": "read-only HTTPS mission telemetry first",
+  "status": "selected",
+  "context": "The iPhone app needs visibility into distributed mission state without becoming a new authority boundary before Qubes worker semantics are proven.",
+  "approaches": [
+    {
+      "name": "read-only HTTPS snapshot client",
+      "correctness": "strong separation: phone observes state but cannot mutate workers",
+      "robustness": "fail-closed on non-HTTPS, malformed response, non-2xx, or missing revision",
+      "latency": "one bounded GET per refresh",
+      "resourceUse": "low; no persistent socket or background daemon",
+      "regressionRisk": "low; additive Swift model/service only",
+      "qa": "requires Swift build plus server contract tests once /api/missions is implemented"
+    },
+    {
+      "name": "bidirectional command API from iPhone",
+      "correctness": "weaker at this stage because it creates a second mutation/authentication path",
+      "robustness": "requires nonce, replay, authorization, reconciliation, and command fencing",
+      "latency": "low interactive latency but higher protocol complexity",
+      "resourceUse": "moderate",
+      "regressionRisk": "high",
+      "qa": "deferred until worker boundary is REAL-WORKER READY"
+    },
+    {
+      "name": "persistent websocket control plane",
+      "correctness": "good eventual UX but adds ordering/reconnect semantics",
+      "robustness": "requires durable cursor and reconnect reconciliation",
+      "latency": "best live-update latency",
+      "resourceUse": "highest phone/server lifecycle cost",
+      "regressionRisk": "medium-high",
+      "qa": "deferred"
+    }
+  ],
+  "winnerReason": "The read-only snapshot client gives immediate owner visibility with the smallest authority surface, resource footprint, and regression risk. It preserves the existing durable coordinator as the sole mutation authority.",
+  "failuresAndLessons": [
+    "Do not expose mission mutation from the phone merely for UI convenience.",
+    "A telemetry response needs a revision so stale or reordered snapshots can be detected when the server contract is implemented.",
+    "Transport security alone is not sufficient for future command mutations; those must reuse durable request identity and replay/fencing semantics."
+  ],
+  "nextGate": "Implement a read-only /api/missions contract backed by a safe mission snapshot source, add Node contract tests, then compile/test the Swift client."
+}
