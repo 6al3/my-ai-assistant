@@ -30,7 +30,7 @@ const byAgent=missions=>new Map(missions.map(mission=>[mission.metadata.agentId,
 
 test('authenticated retry after coordinator crash returns committed completion without duplicate mutation and enforces lease fencing', async t => {
   const root=await mkdtemp(path.join(os.tmpdir(),'dig-auth-recovery-')); t.after(()=>rm(root,{recursive:true,force:true})); const storePath=path.join(root,'missions.json'); const journalPath=path.join(root,'requests.json'); const crashRequestId='complete-coder-once';
-  const first=await new SignedCoordinatorProcess({storePath,journalPath,crashAfterRequestId}).start(); t.after(()=>first.stop().catch(()=>{}));
+  const first=await new SignedCoordinatorProcess({storePath,journalPath,crashAfterRequestId:crashRequestId}).start(); t.after(()=>first.stop().catch(()=>{}));
   const submitted=await first.request('submit-1','submit',{text:'plan project debug code and system reliability',options:{idempotencyKey:'auth-recovery-job'}}); const missions=byAgent(submitted.missions); const orchestrator=missions.get('orchestrator'); const planner=missions.get('planner'); const coder=missions.get('coder'); assert.ok(orchestrator&&planner&&coder);
   const orchestratorClaim=await first.request('claim-orchestrator','claim',{worker:{id:'orchestrator@1',capabilities:['orchestrator']}}); assert.equal(orchestratorClaim.id,orchestrator.id); assert.ok(orchestratorClaim.leaseToken);
   await first.request('complete-orchestrator','complete',{id:orchestrator.id,workerId:'orchestrator@1',leaseToken:orchestratorClaim.leaseToken,result:{ok:true}});
