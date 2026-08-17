@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 private struct OwnerAuthStatus: Decodable {
     let configured: Bool?
