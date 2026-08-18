@@ -66,7 +66,15 @@ export function evaluateQrexecReadiness(report, thresholds = {}) {
   for (const name of ['expectedSourceQube', 'expectedTargetQube', 'expectedService']) if (limits[name] != null) limits[name] = assertString(limits[name], name);
   if (limits.expectedSourceQube != null && limits.expectedSourceQube === limits.expectedTargetQube) throw new TypeError('expected source and target Qubes must differ');
 
-  const counters = { duplicateCommittedMutations: report.duplicateCommittedMutations, staleCompletions: report.staleCompletions, unresolvedPendingRequests: report.unresolvedPendingRequests, qaBeforeJoin: report.qaBeforeJoin };
+  const counters = {
+    duplicateCommittedMutations: report.duplicateCommittedMutations,
+    staleCompletions: report.staleCompletions,
+    staleCompletionProbes: report.staleCompletionProbes,
+    staleCompletionRejections: report.staleCompletionRejections,
+    currentLeaseCompletions: report.currentLeaseCompletions,
+    unresolvedPendingRequests: report.unresolvedPendingRequests,
+    qaBeforeJoin: report.qaBeforeJoin
+  };
   for (const [name, value] of Object.entries(counters)) assertNonNegativeInteger(value, name);
   assertLatencySamples(report.recoveryLatencyMs, 'recoveryLatencyMs');
   assertLatencySamples(report.roundTripLatencyMs, 'roundTripLatencyMs');
@@ -83,6 +91,9 @@ export function evaluateQrexecReadiness(report, thresholds = {}) {
     enoughRoundTripSamples: report.roundTripLatencyMs.length >= limits.minSamples,
     noDuplicateCommittedMutations: counters.duplicateCommittedMutations === 0,
     noStaleCompletions: counters.staleCompletions === 0,
+    staleLeaseWasActuallyProbed: counters.staleCompletionProbes > 0,
+    everyStaleLeaseProbeRejected: counters.staleCompletionProbes > 0 && counters.staleCompletionRejections === counters.staleCompletionProbes,
+    currentLeaseCompletionObserved: counters.currentLeaseCompletions > 0,
     noUnresolvedPendingRequests: counters.unresolvedPendingRequests === 0,
     noQaBeforeJoin: counters.qaBeforeJoin === 0,
     recoveryWithinBudget: recoveryP95Ms !== null && recoveryP95Ms <= limits.maxRecoveryP95Ms,
