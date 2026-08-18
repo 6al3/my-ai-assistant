@@ -40,6 +40,9 @@ function aggregateCoverage(coverages) {
 
 export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
   assertCampaigns(campaigns);
+  const minRuns = thresholds.minRuns ?? 3;
+  if (!Number.isInteger(minRuns) || minRuns < 2) throw new TypeError('minRuns must be an integer of at least 2');
+
   const reports = campaigns.map(collectQrexecCampaign);
   const coverages = campaigns.map(evaluateCampaignCoverage);
   const provenances = reports.map((report, index) => {
@@ -60,9 +63,11 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
     const finishedAt = Date.parse(provenance.finishedAt);
     return Number.isFinite(finishedAt) && Math.max(0, nowMs - finishedAt) <= maxReportAgeMs;
   });
+  const earliestStartedAt = provenances.map(item => item.startedAt).sort().at(0);
+  const latestFinishedAt = provenances.map(item => item.finishedAt).sort().at(-1);
 
   const aggregateReport = {
-    provenance: { ...reference, finishedAt: provenances.map(item => item.finishedAt).sort().at(-1) },
+    provenance: { ...reference, runId: `qualification:${runIds.join(',')}`, startedAt: earliestStartedAt, finishedAt: latestFinishedAt },
     duplicateCommittedMutations: reports.reduce((sum, report) => sum + report.duplicateCommittedMutations, 0),
     staleCompletions: reports.reduce((sum, report) => sum + report.staleCompletions, 0),
     staleCompletionProbes: reports.reduce((sum, report) => sum + report.staleCompletionProbes, 0),
@@ -77,7 +82,7 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
   const readiness = evaluateQrexecReadiness(aggregateReport, { ...thresholds, nowMs, maxReportAgeMs });
   const coverage = aggregateCoverage(coverages);
   const qualificationChecks = {
-    multipleIndependentRuns: campaigns.length >= (thresholds.minRuns ?? 3),
+    multipleIndependentRuns: campaigns.length >= minRuns,
     uniqueRunIds: uniqueRunIds.size === campaigns.length,
     consistentGitShaAndTopology: topologyConsistent,
     qrexecTransportOnly: allQrexec,
@@ -100,7 +105,7 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
     },
     readiness,
     coverage,
-    provenance: { gitSha: reference.gitSha, sourceQube: reference.sourceQube, targetQube: reference.targetQube, service: reference.service, transport: reference.transport, runIds }
+    provenance: { gitSha: reference.gitSha, sourceQube: reference.sourceQube, targetQube: reference.targetQube, service: reference.service, transport: reference.transport, runIds, startedAt: earliestStartedAt, finishedAt: latestFinishedAt }
   };
 }
 
