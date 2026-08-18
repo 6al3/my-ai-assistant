@@ -12,6 +12,7 @@ function scriptedInvoke(script) {
     assert.ok(action, `unexpected transport invocation ${index}`);
     if (action.service) assert.equal(options.service, action.service);
     if (action.requestId) assert.equal(envelope.requestId, action.requestId);
+    if (action.assertBody) action.assertBody(envelope.body);
     if (action.throw) {
       const error = new Error(action.throw);
       error.durationMs = action.durationMs ?? 1;
@@ -121,4 +122,110 @@ test('fault service must fail before recovery is attempted', async () => {
       recoveryService: 'dig.Coordinator'
     }]
   }), /expected the fault service to terminate/);
+});
+
+test('campaign captures claim results and resolves lease token references across qrexec calls', async () => {
+  const invoke = scriptedInvoke([
+    { requestId: 'claim-old', response: { ok: true, result: { id: 'm1', leaseToken: 'lease-old-000000000000', attempts: 1 } }, durationMs: 2 },
+    {
+      requestId: 'complete-old',
+      assertBody(body) {
+        assert.deepEqual(body, { id: 'm1', workerId: 'coder-worker', leaseToken: 'lease-old-000000000000', result: { synthetic: 'late' } });
+      },
+      response: { ok: false, error: 'mission lease token is stale or missing' },
+      durationMs: 3
+    }
+  ]);
+
+  const events = await runQrexecCampaignSteps({
+    secret,
+    invoke,
+    steps: [
+      { mode: 'request', requestId: 'claim-old', op: 'claim', body: { worker: { id: 'coder-worker', capabilities: ['coder'] } }, saveAs: 'oldClaim' },
+      {
+        mode: 'stale_probe',
+        requestId: 'complete-old',
+        op: 'complete',
+        body: {
+          id: { $ref: 'oldClaim.result.id' },
+          workerId: 'coder-worker',
+          leaseToken: { $ref: 'oldClaim.result.leaseToken' },
+          result: { synthetic: 'late' }
+        }
+      }
+    ]
+  });
+
+  assert.equal(collectQrexecCampaign(events).staleCompletions, 0);
+});
+
+test('campaign can wait for lease expiry then validate same-worker reclaim fencing', async () => {
+  const waits = [];
+  const invoke = scriptedInvoke([
+    { requestId: 'claim-old', response: { ok: true, result: { id: 'm1', leaseToken: 'lease-old-000000000000', attempts: 1 } }, durationMs: 2 },
+    { requestId: 'claim-new', response: { ok: true, result: { id: 'm1', leaseToken: 'lease-new-000000000000', attempts: 2 } }, durationMs: 2 },
+    {
+      requestId: 'complete-stale',
+      assertBody(body) {
+        assert.equal(body.id, 'm1');
+        assert.equal(body.leaseToken, 'lease-old-000000000000');
+      },
+      response: { ok: false, error: 'mission lease token is stale or missing' },
+      durationMs: 2
+    },
+    {
+      requestId: 'complete-current',
+      assertBody(body) {
+        assert.equal(body.id, 'm1');
+        assert.equal(body.leaseToken, 'lease-new-000000000000');
+      },
+      response: { ok: true, result: { id: 'm1', status: 'completed' } },
+      durationMs: 2
+    }
+  ]);
+
+  const events = await runQrexecCampaignSteps({
+    secret,
+    invoke,
+    sleepFn: async durationMs => { waits.push(durationMs); },
+    steps: [
+      { mode: 'request', requestId: 'claim-old', op: 'claim', body: { worker: { id: 'coder-worker', capabilities: ['coder'] } }, saveAs: 'oldClaim' },
+      { mode: 'wait', durationMs: 31_000 },
+      { mode: 'request', requestId: 'claim-new', op: 'claim', body: { worker: { id: 'coder-worker', capabilities: ['coder'] } }, saveAs: 'newClaim' },
+      {
+        mode: 'stale_probe',
+        requestId: 'complete-stale',
+        op: 'complete',
+        body: { id: { $ref: 'oldClaim.result.id' }, workerId: 'coder-worker', leaseToken: { $ref: 'oldClaim.result.leaseToken' }, result: { synthetic: 'stale' } }
+      },
+      {
+        mode: 'request',
+        requestId: 'complete-current',
+        op: 'complete',
+        body: { id: { $ref: 'newClaim.result.id' }, workerId: 'coder-worker', leaseToken: { $ref: 'newClaim.result.leaseToken' }, result: { synthetic: 'current' } },
+        mutationKey: 'complete:m1:attempt2'
+      }
+    ]
+  });
+
+  assert.deepEqual(waits, [31_000]);
+  const report = collectQrexecCampaign(events);
+  assert.equal(report.staleCompletions, 0);
+  assert.equal(report.duplicateCommittedMutations, 0);
+  assert.equal(report.unresolvedPendingRequests, 0);
+});
+
+test('capture references and waits fail closed on invalid campaign input', async () => {
+  const invoke = scriptedInvoke([]);
+  await assert.rejects(() => runQrexecCampaignSteps({
+    secret,
+    invoke,
+    steps: [{ mode: 'request', requestId: 'missing-ref', op: 'complete', body: { leaseToken: { $ref: 'missing.result.leaseToken' } } }]
+  }), /unknown capture/);
+  await assert.rejects(() => runQrexecCampaignSteps({
+    secret,
+    invoke,
+    sleepFn: async () => {},
+    steps: [{ mode: 'wait', durationMs: 120_001 }]
+  }), /between 0 and 120000/);
 });
