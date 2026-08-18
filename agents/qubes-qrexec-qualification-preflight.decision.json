@@ -1,62 +1,63 @@
 {
-  "decision": "Use an authenticated read-only stats probe over the production qrexec transport before launching the multi-run qualification campaign.",
-  "problem": "The qualification runner previously entered the expensive lease/recovery campaign immediately. A missing qrexec policy, wrong target/service, mismatched transport secret, or broken transport could fail only after campaign work had started and could be confused with worker reliability failures.",
+  "decision": "Probe both the normal and fault-only qrexec coordinator services with authenticated read-only stats requests before launching the multi-run qualification campaign, and bind recovery manifests to those same deployment service names.",
+  "problem": "The qualification runner previously probed only the normal coordinator service. A missing or mis-routed fault-only qrexec service could therefore remain undetected until committed-response-loss campaigns had started. In addition, recovery manifests hard-coded dig.CoordinatorFault, so a custom fault service could pass preflight but the campaign could still invoke a different service.",
   "reviews": [
     {
       "agent": "correctness-review",
-      "preferred": "authenticated read-only qrexec probe",
-      "reason": "It exercises the same signed envelope, qrexec binary, target, service and coordinator authentication path without mutating mission state."
+      "preferred": "dual-service authenticated preflight plus manifest binding",
+      "reason": "It proves both services used by qualification are reachable and authenticated, and guarantees the recovery campaign consumes the same normal/fault service configuration that was probed."
     },
     {
       "agent": "security-review",
-      "preferred": "fail-closed authenticated probe",
-      "reason": "An unauthenticated shell check only proves the binary exists; it does not prove policy routing or the transport secret. The stats operation preserves the existing authentication boundary."
+      "preferred": "read-only stats probes through existing signed envelopes",
+      "reason": "The probes preserve the existing HMAC and qrexec policy boundaries, do not mutate mission state, and keep the fault-only service separate from the normal service."
     },
     {
       "agent": "performance-review",
-      "preferred": "single preflight round trip",
-      "reason": "One small qrexec request is materially cheaper than entering a qualification set containing a 31 second lease-expiry wait and multiple recovery runs when configuration is invalid."
+      "preferred": "two bounded preflight round trips before long-running campaigns",
+      "reason": "The extra fault-service stats round trip is materially cheaper than entering a campaign with a 31 second lease-expiry wait or multiple recovery runs when the fault service is unavailable."
     }
   ],
   "alternatives": [
     {
-      "approach": "Static environment validation only",
+      "approach": "Probe only the normal coordinator",
       "correctness": "medium",
-      "robustness": "low-medium",
-      "latency": "lowest",
-      "resources": "lowest",
-      "regressionRisk": "lowest",
-      "rejectedBecause": "Cannot prove qrexec policy/service reachability or shared-secret compatibility."
+      "robustness": "medium-low",
+      "latency": "one qrexec round trip",
+      "resources": "very low",
+      "regressionRisk": "low",
+      "rejectedBecause": "Does not validate the separate fault-only service required by recovery qualification."
     },
     {
-      "approach": "Authenticated read-only stats probe",
+      "approach": "Probe normal and fault services and bind campaign manifests to the same deployment configuration",
       "correctness": "high",
       "robustness": "high",
-      "latency": "one qrexec round trip",
+      "latency": "two qrexec round trips",
       "resources": "very low",
       "regressionRisk": "low",
       "selected": true
     },
     {
-      "approach": "Dedicated preflight daemon/health service",
+      "approach": "Dedicated health/attestation daemon for both services",
       "correctness": "high",
       "robustness": "high",
       "latency": "low",
       "resources": "higher",
       "regressionRisk": "higher",
-      "rejectedBecause": "Adds another service and policy surface before the existing coordinator protocol requires it."
+      "rejectedBecause": "Adds a new long-lived service, policy surface and lifecycle before the existing qrexec protocol requires it."
     }
   ],
   "qa": [
     "Reject missing or malformed deployment bindings and transport secrets.",
-    "Require source and target Qubes to differ.",
-    "Require a successful authenticated stats response with valid timing evidence.",
-    "Fail closed on coordinator rejection, malformed stats response, or invalid timing evidence.",
-    "Run the preflight test inside the distributed-faults CI shard and npm test."
+    "Require source and target Qubes to differ and normal/fault qrexec service names to differ.",
+    "Require successful authenticated stats responses with valid timing evidence from both normal and fault-only services.",
+    "Fail closed when either service rejects authentication, returns malformed stats, or cannot produce valid timing evidence.",
+    "Materialize recovery campaign normal/fault service fields from the same validated deployment configuration used by preflight.",
+    "Run preflight and qualification-runner tests inside the distributed-faults CI shard and npm test."
   ],
   "lessons": [
-    "Runner availability failures with zero workflow steps must not be treated as production regressions.",
-    "Qubes qualification should fail as early as possible on environment/policy/authentication errors before expensive fault campaigns begin.",
-    "A read-only protocol probe gives stronger evidence than checking only that qrexec-client-vm is installed."
+    "A preflight is only useful if it exercises every service the qualification sequence will actually invoke.",
+    "Hard-coded service names can silently break the equivalence between what preflight validates and what the campaign executes.",
+    "Failing early with two read-only qrexec probes is cheaper and diagnostically cleaner than discovering policy or service mistakes during fault injection."
   ]
 }
