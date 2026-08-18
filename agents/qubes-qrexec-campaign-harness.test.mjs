@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectQrexecCampaign } from './qubes-qrexec-campaign-collector.mjs';
-import { runQrexecCampaignSteps } from './qubes-qrexec-campaign-harness.mjs';
+import { materializeQrexecCampaignSteps, runQrexecCampaignSteps } from './qubes-qrexec-campaign-harness.mjs';
 
 const secret = 'dig-lab-qrexec-harness-secret-000001';
 
@@ -37,6 +37,39 @@ function emptyReport(overrides = {}) {
     ...overrides
   };
 }
+
+test('campaign run tokens materialize recursively without mutating the manifest', () => {
+  const manifest = [
+    {
+      mode: 'request',
+      requestId: 'submit-{{RUN_ID}}',
+      op: 'submit',
+      body: { text: 'synthetic defensive task', options: { idempotencyKey: 'mission-{{RUN_ID}}' } },
+      mutationKey: 'submit:{{RUN_ID}}'
+    },
+    {
+      mode: 'request',
+      requestId: 'complete-{{RUN_ID}}',
+      op: 'complete',
+      body: { id: { $ref: 'claim.result.id' }, result: { evidence: '{{RUN_ID}}' } }
+    }
+  ];
+  const first = materializeQrexecCampaignSteps({ steps: manifest, runId: 'run-001', requireRunToken: true });
+  const second = materializeQrexecCampaignSteps({ steps: manifest, runId: 'run-002', requireRunToken: true });
+  assert.equal(first[0].requestId, 'submit-run-001');
+  assert.equal(first[0].body.options.idempotencyKey, 'mission-run-001');
+  assert.equal(first[0].mutationKey, 'submit:run-001');
+  assert.equal(first[1].body.result.evidence, 'run-001');
+  assert.equal(second[0].requestId, 'submit-run-002');
+  assert.notEqual(first[0].requestId, second[0].requestId);
+  assert.equal(manifest[0].requestId, 'submit-{{RUN_ID}}');
+  assert.deepEqual(first[1].body.id, { $ref: 'claim.result.id' });
+});
+
+test('campaign run materialization fails closed on missing token or unsafe run id', () => {
+  assert.throws(() => materializeQrexecCampaignSteps({ steps: [{ requestId: 'static', op: 'stats' }], runId: 'run-001', requireRunToken: true }), /at least one/);
+  assert.throws(() => materializeQrexecCampaignSteps({ steps: [{ requestId: 'x-{{RUN_ID}}', op: 'stats' }], runId: 'run id with spaces' }), /1-128 characters/);
+});
 
 test('clean campaign records a rejected stale probe with measured latency', async () => {
   const invoke = scriptedInvoke([
