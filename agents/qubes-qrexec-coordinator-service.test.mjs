@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { signWorkerEnvelope } from './worker-transport-envelope.mjs';
+import { loadQrexecCoordinatorConfig } from './qubes-qrexec-coordinator-service.mjs';
 
 const SECRET = 'dig-qrexec-synthetic-secret-000000000000';
 const SERVICE = new URL('./qubes-qrexec-coordinator-service.mjs', import.meta.url);
@@ -65,6 +66,17 @@ test('qrexec service is fail-closed when durable/auth config is incomplete', asy
   }
 });
 
+test('fault-only crash-after-commit mode is explicit and fail-closed', () => {
+  const base = {
+    DIG_ORCHESTRATION_STORE: '/tmp/dig-store.json',
+    DIG_REQUEST_JOURNAL: '/tmp/dig-journal.json',
+    DIG_TRANSPORT_SECRET: SECRET
+  };
+  assert.equal(loadQrexecCoordinatorConfig(base).crashAfterAnyAuthenticatedCommit, false);
+  assert.equal(loadQrexecCoordinatorConfig({ ...base, DIG_CRASH_AFTER_COMMIT: '1' }).crashAfterAnyAuthenticatedCommit, true);
+  assert.throws(() => loadQrexecCoordinatorConfig({ ...base, DIG_CRASH_AFTER_COMMIT: 'yes' }), /must be 0 or 1/);
+});
+
 test('qrexec-style one-process-per-call retries return committed response without duplicate mutation', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'dig-qrexec-contract-'));
   const storePath = path.join(dir, 'queue.json');
@@ -96,6 +108,40 @@ test('qrexec-style one-process-per-call retries return committed response withou
     assert.equal(rejected.code, 0);
     assert.equal(rejected.responses[0].ok, false);
     assert.match(rejected.responses[0].error, /authentication failed|different command/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('fault-only service crashes after a run-scoped commit and normal service reconciles the same request', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dig-qrexec-fault-any-'));
+  const storePath = path.join(dir, 'queue.json');
+  const journalPath = path.join(dir, 'journal.json');
+  try {
+    const runId = `run-${randomUUID()}`;
+    const requestId = `recovery-submit-${runId}`;
+    const envelope = signed('submit', {
+      text: 'Coder: synthetic run-scoped committed-response-loss task',
+      options: { idempotencyKey: `recovery-${runId}` }
+    }, requestId);
+
+    const fault = await invokeService({
+      storePath,
+      journalPath,
+      envelope,
+      extraEnv: { DIG_CRASH_AFTER_COMMIT: '1' }
+    });
+    assert.equal(fault.code, 86);
+    assert.equal(fault.responses.length, 0);
+
+    const recovered = await invokeService({ storePath, journalPath, envelope });
+    assert.equal(recovered.code, 0);
+    assert.equal(recovered.responses.length, 1);
+    assert.equal(recovered.responses[0].ok, true);
+
+    const retry = await invokeService({ storePath, journalPath, envelope });
+    assert.equal(retry.code, 0);
+    assert.deepEqual(retry.responses, recovered.responses);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
