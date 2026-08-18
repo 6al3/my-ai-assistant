@@ -34,6 +34,17 @@ test('collects a clean synthetic Qubes campaign into readiness-gate shape with p
   });
 });
 
+test('bounded wait events are accepted as campaign control metadata without affecting latency samples', () => {
+  const report = collectQrexecCampaign([
+    { type: 'wait', durationMs: 31_000 },
+    { type: 'round_trip', durationMs: 7 }
+  ]);
+  assert.equal(report.duplicateCommittedMutations, 0);
+  assert.equal(report.unresolvedPendingRequests, 0);
+  assert.deepEqual(report.recoveryLatencyMs, []);
+  assert.deepEqual(report.roundTripLatencyMs, [7]);
+});
+
 test('derives duplicate, stale, unresolved, and QA-before-join failures from events', () => {
   const report = collectQrexecCampaign([
     { type: 'request_pending', requestId: 'left-open' },
@@ -70,6 +81,8 @@ test('provenance framing rejects duplicates, mismatches, same-qube, and inverted
 
 test('rejects malformed and unsupported events fail-closed', () => {
   assert.throws(() => collectQrexecCampaign([{ type: 'round_trip', durationMs: -1 }]), /non-negative finite/);
+  assert.throws(() => collectQrexecCampaign([{ type: 'wait', durationMs: -1 }]), /non-negative finite/);
+  assert.throws(() => collectQrexecCampaign([{ type: 'wait', durationMs: 120_001 }]), /at most 120000/);
   assert.throws(() => collectQrexecCampaign([{ type: 'qa_started', pendingDependencies: -1 }]), /non-negative integer/);
   assert.throws(() => collectQrexecCampaign([{ type: 'mystery' }]), /unsupported campaign event type/);
   assert.throws(() => collectQrexecCampaign([null]), /must be an object/);
