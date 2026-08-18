@@ -74,6 +74,7 @@ jobs:
               agents/orchestration-benchmark.test.mjs
               agents/orchestration-process-fault.test.mjs
               agents/orchestration-authenticated-recovery.test.mjs
+              agents/qrexec-response-attestation.test.mjs
               agents/qubes-qrexec-coordinator-service.test.mjs
               agents/qrexec-fault-readonly-preflight.test.mjs
               agents/qubes-qrexec-readiness-gate.test.mjs
