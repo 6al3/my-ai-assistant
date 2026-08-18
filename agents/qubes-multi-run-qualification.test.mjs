@@ -10,10 +10,12 @@ function campaign(runId, offsetMs, scenario = {}) {
   const finishedAt = new Date(NOW - 50_000 + offsetMs).toISOString();
   const events = [
     { type: 'campaign_start', runId, transport: 'qrexec', sourceQube: 'dig-worker', targetQube: 'dig-coordinator', service: 'dig.Coordinator', gitSha: SHA, startedAt },
+    { type: 'qrexec_service_call', service: 'dig.Coordinator' },
     { type: 'round_trip', durationMs: 40 + offsetMs / 1000 },
     { type: 'recovery', durationMs: 100 + offsetMs / 1000 }
   ];
   if (scenario.recovery) events.push(
+    { type: 'qrexec_service_call', service: 'dig.CoordinatorFault' },
     { type: 'request_pending', requestId: `${runId}-request` },
     { type: 'mutation_committed', mutationKey: `${runId}-mutation` },
     { type: 'request_resolved', requestId: `${runId}-request` }
@@ -44,6 +46,7 @@ const thresholds = {
   expectedSourceQube: 'dig-worker',
   expectedTargetQube: 'dig-coordinator',
   expectedService: 'dig.Coordinator',
+  expectedFaultService: 'dig.CoordinatorFault',
   maxRecoveryP95Ms: 500,
   maxRoundTripP95Ms: 200
 };
@@ -55,11 +58,25 @@ test('qualifies multiple independent runs only when aggregate evidence is comple
   assert.equal(result.metrics.runs, 3);
   assert.equal(result.metrics.recoverySamples, 3);
   assert.equal(result.metrics.roundTripSamples, 3);
+  assert.deepEqual(result.metrics.servicesObserved, ['dig.Coordinator', 'dig.CoordinatorFault']);
+  assert.equal(result.checks.expectedNormalAndFaultServicesObserved, true);
+  assert.equal(result.checks.onlyExpectedQrexecServicesObserved, true);
   assert.equal(result.coverage.checks.pendingRequestWasResolved, true);
   assert.equal(result.coverage.checks.qaWasBlockedBeforeJoin, true);
   assert.equal(result.coverage.checks.qaStartedAfterJoin, true);
   assert.equal(result.coverage.checks.staleLeaseWasActuallyProbed, true);
   assert.equal(result.readiness.checks.everyStaleLeaseProbeRejected, true);
+});
+
+test('rejects unexpected qrexec service calls even when expected normal and fault services are both observed', () => {
+  const campaigns = goodCampaigns();
+  campaigns[1].splice(-1, 0, { type: 'qrexec_service_call', service: 'dig.UnexpectedService' });
+  const result = evaluateMultiRunQualification(campaigns, thresholds);
+  assert.equal(result.ready, false);
+  assert.equal(result.checks.expectedNormalAndFaultServicesObserved, true);
+  assert.equal(result.checks.onlyExpectedQrexecServicesObserved, false);
+  assert.ok(result.failedChecks.includes('onlyExpectedQrexecServicesObserved'));
+  assert.deepEqual(result.metrics.servicesObserved, ['dig.Coordinator', 'dig.CoordinatorFault', 'dig.UnexpectedService']);
 });
 
 test('rejects duplicate run ids even when counters and latency pass', () => {
