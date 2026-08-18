@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { evaluateMultiRunQualification, parseMultiRunJson } from './qubes-multi-run-qualification.mjs';
 
 const HARNESS = new URL('./qubes-qrexec-campaign-harness.mjs', import.meta.url);
 const LEASE_CAMPAIGN = new URL('./qubes-qrexec-lease-fencing-campaign.json', import.meta.url);
@@ -56,11 +57,25 @@ export async function runQualificationCampaignSet({ qualificationRunId = randomU
   return campaigns;
 }
 
+export function evaluateQualificationCampaignSet(campaigns, { env = process.env, nowMs = Date.now() } = {}) {
+  const expectedGitSha = env.DIG_GIT_SHA;
+  const expectedSourceQube = env.DIG_SOURCE_QUBE || env.DIG_QREXEC_SOURCE;
+  const expectedTargetQube = env.DIG_TARGET_QUBE || env.DIG_QREXEC_TARGET;
+  const expectedService = env.DIG_QREXEC_SERVICE;
+  for (const [name, value] of Object.entries({ expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService })) {
+    if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required for qualification`);
+  }
+  const parsed = parseMultiRunJson(JSON.stringify(campaigns));
+  return evaluateMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, nowMs });
+}
+
 async function main() {
   const qualificationRunId = process.env.DIG_QUALIFICATION_RUN_ID || randomUUID();
   const recoveryRuns = process.env.DIG_RECOVERY_RUNS ? Number(process.env.DIG_RECOVERY_RUNS) : 3;
   const campaigns = await runQualificationCampaignSet({ qualificationRunId, recoveryRuns });
-  process.stdout.write(`${JSON.stringify(campaigns, null, 2)}\n`);
+  const qualification = evaluateQualificationCampaignSet(campaigns);
+  process.stdout.write(`${JSON.stringify({ qualificationRunId, qualification, campaigns }, null, 2)}\n`);
+  if (!qualification.ready) process.exitCode = 2;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
