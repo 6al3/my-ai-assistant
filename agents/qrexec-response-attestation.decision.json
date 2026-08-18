@@ -1,0 +1,58 @@
+{
+  "decision": "Use coordinator-side Ed25519 response attestation with canonical JSON and explicit git-SHA/service/key binding.",
+  "status": "selected",
+  "scope": "Qubes synthetic qualification evidence; no real financial operations",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "approach": "Coordinator-side Ed25519 signatures",
+      "assessment": {
+        "correctness": "strong: tampering and context substitution are detectable",
+        "robustness": "strong: canonical JSON removes object-key-order dependence",
+        "latency": "low: one local Ed25519 signature per response",
+        "resourceUse": "low: no network service or database",
+        "regressionRisk": "low-to-medium: output shape gains an optional attestation field only",
+        "qa": "requires primitive, tamper, context-mismatch, and service integration tests"
+      }
+    },
+    {
+      "agent": "security-review",
+      "approach": "Reuse transport HMAC as evidence authority",
+      "assessment": {
+        "correctness": "insufficient for qualification provenance",
+        "robustness": "weak against a worker-side evidence generator because the shared HMAC secret exists on the worker side",
+        "latency": "lowest",
+        "resourceUse": "lowest",
+        "regressionRisk": "lowest",
+        "qa": "cannot prove coordinator-origin evidence independently"
+      },
+      "result": "rejected"
+    },
+    {
+      "agent": "performance-review",
+      "approach": "External attestation daemon or database",
+      "assessment": {
+        "correctness": "strong",
+        "robustness": "strong if independently administered",
+        "latency": "highest: additional IPC/network hop",
+        "resourceUse": "highest: extra lifecycle, storage, and key-management service",
+        "regressionRisk": "high for current lab stage",
+        "qa": "requires service availability and distributed failure testing"
+      },
+      "result": "deferred"
+    }
+  ],
+  "whyWinnerWon": [
+    "Private signing key can remain coordinator-side while the worker receives only a public key.",
+    "Signature binds the exact response to the expected git SHA, qrexec service, and key identity.",
+    "No extra qrexec round trip, daemon, database, or worker authority is introduced.",
+    "Optional all-or-none configuration preserves existing lab paths while enabling a stricter qualification gate next."
+  ],
+  "failuresAndLessons": [
+    "Worker-side service-name events alone are not origin authentication.",
+    "A shared transport HMAC authenticates commands but is not suitable as independent coordinator evidence because both sides possess the secret.",
+    "Attestation configuration must fail closed when partially supplied.",
+    "Qualification must eventually require verified attestations rather than treating the optional field as sufficient by presence alone."
+  ],
+  "nextGate": "Make the Qubes harness verify the coordinator signature with a worker-side public key, emit attestation_verified evidence, and require verified normal/fault service attestations in multi-run qualification."
+}
