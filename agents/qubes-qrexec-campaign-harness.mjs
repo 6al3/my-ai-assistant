@@ -100,7 +100,21 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
       events.push({ type: 'request_resolved', requestId });
       continue;
     }
-    if (mode === 'qa_barrier_probe') { if (!response.ok) throw new Error(`step[${index}] QA barrier probe failed: ${response.error ?? 'unknown error'}`); events.push({ type: 'qa_started', pendingDependencies: response.result == null ? 0 : 1 }, { type: 'request_resolved', requestId }); continue; }
+    if (mode === 'qa_barrier_probe') {
+      if (!response.ok) throw new Error(`step[${index}] QA barrier probe failed: ${response.error ?? 'unknown error'}`);
+      const blocked = response.result == null;
+      events.push({ type: 'qa_barrier_probe', blocked });
+      if (!blocked) events.push({ type: 'qa_started', pendingDependencies: 1 });
+      events.push({ type: 'request_resolved', requestId });
+      continue;
+    }
+    if (mode === 'qa_post_join_probe') {
+      if (!response.ok) throw new Error(`step[${index}] QA post-join probe failed: ${response.error ?? 'unknown error'}`);
+      if (response.result == null) throw new Error(`step[${index}] expected QA mission after dependency join`);
+      if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(response));
+      events.push({ type: 'qa_started', pendingDependencies: 0 }, { type: 'qa_post_join_start' }, { type: 'request_resolved', requestId });
+      continue;
+    }
     if (mode !== 'request') throw new Error(`unsupported campaign step mode: ${mode}`);
     const expectError = step.expectError === true;
     if (expectError ? response.ok : !response.ok) throw new Error(`step[${index}] unexpected coordinator response: ${JSON.stringify(response)}`);
