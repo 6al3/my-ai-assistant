@@ -91,6 +91,12 @@ export function collectQrexecCampaign(events) {
       case 'current_lease_completion': currentLeaseCompletions += 1; break;
       case 'request_pending': pendingRequests.add(assertString(event.requestId, `event[${index}].requestId`)); break;
       case 'request_resolved': pendingRequests.delete(assertString(event.requestId, `event[${index}].requestId`)); break;
+      case 'qa_barrier_probe': {
+        if (typeof event.blocked !== 'boolean') throw new TypeError(`event[${index}].blocked must be a boolean`);
+        if (!event.blocked) qaBeforeJoin += 1;
+        break;
+      }
+      case 'qa_post_join_start': break;
       case 'qa_started': {
         if (!Number.isInteger(event.pendingDependencies) || event.pendingDependencies < 0) throw new TypeError(`event[${index}].pendingDependencies must be a non-negative integer`);
         if (event.pendingDependencies > 0) qaBeforeJoin += 1;
