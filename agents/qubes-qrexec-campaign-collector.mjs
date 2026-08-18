@@ -67,6 +67,11 @@ export function collectQrexecCampaign(events) {
         recoveryLatencyMs.push(event.durationMs);
         break;
       }
+      case 'wait': {
+        assertFiniteDuration(event.durationMs, `event[${index}].durationMs`);
+        if (event.durationMs > 120_000) throw new TypeError(`event[${index}].durationMs must be at most 120000`);
+        break;
+      }
       case 'mutation_committed': {
         const mutationKey = assertString(event.mutationKey, `event[${index}].mutationKey`);
         if (committedMutationKeys.has(mutationKey)) duplicateCommittedMutations += 1;
