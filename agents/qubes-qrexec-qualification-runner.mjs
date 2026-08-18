@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { evaluateMultiRunQualification, parseMultiRunJson } from './qubes-multi-run-qualification.mjs';
-import { runQualificationPreflightFromEnv } from './qubes-qrexec-qualification-preflight.mjs';
+import { runQualificationPreflightFromEnv, validateQualificationPreflightEnvironment } from './qubes-qrexec-qualification-preflight.mjs';
 
 const HARNESS = new URL('./qubes-qrexec-campaign-harness.mjs', import.meta.url);
 const LEASE_CAMPAIGN = new URL('./qubes-qrexec-lease-fencing-campaign.json', import.meta.url);
@@ -23,6 +23,30 @@ export function buildQualificationRunPlan({ qualificationRunId = randomUUID(), r
     { kind: 'lease-qa', runId: `${prefix}-lease`, manifestUrl: LEASE_CAMPAIGN },
     ...Array.from({ length: recoveryRuns }, (_, index) => ({ kind: 'recovery', runId: `${prefix}-recovery-${index + 1}`, manifestUrl: RECOVERY_CAMPAIGN }))
   ];
+}
+
+function replaceDeploymentTokens(value, { normalService, faultService }) {
+  if (Array.isArray(value)) return value.map(item => replaceDeploymentTokens(item, { normalService, faultService }));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replaceDeploymentTokens(item, { normalService, faultService })]));
+  }
+  if (value === '{{NORMAL_SERVICE}}') return normalService;
+  if (value === '{{FAULT_SERVICE}}') return faultService;
+  return value;
+}
+
+export function materializeQualificationManifest(manifest, { env = process.env } = {}) {
+  const config = validateQualificationPreflightEnvironment(env);
+  let parsed;
+  try {
+    parsed = JSON.parse(manifest);
+  } catch (error) {
+    throw new Error(`qualification campaign manifest must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return JSON.stringify(replaceDeploymentTokens(parsed, {
+    normalService: config.service,
+    faultService: config.faultService
+  }));
 }
 
 function runHarness({ manifest, runId, harnessPath = fileURLToPath(HARNESS), env = process.env } = {}) {
@@ -50,7 +74,8 @@ export async function runQualificationCampaignSet({ qualificationRunId = randomU
   const plan = buildQualificationRunPlan({ qualificationRunId, recoveryRuns });
   const campaigns = [];
   for (const item of plan) {
-    const manifest = await readFile(item.manifestUrl, 'utf8');
+    const manifestTemplate = await readFile(item.manifestUrl, 'utf8');
+    const manifest = materializeQualificationManifest(manifestTemplate, { env });
     const jsonl = await runHarness({ manifest, runId: item.runId, harnessPath, env });
     if (!jsonl) throw new Error(`campaign ${item.runId} produced no evidence`);
     campaigns.push(jsonl);
