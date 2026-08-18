@@ -12,11 +12,15 @@ export function loadQrexecCoordinatorConfig(env = process.env) {
     throw new Error('DIG_TRANSPORT_SECRET must be at least 32 bytes');
   }
 
+  const crashAfterCommitRaw = env.DIG_CRASH_AFTER_COMMIT?.trim();
+  if (crashAfterCommitRaw && !['0', '1'].includes(crashAfterCommitRaw)) throw new Error('DIG_CRASH_AFTER_COMMIT must be 0 or 1');
+
   return {
     storePath,
     requestJournalPath,
     transportSecret,
     crashAfterRequestId: env.DIG_CRASH_AFTER_REQUEST_ID?.trim() || null,
+    crashAfterAnyAuthenticatedCommit: crashAfterCommitRaw === '1',
     preserveRunningLeasesOnRestore: true
   };
 }
