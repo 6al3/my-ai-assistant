@@ -1,0 +1,42 @@
+{
+  "decision": "Use one canonical lease/QA campaign plus three lightweight run-scoped committed-response recovery campaigns, driven by a sequential qualification runner.",
+  "reviews": {
+    "correctness": {
+      "winner": "run-scoped fault-only crash-after-commit service plus independent campaign IDs",
+      "reason": "Exercises durable reconciliation with fresh request/idempotency identities and preserves durable state between runs instead of deleting it."
+    },
+    "security_transport": {
+      "winner": "explicit fault-only DIG_CRASH_AFTER_COMMIT=1 service",
+      "reason": "Normal qrexec service remains unchanged; crash behavior is only reachable through the separately policy-scoped synthetic fault service."
+    },
+    "performance_regression": {
+      "winner": "one 31-second lease/QA run plus three lightweight recovery runs",
+      "reason": "Produces at least three recovery samples without paying the lease-expiry wait three times; no new daemon, database, or worker round trip outside qualification."
+    }
+  },
+  "alternatives": [
+    {
+      "name": "repeat the full lease/QA campaign three times",
+      "result": "rejected",
+      "failure_lesson": "Correct but wastes roughly two extra lease-expiry waits and adds no proportional coverage value."
+    },
+    {
+      "name": "keep DIG_CRASH_AFTER_REQUEST_ID fixed",
+      "result": "rejected",
+      "failure_lesson": "Conflicts with run-scoped request IDs and can silently reuse durable journal evidence across qualification runs."
+    },
+    {
+      "name": "clear mission/journal state between runs",
+      "result": "rejected",
+      "failure_lesson": "Destroys the persistence/reconciliation conditions the qualification is intended to prove."
+    }
+  ],
+  "qa_expectations": [
+    "unique run IDs and run-scoped request/idempotency identities",
+    "at least three recovery latency samples",
+    "lease fencing and QA before/after join exercised",
+    "no duplicate committed mutations, unresolved pending requests, stale completions, or QA-before-join",
+    "same git SHA, source Qube, target Qube, service, and qrexec transport across the qualification set"
+  ],
+  "safety": "Synthetic defensive qualification only. No real financial transactions, payment data, or weakening of security controls."
+}
