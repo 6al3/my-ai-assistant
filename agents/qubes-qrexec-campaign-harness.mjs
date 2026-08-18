@@ -102,9 +102,7 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
     }
     if (mode === 'qa_barrier_probe') {
       if (!response.ok) throw new Error(`step[${index}] QA barrier probe failed: ${response.error ?? 'unknown error'}`);
-      const blocked = response.result == null;
-      events.push({ type: 'qa_barrier_probe', blocked });
-      if (!blocked) events.push({ type: 'qa_started', pendingDependencies: 1 });
+      events.push({ type: 'qa_barrier_probe', blocked: response.result == null });
       events.push({ type: 'request_resolved', requestId });
       continue;
     }
