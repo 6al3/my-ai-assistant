@@ -60,6 +60,10 @@ export function collectQrexecCampaign(events) {
         if (Date.parse(endedAt) < Date.parse(provenance.startedAt)) throw new Error('campaign_end precedes campaign_start');
         break;
       }
+      case 'qrexec_service_call': {
+        assertString(event.service, `event[${index}].service`);
+        break;
+      }
       case 'round_trip': {
         assertFiniteDuration(event.durationMs, `event[${index}].durationMs`);
         roundTripLatencyMs.push(event.durationMs);
