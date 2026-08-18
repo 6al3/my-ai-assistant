@@ -2,24 +2,24 @@
   "steps": [
     {
       "mode": "request",
-      "requestId": "lease-campaign-submit-v1",
+      "requestId": "lease-campaign-submit-{{RUN_ID}}",
       "op": "submit",
       "body": {
         "text": "Build code for a synthetic defensive Qubes lease-fencing task",
-        "options": { "idempotencyKey": "qubes-lease-fencing-campaign-v1" }
+        "options": { "idempotencyKey": "qubes-lease-fencing-campaign-{{RUN_ID}}" }
       },
-      "mutationKey": "submit:qubes-lease-fencing-campaign-v1"
+      "mutationKey": "submit:qubes-lease-fencing-campaign:{{RUN_ID}}"
     },
     {
       "mode": "request",
-      "requestId": "lease-campaign-claim-orchestrator-v1",
+      "requestId": "lease-campaign-claim-orchestrator-{{RUN_ID}}",
       "op": "claim",
       "body": { "worker": { "id": "orchestrator-worker", "capabilities": ["orchestrator"] } },
       "saveAs": "orchestratorClaim"
     },
     {
       "mode": "request",
-      "requestId": "lease-campaign-complete-orchestrator-v1",
+      "requestId": "lease-campaign-complete-orchestrator-{{RUN_ID}}",
       "op": "complete",
       "body": {
         "id": { "$ref": "orchestratorClaim.result.id" },
@@ -27,18 +27,18 @@
         "leaseToken": { "$ref": "orchestratorClaim.result.leaseToken" },
         "result": { "synthetic": true, "agentId": "orchestrator" }
       },
-      "mutationKey": "complete:orchestrator:v1"
+      "mutationKey": "complete:orchestrator:{{RUN_ID}}"
     },
     {
       "mode": "request",
-      "requestId": "lease-campaign-claim-planner-v1",
+      "requestId": "lease-campaign-claim-planner-{{RUN_ID}}",
       "op": "claim",
       "body": { "worker": { "id": "planner-worker", "capabilities": ["planner"] } },
       "saveAs": "plannerClaim"
     },
     {
       "mode": "request",
-      "requestId": "lease-campaign-complete-planner-v1",
+      "requestId": "lease-campaign-complete-planner-{{RUN_ID}}",
       "op": "complete",
       "body": {
         "id": { "$ref": "plannerClaim.result.id" },
@@ -46,11 +46,11 @@
         "leaseToken": { "$ref": "plannerClaim.result.leaseToken" },
         "result": { "synthetic": true, "agentId": "planner" }
       },
-      "mutationKey": "complete:planner:v1"
+      "mutationKey": "complete:planner:{{RUN_ID}}"
     },
     {
       "mode": "request",
-      "requestId": "lease-campaign-claim-coder-old-v1",
+      "requestId": "lease-campaign-claim-coder-old-{{RUN_ID}}",
       "op": "claim",
       "body": { "worker": { "id": "coder-worker", "capabilities": ["coder"] } },
       "saveAs": "oldCoderClaim"
@@ -58,14 +58,14 @@
     { "mode": "wait", "durationMs": 31000 },
     {
       "mode": "request",
-      "requestId": "lease-campaign-claim-coder-new-v1",
+      "requestId": "lease-campaign-claim-coder-new-{{RUN_ID}}",
       "op": "claim",
       "body": { "worker": { "id": "coder-worker", "capabilities": ["coder"] } },
       "saveAs": "newCoderClaim"
     },
     {
       "mode": "stale_probe",
-      "requestId": "lease-campaign-complete-coder-stale-v1",
+      "requestId": "lease-campaign-complete-coder-stale-{{RUN_ID}}",
       "op": "complete",
       "body": {
         "id": { "$ref": "oldCoderClaim.result.id" },
@@ -76,13 +76,13 @@
     },
     {
       "mode": "qa_barrier_probe",
-      "requestId": "lease-campaign-qa-before-join-v1",
+      "requestId": "lease-campaign-qa-before-join-{{RUN_ID}}",
       "op": "claim",
       "body": { "worker": { "id": "qa-worker", "capabilities": ["qa"] } }
     },
     {
       "mode": "request",
-      "requestId": "lease-campaign-complete-coder-current-v1",
+      "requestId": "lease-campaign-complete-coder-current-{{RUN_ID}}",
       "op": "complete",
       "body": {
         "id": { "$ref": "newCoderClaim.result.id" },
@@ -90,12 +90,12 @@
         "leaseToken": { "$ref": "newCoderClaim.result.leaseToken" },
         "result": { "synthetic": true, "agentId": "coder", "lease": "current" }
       },
-      "mutationKey": "complete:coder:reclaimed:v1",
+      "mutationKey": "complete:coder:reclaimed:{{RUN_ID}}",
       "fencingCurrentCompletion": true
     },
     {
       "mode": "qa_post_join_probe",
-      "requestId": "lease-campaign-qa-after-join-v1",
+      "requestId": "lease-campaign-qa-after-join-{{RUN_ID}}",
       "op": "claim",
       "body": { "worker": { "id": "qa-worker", "capabilities": ["qa"] } },
       "saveAs": "qaClaim"
