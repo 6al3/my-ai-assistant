@@ -5,6 +5,12 @@ import { MissionQueueStore } from './mission-queue-store.mjs';
 import { OrchestratedMissionRuntime } from './orchestrated-mission-runtime.mjs';
 import { WorkerEnvelopeVerifier } from './worker-transport-envelope.mjs';
 
+const MUTATING_WORKER_OPS = new Set(['submit', 'claim', 'heartbeat', 'complete', 'fail', 'completeAndExit']);
+
+export function isMutatingWorkerOp(op) {
+  return MUTATING_WORKER_OPS.has(op);
+}
+
 export async function runProcessCoordinator({
   storePath,
   requestJournalPath = null,
@@ -55,12 +61,24 @@ export async function runProcessCoordinator({
   };
   const authenticate = envelope => { const verifier = new WorkerEnvelopeVerifier({ secret: transportSecret }); return verifier.verify(envelope); };
   const executeAuthenticated = async envelope => {
-    const verified = authenticate(envelope); const command = { op: verified.op, ...(verified.body ?? {}) }; const digest = digestWorkerCommand({ op: verified.op, body: verified.body ?? null }); const existing = journal.get(verified.requestId);
-    if (existing) { if (existing.digest !== digest) throw new Error('requestId reused with different command'); if (existing.status === 'committed') return existing.response; }
-    else await journal.begin({ requestId: verified.requestId, digest });
+    const verified = authenticate(envelope);
+    const command = { op: verified.op, ...(verified.body ?? {}) };
+    const digest = digestWorkerCommand({ op: verified.op, body: verified.body ?? null });
+    const existing = journal.get(verified.requestId);
+    if (existing) {
+      if (existing.digest !== digest) throw new Error('requestId reused with different command');
+      if (existing.status === 'committed') return existing.response;
+    } else await journal.begin({ requestId: verified.requestId, digest });
     const result = await execute(command);
-    if (crashAfterAnyAuthenticatedCommit || crashAfterRequestId === verified.requestId) { await runtime.coordinator.flush(); setImmediate(() => process.exit(86)); return null; }
-    const response = { ok: true, result }; await journal.commit(verified.requestId, response); return response;
+    const shouldCrashAfterCommit = crashAfterRequestId === verified.requestId || (crashAfterAnyAuthenticatedCommit && isMutatingWorkerOp(verified.op));
+    if (shouldCrashAfterCommit) {
+      await runtime.coordinator.flush();
+      setImmediate(() => process.exit(86));
+      return null;
+    }
+    const response = { ok: true, result };
+    await journal.commit(verified.requestId, response);
+    return response;
   };
   for await (const line of lines) {
     if (!line.trim()) continue;
