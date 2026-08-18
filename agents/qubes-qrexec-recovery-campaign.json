@@ -1,0 +1,16 @@
+{
+  "steps": [
+    {
+      "mode": "crash_retry",
+      "requestId": "recovery-submit-{{RUN_ID}}",
+      "op": "submit",
+      "body": {
+        "text": "Coder: synthetic defensive committed-response-loss qualification task",
+        "options": { "idempotencyKey": "qrexec-recovery-{{RUN_ID}}" }
+      },
+      "faultService": "dig.CoordinatorFault",
+      "recoveryService": "dig.Coordinator",
+      "mutationKey": "submit:qrexec-recovery:{{RUN_ID}}"
+    }
+  ]
+}
