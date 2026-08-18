@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { signWorkerEnvelope } from './worker-transport-envelope.mjs';
 
 function assertString(value, name) {
@@ -11,6 +12,22 @@ function assertString(value, name) {
 function assertResponse(value, name = 'response') {
   if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.ok !== 'boolean') throw new Error(`${name} must be a coordinator response object`);
   return value;
+}
+
+function resolveRef(value, captures, name = 'value') {
+  if (Array.isArray(value)) return value.map((item, index) => resolveRef(item, captures, `${name}[${index}]`));
+  if (!value || typeof value !== 'object') return value;
+  if (Object.keys(value).length === 1 && typeof value.$ref === 'string') {
+    const [captureName, ...path] = value.$ref.split('.');
+    let current = captures.get(captureName);
+    if (current === undefined) throw new Error(`${name} references unknown capture: ${captureName}`);
+    for (const segment of path) {
+      if (current == null || typeof current !== 'object' || !(segment in current)) throw new Error(`${name} references missing path: ${value.$ref}`);
+      current = current[segment];
+    }
+    return structuredClone(current);
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveRef(item, captures, `${name}.${key}`)]));
 }
 
 export function createQrexecProcessTransport({ target, service, qrexecBin = 'qrexec-client-vm', env = process.env, now = () => Date.now() } = {}) {
@@ -40,14 +57,27 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
   };
 }
 
-export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt = () => Date.now() } = {}) {
+export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt = () => Date.now(), sleepFn = sleep } = {}) {
   if (!Array.isArray(steps) || steps.length === 0) throw new TypeError('steps must be a non-empty array');
   if (typeof invoke !== 'function') throw new TypeError('invoke must be a function');
+  if (typeof sleepFn !== 'function') throw new TypeError('sleepFn must be a function');
   const events = [];
-  const send = async (step, service) => invoke(signWorkerEnvelope({ requestId: assertString(step.requestId, 'step.requestId'), issuedAt: issuedAt(), op: assertString(step.op, 'step.op'), body: step.body ?? null, secret }), { service });
+  const captures = new Map();
+  const send = async (step, service) => {
+    const body = resolveRef(step.body ?? null, captures, 'step.body');
+    return invoke(signWorkerEnvelope({ requestId: assertString(step.requestId, 'step.requestId'), issuedAt: issuedAt(), op: assertString(step.op, 'step.op'), body, secret }), { service });
+  };
   for (const [index, rawStep] of steps.entries()) {
     if (!rawStep || typeof rawStep !== 'object' || Array.isArray(rawStep)) throw new TypeError(`step[${index}] must be an object`);
-    const step = rawStep; const mode = step.mode ?? 'request'; const requestId = assertString(step.requestId, `step[${index}].requestId`);
+    const step = rawStep; const mode = step.mode ?? 'request';
+    if (mode === 'wait') {
+      const durationMs = Number(step.durationMs);
+      if (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 120_000) throw new Error(`step[${index}].durationMs must be between 0 and 120000`);
+      await sleepFn(durationMs);
+      events.push({ type: 'wait', durationMs });
+      continue;
+    }
+    const requestId = assertString(step.requestId, `step[${index}].requestId`);
     events.push({ type: 'request_pending', requestId });
     if (mode === 'crash_retry') {
       let firstFailed = false;
@@ -56,11 +86,13 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
       const recovered = await send(step, assertString(step.recoveryService, `step[${index}].recoveryService`));
       assertResponse(recovered.response, `step[${index}] recovery response`);
       if (!recovered.response.ok) throw new Error(`step[${index}] recovery failed: ${recovered.response.error ?? 'unknown error'}`);
+      if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(recovered.response));
       events.push({ type: 'recovery', durationMs: recovered.durationMs }, { type: 'round_trip', durationMs: recovered.durationMs }, { type: 'request_resolved', requestId });
       if (step.mutationKey) events.push({ type: 'mutation_committed', mutationKey: assertString(step.mutationKey, `step[${index}].mutationKey`) });
       continue;
     }
     const outcome = await send(step, step.service); const response = assertResponse(outcome.response, `step[${index}] response`);
+    if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(response));
     events.push({ type: 'round_trip', durationMs: outcome.durationMs });
     if (mode === 'stale_probe') { if (response.ok) events.push({ type: 'stale_completion' }); events.push({ type: 'request_resolved', requestId }); continue; }
     if (mode === 'qa_barrier_probe') { if (!response.ok) throw new Error(`step[${index}] QA barrier probe failed: ${response.error ?? 'unknown error'}`); events.push({ type: 'qa_started', pendingDependencies: response.result == null ? 0 : 1 }, { type: 'request_resolved', requestId }); continue; }
