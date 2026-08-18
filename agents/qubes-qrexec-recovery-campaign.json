@@ -8,8 +8,8 @@
         "text": "Coder: synthetic defensive committed-response-loss qualification task",
         "options": { "idempotencyKey": "qrexec-recovery-{{RUN_ID}}" }
       },
-      "faultService": "dig.CoordinatorFault",
-      "recoveryService": "dig.Coordinator",
+      "faultService": "{{FAULT_SERVICE}}",
+      "recoveryService": "{{NORMAL_SERVICE}}",
       "mutationKey": "submit:qrexec-recovery:{{RUN_ID}}"
     }
   ]
