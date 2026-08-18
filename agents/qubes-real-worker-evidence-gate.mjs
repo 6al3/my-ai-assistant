@@ -15,7 +15,9 @@ export function evaluateCampaignCoverage(events) {
   let campaignEnds = 0;
   let committedMutations = 0;
   let recoveryEvents = 0;
-  let qaJoinProbes = 0;
+  let qaBarrierProbes = 0;
+  let qaBarrierBlocks = 0;
+  let qaPostJoinStarts = 0;
   let staleLeaseProbes = 0;
   let currentLeaseCompletions = 0;
 
@@ -26,7 +28,12 @@ export function evaluateCampaignCoverage(events) {
     else if (type === 'campaign_end') campaignEnds += 1;
     else if (type === 'mutation_committed') committedMutations += 1;
     else if (type === 'recovery') recoveryEvents += 1;
-    else if (type === 'qa_started') qaJoinProbes += 1;
+    else if (type === 'qa_barrier_probe') {
+      if (typeof event.blocked !== 'boolean') throw new TypeError(`event[${index}].blocked must be a boolean`);
+      qaBarrierProbes += 1;
+      if (event.blocked) qaBarrierBlocks += 1;
+    }
+    else if (type === 'qa_post_join_start') qaPostJoinStarts += 1;
     else if (type === 'stale_completion_probe') staleLeaseProbes += 1;
     else if (type === 'current_lease_completion') currentLeaseCompletions += 1;
     else if (type === 'request_pending') pending.add(nonEmpty(event.requestId, `event[${index}].requestId`));
@@ -42,7 +49,9 @@ export function evaluateCampaignCoverage(events) {
     committedMutationObserved: committedMutations > 0,
     pendingRequestWasResolved: resolvedAfterPending.size > 0,
     recoveryWasActuallyExercised: recoveryEvents > 0,
-    qaJoinWasActuallyProbed: qaJoinProbes > 0,
+    qaBarrierWasActuallyProbed: qaBarrierProbes > 0,
+    qaWasBlockedBeforeJoin: qaBarrierProbes > 0 && qaBarrierBlocks === qaBarrierProbes,
+    qaStartedAfterJoin: qaPostJoinStarts > 0,
     staleLeaseWasActuallyProbed: staleLeaseProbes > 0,
     currentLeaseCompletionObserved: currentLeaseCompletions > 0
   };
@@ -51,7 +60,18 @@ export function evaluateCampaignCoverage(events) {
     ready: failedChecks.length === 0,
     failedChecks,
     checks,
-    metrics: { campaignStarts, campaignEnds, committedMutations, resolvedAfterPending: resolvedAfterPending.size, recoveryEvents, qaJoinProbes, staleLeaseProbes, currentLeaseCompletions }
+    metrics: {
+      campaignStarts,
+      campaignEnds,
+      committedMutations,
+      resolvedAfterPending: resolvedAfterPending.size,
+      recoveryEvents,
+      qaBarrierProbes,
+      qaBarrierBlocks,
+      qaPostJoinStarts,
+      staleLeaseProbes,
+      currentLeaseCompletions
+    }
   };
 }
 
