@@ -5,6 +5,11 @@ import { signWorkerEnvelope, WorkerEnvelopeVerifier } from './worker-transport-e
 
 const secret = '0123456789abcdef0123456789abcdef';
 
+function corruptMac(mac) {
+  const replacement = mac[0].toLowerCase() === '0' ? '1' : '0';
+  return `${replacement}${mac.slice(1)}`;
+}
+
 test('accepts one authenticated request and rejects replay', () => {
   const now = 1_700_000_000_000;
   const verifier = new WorkerEnvelopeVerifier({ secret, now: () => now });
@@ -21,11 +26,13 @@ test('rejects tampered operation, body, timestamp, and mac', () => {
     value => ({ ...value, op: 'complete' }),
     value => ({ ...value, body: { missionId: 'other' } }),
     value => ({ ...value, issuedAt: value.issuedAt + 1 }),
-    value => ({ ...value, mac: `0${value.mac.slice(1)}` })
+    value => ({ ...value, mac: corruptMac(value.mac) })
   ]) {
     const verifier = new WorkerEnvelopeVerifier({ secret, now: () => now });
     const signed = signWorkerEnvelope({ requestId: randomUUID(), issuedAt: now, op: 'claim', body: { workerId: 'worker-a' }, secret });
-    assert.throws(() => verifier.verify(mutate(signed)), /authentication failed/);
+    const tampered = mutate(signed);
+    assert.notEqual(tampered.mac === signed.mac && tampered.op === signed.op && tampered.issuedAt === signed.issuedAt && JSON.stringify(tampered.body) === JSON.stringify(signed.body), true);
+    assert.throws(() => verifier.verify(tampered), /authentication failed/);
   }
 });
 
@@ -42,7 +49,8 @@ test('failed authentication does not burn requestId and valid retry can succeed'
   const now = 1_700_000_000_000;
   const verifier = new WorkerEnvelopeVerifier({ secret, now: () => now });
   const valid = signWorkerEnvelope({ requestId: 'retryable', issuedAt: now, op: 'complete', body: { missionId: 'm1' }, secret });
-  const bad = { ...valid, mac: `f${valid.mac.slice(1)}` };
+  const bad = { ...valid, mac: corruptMac(valid.mac) };
+  assert.notEqual(bad.mac, valid.mac);
   assert.throws(() => verifier.verify(bad), /authentication failed/);
   assert.equal(verifier.verify(valid).requestId, 'retryable');
 });
