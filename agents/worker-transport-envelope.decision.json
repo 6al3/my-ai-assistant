@@ -10,7 +10,7 @@
       "latency": "very low: one SHA-256 HMAC and map lookup per message",
       "resourceUse": "low and bounded by maxSeen",
       "regressionRisk": "low because mission queue semantics and qrexec transport remain unchanged",
-      "qa": "valid request, tampering, replay, clock skew, failed-auth retry, and bounded-memory tests",
+      "qa": "valid request, deterministic tampering, replay, clock skew, failed-auth retry, and bounded-memory tests",
       "result": "selected"
     },
     {
@@ -37,10 +37,12 @@
   "whyItWon": "It separates application-level authenticity/replay fencing from the transport with minimal cost, so the same verified command contract can be carried over stdio in lab tests and qrexec later without rewriting queue behavior.",
   "failuresAndLessons": [
     "The first test draft relied on an implicit crypto global for randomUUID; explicit import was added before CI.",
+    "A later tamper test attempted to force the first MAC nibble to a fixed value. When the valid HMAC already began with that nibble, the envelope was not changed and the assertion failed nondeterministically. Tamper fixtures now deterministically flip the first nibble and assert that the fixture really changed before verification.",
+    "The same fixed-nibble bug existed in the failed-auth retry fixture, so both MAC-corruption paths now share the deterministic helper.",
     "The replay cache is process-local, so coordinator restart can forget seen request IDs; durable request-result reconciliation remains the next reliability gate.",
     "HMAC does not replace qrexec policy or VM isolation; it is an application-layer defense in depth contract.",
     "Shared symmetric secrets are acceptable for the current lab but should be revisited if workers require independent revocation or compromise containment."
   ],
   "readiness": "LAB READY",
-  "nextGate": "bind verified envelopes to the process coordinator request/result path, persist request IDs/results across restart, then run committed-response-loss and worker-cut fault tests before using the same adapter over real qrexec"
+  "nextGate": "keep Node/Swift CI green, then execute the checked-in stateful lease-fencing campaign across a real worker-Qube to coordinator-Qube qrexec boundary and pass provenance, fencing, correctness-counter, and latency gates"
 }
