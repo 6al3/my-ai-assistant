@@ -8,6 +8,8 @@ const end = { type: 'campaign_end', runId: 'run-1', finishedAt: '2026-08-17T15:0
 test('collects a clean synthetic Qubes campaign into readiness-gate shape with provenance', () => {
   const report = collectQrexecCampaign([
     start,
+    { type: 'qrexec_service_call', service: 'dig.Coordinator' },
+    { type: 'qrexec_service_call', service: 'dig.CoordinatorFault' },
     { type: 'request_pending', requestId: 'r1' },
     { type: 'mutation_committed', mutationKey: 'r1:complete:coder' },
     { type: 'stale_completion_probe', rejected: true },
@@ -87,6 +89,7 @@ test('rejects malformed and unsupported events fail-closed', () => {
   assert.throws(() => collectQrexecCampaign([{ type: 'round_trip', durationMs: -1 }]), /non-negative finite/);
   assert.throws(() => collectQrexecCampaign([{ type: 'wait', durationMs: -1 }]), /non-negative finite/);
   assert.throws(() => collectQrexecCampaign([{ type: 'wait', durationMs: 120_001 }]), /at most 120000/);
+  assert.throws(() => collectQrexecCampaign([{ type: 'qrexec_service_call', service: '' }]), /non-empty string/);
   assert.throws(() => collectQrexecCampaign([{ type: 'stale_completion_probe', rejected: 'yes' }]), /must be a boolean/);
   assert.throws(() => collectQrexecCampaign([{ type: 'qa_started', pendingDependencies: -1 }]), /non-negative integer/);
   assert.throws(() => collectQrexecCampaign([{ type: 'mystery' }]), /unsupported campaign event type/);
