@@ -74,8 +74,12 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
   const servicesObserved = observedServiceCalls(campaigns);
   const expectedNormalService = thresholds.expectedService ? nonEmpty(thresholds.expectedService, 'expectedService') : null;
   const expectedFaultService = thresholds.expectedFaultService ? nonEmpty(thresholds.expectedFaultService, 'expectedFaultService') : null;
-  const expectedServicesObserved = expectedNormalService && expectedFaultService
+  const serviceBindingsComplete = Boolean(expectedNormalService && expectedFaultService);
+  const expectedServicesObserved = serviceBindingsComplete
     ? servicesObserved.has(expectedNormalService) && servicesObserved.has(expectedFaultService)
+    : true;
+  const onlyExpectedServicesObserved = serviceBindingsComplete
+    ? [...servicesObserved].every(service => service === expectedNormalService || service === expectedFaultService)
     : true;
   const nowMs = thresholds.nowMs ?? Date.now();
   const maxReportAgeMs = thresholds.maxReportAgeMs ?? 24 * 60 * 60 * 1000;
@@ -116,6 +120,7 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
     sourceAndTargetRemainDistinct: allDistinctQubes,
     everyRunFresh: allFresh,
     expectedNormalAndFaultServicesObserved: expectedServicesObserved,
+    onlyExpectedQrexecServicesObserved: onlyExpectedServicesObserved,
     aggregateScenarioCoverage: coverage.ready,
     aggregateReadiness: readiness.ready
   };
