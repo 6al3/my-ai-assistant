@@ -94,13 +94,19 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
     const outcome = await send(step, step.service); const response = assertResponse(outcome.response, `step[${index}] response`);
     if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(response));
     events.push({ type: 'round_trip', durationMs: outcome.durationMs });
-    if (mode === 'stale_probe') { if (response.ok) events.push({ type: 'stale_completion' }); events.push({ type: 'request_resolved', requestId }); continue; }
+    if (mode === 'stale_probe') {
+      events.push({ type: 'stale_completion_probe', rejected: !response.ok });
+      if (response.ok) events.push({ type: 'stale_completion' });
+      events.push({ type: 'request_resolved', requestId });
+      continue;
+    }
     if (mode === 'qa_barrier_probe') { if (!response.ok) throw new Error(`step[${index}] QA barrier probe failed: ${response.error ?? 'unknown error'}`); events.push({ type: 'qa_started', pendingDependencies: response.result == null ? 0 : 1 }, { type: 'request_resolved', requestId }); continue; }
     if (mode !== 'request') throw new Error(`unsupported campaign step mode: ${mode}`);
     const expectError = step.expectError === true;
     if (expectError ? response.ok : !response.ok) throw new Error(`step[${index}] unexpected coordinator response: ${JSON.stringify(response)}`);
     events.push({ type: 'request_resolved', requestId });
     if (!expectError && step.mutationKey) events.push({ type: 'mutation_committed', mutationKey: assertString(step.mutationKey, `step[${index}].mutationKey`) });
+    if (!expectError && step.fencingCurrentCompletion === true) events.push({ type: 'current_lease_completion' });
   }
   return events;
 }
