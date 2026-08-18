@@ -3,12 +3,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { buildQualificationRunPlan, evaluateQualificationCampaignSet, runQualificationCampaignSet } from './qubes-qrexec-qualification-runner.mjs';
+import { buildQualificationRunPlan, evaluateQualificationCampaignSet, materializeQualificationManifest, runQualificationCampaignSet } from './qubes-qrexec-qualification-runner.mjs';
 
 const REQUIRED_ENV = {
   DIG_QREXEC_TARGET: 'coordinator',
   DIG_QREXEC_SOURCE: 'worker',
   DIG_QREXEC_SERVICE: 'dig.Coordinator',
+  DIG_QREXEC_FAULT_SERVICE: 'dig.CoordinatorFault',
   DIG_GIT_SHA: 'a'.repeat(40),
   DIG_TRANSPORT_SECRET: 'qualification-test-secret-000000000000'
 };
@@ -23,13 +24,29 @@ test('qualification plan uses one lease/QA run plus at least three independent r
   assert.throws(() => buildQualificationRunPlan({ qualificationRunId: 'bad id', recoveryRuns: 3 }), /qualificationRunId/);
 });
 
+test('qualification manifest binds recovery services to the same deployment probed by preflight', () => {
+  const manifest = materializeQualificationManifest(JSON.stringify({
+    steps: [{ faultService: '{{FAULT_SERVICE}}', recoveryService: '{{NORMAL_SERVICE}}' }]
+  }), { env: { ...REQUIRED_ENV, DIG_QREXEC_SERVICE: 'dig.CustomCoordinator', DIG_QREXEC_FAULT_SERVICE: 'dig.CustomFault' } });
+  assert.deepEqual(JSON.parse(manifest), {
+    steps: [{ faultService: 'dig.CustomFault', recoveryService: 'dig.CustomCoordinator' }]
+  });
+  assert.throws(() => materializeQualificationManifest('{bad', { env: REQUIRED_ENV }), /must be valid JSON/);
+});
+
 test('qualification runner executes every planned campaign with a distinct run-scoped id', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'dig-qualification-runner-'));
   const fakeHarness = path.join(dir, 'fake-harness.mjs');
   try {
     await writeFile(fakeHarness, `
       let input = ''; for await (const chunk of process.stdin) input += chunk;
-      JSON.parse(input);
+      const manifest = JSON.parse(input);
+      for (const step of manifest.steps ?? []) {
+        if (step.faultService) {
+          if (step.faultService !== 'dig.CoordinatorFault') throw new Error('unexpected fault service');
+          if (step.recoveryService !== 'dig.Coordinator') throw new Error('unexpected normal service');
+        }
+      }
       const runId = process.env.DIG_CAMPAIGN_RUN_ID;
       const base = { runId, transport: 'qrexec', sourceQube: 'worker', targetQube: 'coordinator', service: 'dig.Coordinator', gitSha: '${'a'.repeat(40)}' };
       console.log(JSON.stringify({ type: 'campaign_start', ...base, startedAt: '2026-08-18T10:00:00.000Z' }));
