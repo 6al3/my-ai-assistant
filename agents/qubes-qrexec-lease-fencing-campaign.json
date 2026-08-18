@@ -75,6 +75,12 @@
       }
     },
     {
+      "mode": "qa_barrier_probe",
+      "requestId": "lease-campaign-qa-before-join-v1",
+      "op": "claim",
+      "body": { "worker": { "id": "qa-worker", "capabilities": ["qa"] } }
+    },
+    {
       "mode": "request",
       "requestId": "lease-campaign-complete-coder-current-v1",
       "op": "complete",
@@ -86,6 +92,13 @@
       },
       "mutationKey": "complete:coder:reclaimed:v1",
       "fencingCurrentCompletion": true
+    },
+    {
+      "mode": "qa_post_join_probe",
+      "requestId": "lease-campaign-qa-after-join-v1",
+      "op": "claim",
+      "body": { "worker": { "id": "qa-worker", "capabilities": ["qa"] } },
+      "saveAs": "qaClaim"
     }
   ]
 }
