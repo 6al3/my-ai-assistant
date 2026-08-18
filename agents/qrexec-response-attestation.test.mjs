@@ -10,6 +10,7 @@ import {
   loadResponseAttestationConfig,
   verifyCoordinatorResponseAttestation
 } from './qrexec-response-attestation.mjs';
+import { verifyQrexecCoordinatorResponse } from './qubes-qrexec-campaign-harness.mjs';
 import { signWorkerEnvelope } from './worker-transport-envelope.mjs';
 
 const SECRET = 'dig-qrexec-attestation-secret-000000000000';
@@ -78,6 +79,35 @@ test('Ed25519 response attestation binds response, git SHA, service, and key ide
   assert.throws(() => verifyCoordinatorResponseAttestation(tampered, { publicKeyPem }), /verification failed/);
   assert.throws(() => verifyCoordinatorResponseAttestation(attested, { publicKeyPem, expectedGitSha: 'b'.repeat(40) }), /gitSha mismatch/);
   assert.throws(() => verifyCoordinatorResponseAttestation(attested, { publicKeyPem, expectedService: 'dig.Other' }), /service mismatch/);
+});
+
+test('worker-side qrexec verifier strips attestation and fails closed on deployment mismatch', () => {
+  const { privateKeyPem, publicKeyPem } = keyMaterial();
+  const config = loadResponseAttestationConfig({
+    DIG_RESPONSE_ATTESTATION_PRIVATE_KEY: privateKeyPem,
+    DIG_RESPONSE_ATTESTATION_KEY_ID: KEY_ID,
+    DIG_GIT_SHA: GIT_SHA,
+    DIG_QREXEC_SERVICE_ID: SERVICE_ID
+  });
+  const attested = attestCoordinatorResponse({ ok: true, result: { total: 1 } }, config);
+  assert.deepEqual(verifyQrexecCoordinatorResponse(attested, {
+    publicKeyPem,
+    expectedKeyId: KEY_ID,
+    expectedGitSha: GIT_SHA,
+    expectedService: SERVICE_ID
+  }), { ok: true, result: { total: 1 } });
+  assert.throws(() => verifyQrexecCoordinatorResponse({ ok: true, result: { total: 1 } }, {
+    publicKeyPem,
+    expectedKeyId: KEY_ID,
+    expectedGitSha: GIT_SHA,
+    expectedService: SERVICE_ID
+  }), /attestation is required/);
+  assert.throws(() => verifyQrexecCoordinatorResponse(attested, {
+    publicKeyPem,
+    expectedKeyId: KEY_ID,
+    expectedGitSha: GIT_SHA,
+    expectedService: 'dig.CoordinatorFault'
+  }), /service mismatch/);
 });
 
 test('response attestation configuration is all-or-none and Ed25519-only', () => {
