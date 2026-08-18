@@ -10,12 +10,15 @@ export async function runProcessCoordinator({
   requestJournalPath = null,
   transportSecret = null,
   crashAfterRequestId = null,
+  crashAfterAnyAuthenticatedCommit = false,
   preserveRunningLeasesOnRestore = false,
   input = process.stdin,
   output = process.stdout
 } = {}) {
   if (!storePath) throw new Error('storePath is required');
   if ((requestJournalPath && !transportSecret) || (!requestJournalPath && transportSecret)) throw new Error('requestJournalPath and transportSecret must be configured together');
+  if (typeof crashAfterAnyAuthenticatedCommit !== 'boolean') throw new TypeError('crashAfterAnyAuthenticatedCommit must be boolean');
+  if (crashAfterAnyAuthenticatedCommit && !requestJournalPath) throw new Error('crashAfterAnyAuthenticatedCommit requires authenticated durable transport');
 
   const authenticatedTransport = Boolean(requestJournalPath && transportSecret);
   const store = new MissionQueueStore(storePath);
@@ -56,7 +59,7 @@ export async function runProcessCoordinator({
     if (existing) { if (existing.digest !== digest) throw new Error('requestId reused with different command'); if (existing.status === 'committed') return existing.response; }
     else await journal.begin({ requestId: verified.requestId, digest });
     const result = await execute(command);
-    if (crashAfterRequestId === verified.requestId) { await runtime.coordinator.flush(); setImmediate(() => process.exit(86)); return null; }
+    if (crashAfterAnyAuthenticatedCommit || crashAfterRequestId === verified.requestId) { await runtime.coordinator.flush(); setImmediate(() => process.exit(86)); return null; }
     const response = { ok: true, result }; await journal.commit(verified.requestId, response); return response;
   };
   for await (const line of lines) {
@@ -71,5 +74,5 @@ export async function runProcessCoordinator({
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  runProcessCoordinator({ storePath: process.env.DIG_ORCHESTRATION_STORE, requestJournalPath: process.env.DIG_REQUEST_JOURNAL || null, transportSecret: process.env.DIG_TRANSPORT_SECRET || null, crashAfterRequestId: process.env.DIG_CRASH_AFTER_REQUEST_ID || null }).catch(error => { process.stderr.write(`DIG orchestration coordinator failed: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
+  runProcessCoordinator({ storePath: process.env.DIG_ORCHESTRATION_STORE, requestJournalPath: process.env.DIG_REQUEST_JOURNAL || null, transportSecret: process.env.DIG_TRANSPORT_SECRET || null, crashAfterRequestId: process.env.DIG_CRASH_AFTER_REQUEST_ID || null, crashAfterAnyAuthenticatedCommit: process.env.DIG_CRASH_AFTER_COMMIT === '1' }).catch(error => { process.stderr.write(`DIG orchestration coordinator failed: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
 }
