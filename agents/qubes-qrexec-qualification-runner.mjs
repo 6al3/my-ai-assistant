@@ -88,11 +88,13 @@ export function evaluateQualificationCampaignSet(campaigns, { env = process.env,
   const expectedSourceQube = env.DIG_SOURCE_QUBE || env.DIG_QREXEC_SOURCE;
   const expectedTargetQube = env.DIG_TARGET_QUBE || env.DIG_QREXEC_TARGET;
   const expectedService = env.DIG_QREXEC_SERVICE;
-  for (const [name, value] of Object.entries({ expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService })) {
+  const expectedFaultService = env.DIG_QREXEC_FAULT_SERVICE;
+  for (const [name, value] of Object.entries({ expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, expectedFaultService })) {
     if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required for qualification`);
   }
+  if (expectedService === expectedFaultService) throw new Error('expectedService and expectedFaultService must differ');
   const parsed = parseMultiRunJson(JSON.stringify(campaigns));
-  return evaluateMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, nowMs });
+  return evaluateMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, expectedFaultService, nowMs });
 }
 
 async function main() {
