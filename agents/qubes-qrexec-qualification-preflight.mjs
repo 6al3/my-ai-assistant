@@ -11,16 +11,18 @@ export function validateQualificationPreflightEnvironment(env = process.env) {
   const sourceQube = requireString(env.DIG_SOURCE_QUBE || env.DIG_QREXEC_SOURCE, 'DIG_QREXEC_SOURCE');
   const targetQube = requireString(env.DIG_TARGET_QUBE || env.DIG_QREXEC_TARGET, 'DIG_QREXEC_TARGET');
   const service = requireString(env.DIG_QREXEC_SERVICE, 'DIG_QREXEC_SERVICE');
+  const faultService = requireString(env.DIG_QREXEC_FAULT_SERVICE || 'dig.CoordinatorFault', 'DIG_QREXEC_FAULT_SERVICE');
   const gitSha = requireString(env.DIG_GIT_SHA, 'DIG_GIT_SHA');
   const transportSecret = requireString(env.DIG_TRANSPORT_SECRET, 'DIG_TRANSPORT_SECRET');
   const qrexecBin = (env.DIG_QREXEC_BIN || 'qrexec-client-vm').trim();
 
   if (sourceQube === targetQube) throw new Error('qualification preflight requires distinct source and target Qubes');
+  if (service === faultService) throw new Error('qualification preflight requires distinct normal and fault qrexec services');
   if (!/^[0-9a-f]{40}$/i.test(gitSha)) throw new Error('DIG_GIT_SHA must be a 40-character hex SHA');
   if (Buffer.byteLength(transportSecret, 'utf8') < 32) throw new Error('DIG_TRANSPORT_SECRET must be at least 32 bytes');
   if (!qrexecBin) throw new Error('DIG_QREXEC_BIN must be a non-empty executable name');
 
-  return { sourceQube, targetQube, service, gitSha, transportSecret, qrexecBin };
+  return { sourceQube, targetQube, service, faultService, gitSha, transportSecret, qrexecBin };
 }
 
 export async function runQualificationPreflight({ invoke, secret, requestId = `qualification-preflight-${randomUUID()}`, issuedAt = Date.now() } = {}) {
@@ -42,20 +44,40 @@ export async function runQualificationPreflight({ invoke, secret, requestId = `q
   return { ok: true, durationMs: outcome.durationMs, requestId };
 }
 
-export async function runQualificationPreflightFromEnv({ env = process.env, invoke = null } = {}) {
+export async function runQualificationPreflightFromEnv({ env = process.env, invoke = null, faultInvoke = null } = {}) {
   const config = validateQualificationPreflightEnvironment(env);
-  const transport = invoke ?? createQrexecProcessTransport({
+  const normalTransport = invoke ?? createQrexecProcessTransport({
     target: config.targetQube,
     service: config.service,
     qrexecBin: config.qrexecBin,
     env
   });
-  const result = await runQualificationPreflight({ invoke: transport, secret: config.transportSecret });
+  const faultTransport = faultInvoke ?? createQrexecProcessTransport({
+    target: config.targetQube,
+    service: config.faultService,
+    qrexecBin: config.qrexecBin,
+    env
+  });
+
+  const normal = await runQualificationPreflight({
+    invoke: normalTransport,
+    secret: config.transportSecret,
+    requestId: `qualification-preflight-normal-${randomUUID()}`
+  });
+  const fault = await runQualificationPreflight({
+    invoke: faultTransport,
+    secret: config.transportSecret,
+    requestId: `qualification-preflight-fault-${randomUUID()}`
+  });
+
   return {
-    ...result,
+    ok: true,
+    durationMs: normal.durationMs + fault.durationMs,
+    probes: { normal, fault },
     sourceQube: config.sourceQube,
     targetQube: config.targetQube,
     service: config.service,
+    faultService: config.faultService,
     gitSha: config.gitSha
   };
 }
