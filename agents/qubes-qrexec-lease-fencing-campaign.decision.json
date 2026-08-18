@@ -33,12 +33,50 @@
       "lesson": "Test-only time controls inside the production service would widen its command/configuration surface and could make the campaign less representative of real deployment behavior."
     }
   ],
+  "integrationFailure": {
+    "observed": "DIG Node QA #169 failed only in qubes-qrexec-campaign-harness.test.mjs because the harness emitted a bounded wait event that the collector rejected as an unsupported event type.",
+    "rootCause": "The campaign-control event contract was extended in the harness without extending the collector's accepted event schema.",
+    "candidateFixes": [
+      {
+        "name": "stop emitting wait events",
+        "correctness": "medium",
+        "robustness": "low",
+        "latency": "unchanged",
+        "resources": "lowest",
+        "regressionRisk": "medium",
+        "result": "rejected",
+        "lesson": "Dropping the event would hide an intentional 31-second lease-expiry action from raw campaign evidence."
+      },
+      {
+        "name": "treat wait as transport latency",
+        "correctness": "low",
+        "robustness": "medium",
+        "latency": "would corrupt p95 round-trip/recovery metrics",
+        "resources": "low",
+        "regressionRisk": "high",
+        "result": "rejected",
+        "lesson": "An intentional lease wait is control-plane timing, not qrexec transport or recovery latency."
+      },
+      {
+        "name": "accept bounded wait as validated control metadata in the collector",
+        "correctness": "high",
+        "robustness": "high",
+        "latency": "does not alter measured transport/recovery samples",
+        "resources": "negligible",
+        "regressionRisk": "low",
+        "result": "selected",
+        "lesson": "Keeping wait in raw evidence while excluding it from latency metrics preserves auditability and metric correctness."
+      }
+    ]
+  },
   "qa": {
     "added": [
       "capture claim response and resolve nested $ref values into later signed request bodies",
       "same-worker old-token/new-token fencing sequence after bounded lease wait",
       "fail-closed unknown capture reference",
-      "fail-closed excessive wait duration"
+      "fail-closed excessive wait duration",
+      "collector accepts bounded wait as control metadata without changing latency samples",
+      "collector rejects negative or over-120-second wait events"
     ],
     "expectedRealQubesSequence": [
       "claim mission and capture old lease token",
