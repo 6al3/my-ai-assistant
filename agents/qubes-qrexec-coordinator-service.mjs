@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { runProcessCoordinator } from './orchestration-process-coordinator.mjs';
+import { attestCoordinatorResponse, loadResponseAttestationConfig } from './qrexec-response-attestation.mjs';
 
 export function loadQrexecCoordinatorConfig(env = process.env) {
   const storePath = env.DIG_ORCHESTRATION_STORE?.trim();
@@ -21,13 +22,36 @@ export function loadQrexecCoordinatorConfig(env = process.env) {
     transportSecret,
     crashAfterRequestId: env.DIG_CRASH_AFTER_REQUEST_ID?.trim() || null,
     crashAfterAnyAuthenticatedCommit: crashAfterCommitRaw === '1',
-    preserveRunningLeasesOnRestore: true
+    preserveRunningLeasesOnRestore: true,
+    responseAttestation: loadResponseAttestationConfig(env)
+  };
+}
+
+export function createAttestedResponseOutput({ output, responseAttestation } = {}) {
+  if (!output || typeof output.write !== 'function') throw new TypeError('output.write is required');
+  if (!responseAttestation) return output;
+  let pending = '';
+  return {
+    write(chunk) {
+      pending += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      let newlineIndex;
+      while ((newlineIndex = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, newlineIndex);
+        pending = pending.slice(newlineIndex + 1);
+        if (!line.trim()) continue;
+        const response = JSON.parse(line);
+        output.write(`${JSON.stringify(attestCoordinatorResponse(response, responseAttestation))}\n`);
+      }
+      return true;
+    }
   };
 }
 
 export async function runQrexecCoordinatorService({ env = process.env, input = process.stdin, output = process.stdout } = {}) {
   const config = loadQrexecCoordinatorConfig(env);
-  return runProcessCoordinator({ ...config, input, output });
+  const { responseAttestation, ...coordinatorConfig } = config;
+  const coordinatorOutput = createAttestedResponseOutput({ output, responseAttestation });
+  return runProcessCoordinator({ ...coordinatorConfig, input, output: coordinatorOutput });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
