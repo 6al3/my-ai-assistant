@@ -81,6 +81,7 @@ jobs:
               agents/qubes-qrexec-qa-join-evidence.test.mjs
               agents/qubes-real-worker-evidence-gate.test.mjs
               agents/qubes-multi-run-qualification.test.mjs
+              agents/qubes-qrexec-qualification-preflight.test.mjs
               agents/qubes-qrexec-qualification-runner.test.mjs
           - name: synthetic-sandboxes
             tests: >-
