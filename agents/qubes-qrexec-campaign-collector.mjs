@@ -24,6 +24,9 @@ export function collectQrexecCampaign(events) {
   const pendingRequests = new Set();
   let duplicateCommittedMutations = 0;
   let staleCompletions = 0;
+  let staleCompletionProbes = 0;
+  let staleCompletionRejections = 0;
+  let currentLeaseCompletions = 0;
   let qaBeforeJoin = 0;
   let provenance = null;
   let endedAt = null;
@@ -79,6 +82,13 @@ export function collectQrexecCampaign(events) {
         break;
       }
       case 'stale_completion': staleCompletions += 1; break;
+      case 'stale_completion_probe': {
+        if (typeof event.rejected !== 'boolean') throw new TypeError(`event[${index}].rejected must be a boolean`);
+        staleCompletionProbes += 1;
+        if (event.rejected) staleCompletionRejections += 1;
+        break;
+      }
+      case 'current_lease_completion': currentLeaseCompletions += 1; break;
       case 'request_pending': pendingRequests.add(assertString(event.requestId, `event[${index}].requestId`)); break;
       case 'request_resolved': pendingRequests.delete(assertString(event.requestId, `event[${index}].requestId`)); break;
       case 'qa_started': {
@@ -94,6 +104,9 @@ export function collectQrexecCampaign(events) {
     provenance: provenance && endedAt ? { ...provenance, finishedAt: endedAt } : null,
     duplicateCommittedMutations,
     staleCompletions,
+    staleCompletionProbes,
+    staleCompletionRejections,
+    currentLeaseCompletions,
     unresolvedPendingRequests: pendingRequests.size,
     qaBeforeJoin,
     recoveryLatencyMs,
