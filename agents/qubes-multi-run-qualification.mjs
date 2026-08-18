@@ -24,6 +24,17 @@ function sameTopology(a, b) {
   return a.gitSha === b.gitSha && a.sourceQube === b.sourceQube && a.targetQube === b.targetQube && a.service === b.service && a.transport === b.transport;
 }
 
+function observedServiceCalls(campaigns) {
+  const services = new Set();
+  for (const [campaignIndex, events] of campaigns.entries()) {
+    for (const [eventIndex, event] of events.entries()) {
+      if (event?.type !== 'qrexec_service_call') continue;
+      services.add(nonEmpty(event.service, `campaigns[${campaignIndex}][${eventIndex}].service`));
+    }
+  }
+  return services;
+}
+
 function aggregateCoverage(coverages) {
   const metrics = coverages.reduce((sum, coverage) => {
     for (const [name, value] of Object.entries(coverage.metrics)) sum[name] = (sum[name] ?? 0) + value;
@@ -60,6 +71,12 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
   const topologyConsistent = provenances.every(provenance => sameTopology(reference, provenance));
   const allQrexec = provenances.every(provenance => provenance.transport === 'qrexec');
   const allDistinctQubes = provenances.every(provenance => provenance.sourceQube !== provenance.targetQube);
+  const servicesObserved = observedServiceCalls(campaigns);
+  const expectedNormalService = thresholds.expectedService ? nonEmpty(thresholds.expectedService, 'expectedService') : null;
+  const expectedFaultService = thresholds.expectedFaultService ? nonEmpty(thresholds.expectedFaultService, 'expectedFaultService') : null;
+  const expectedServicesObserved = expectedNormalService && expectedFaultService
+    ? servicesObserved.has(expectedNormalService) && servicesObserved.has(expectedFaultService)
+    : true;
   const nowMs = thresholds.nowMs ?? Date.now();
   const maxReportAgeMs = thresholds.maxReportAgeMs ?? 24 * 60 * 60 * 1000;
   const maxFutureSkewMs = thresholds.maxFutureSkewMs ?? 5 * 60 * 1000;
@@ -98,6 +115,7 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
     qrexecTransportOnly: allQrexec,
     sourceAndTargetRemainDistinct: allDistinctQubes,
     everyRunFresh: allFresh,
+    expectedNormalAndFaultServicesObserved: expectedServicesObserved,
     aggregateScenarioCoverage: coverage.ready,
     aggregateReadiness: readiness.ready
   };
@@ -111,7 +129,8 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
       runs: campaigns.length,
       uniqueRunIds: uniqueRunIds.size,
       recoverySamples: aggregateReport.recoveryLatencyMs.length,
-      roundTripSamples: aggregateReport.roundTripLatencyMs.length
+      roundTripSamples: aggregateReport.roundTripLatencyMs.length,
+      servicesObserved: [...servicesObserved].sort()
     },
     readiness,
     coverage,
@@ -139,7 +158,8 @@ async function main() {
     expectedGitSha: process.env.DIG_GIT_SHA || null,
     expectedSourceQube: process.env.DIG_SOURCE_QUBE || null,
     expectedTargetQube: process.env.DIG_TARGET_QUBE || null,
-    expectedService: process.env.DIG_QREXEC_SERVICE || null
+    expectedService: process.env.DIG_QREXEC_SERVICE || null,
+    expectedFaultService: process.env.DIG_QREXEC_FAULT_SERVICE || null
   };
   process.stdout.write(`${JSON.stringify(evaluateMultiRunQualification(campaigns, thresholds), null, 2)}\n`);
 }
