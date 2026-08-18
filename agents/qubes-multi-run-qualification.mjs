@@ -12,6 +12,11 @@ function assertCampaigns(campaigns) {
   if (!Array.isArray(campaigns) || campaigns.length === 0) throw new TypeError('campaigns must be a non-empty array');
   for (const [index, events] of campaigns.entries()) {
     if (!Array.isArray(events) || events.length === 0) throw new TypeError(`campaigns[${index}] must be a non-empty event array`);
+    if (events[0]?.type !== 'campaign_start') throw new Error(`campaigns[${index}] must start with campaign_start`);
+    if (events.at(-1)?.type !== 'campaign_end') throw new Error(`campaigns[${index}] must end with campaign_end`);
+    const startCount = events.filter(event => event?.type === 'campaign_start').length;
+    const endCount = events.filter(event => event?.type === 'campaign_end').length;
+    if (startCount !== 1 || endCount !== 1) throw new Error(`campaigns[${index}] must contain exactly one campaign_start and campaign_end`);
   }
 }
 
@@ -57,11 +62,16 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
   const allDistinctQubes = provenances.every(provenance => provenance.sourceQube !== provenance.targetQube);
   const nowMs = thresholds.nowMs ?? Date.now();
   const maxReportAgeMs = thresholds.maxReportAgeMs ?? 24 * 60 * 60 * 1000;
+  const maxFutureSkewMs = thresholds.maxFutureSkewMs ?? 5 * 60 * 1000;
   if (!Number.isFinite(nowMs)) throw new TypeError('nowMs must be finite');
   if (!Number.isFinite(maxReportAgeMs) || maxReportAgeMs < 0) throw new TypeError('maxReportAgeMs must be non-negative');
+  if (!Number.isFinite(maxFutureSkewMs) || maxFutureSkewMs < 0) throw new TypeError('maxFutureSkewMs must be non-negative');
   const allFresh = provenances.every(provenance => {
+    const startedAt = Date.parse(provenance.startedAt);
     const finishedAt = Date.parse(provenance.finishedAt);
-    return Number.isFinite(finishedAt) && Math.max(0, nowMs - finishedAt) <= maxReportAgeMs;
+    if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt)) return false;
+    if (startedAt > nowMs + maxFutureSkewMs || finishedAt > nowMs + maxFutureSkewMs) return false;
+    return nowMs - finishedAt <= maxReportAgeMs;
   });
   const earliestStartedAt = provenances.map(item => item.startedAt).sort().at(0);
   const latestFinishedAt = provenances.map(item => item.finishedAt).sort().at(-1);
@@ -79,7 +89,7 @@ export function evaluateMultiRunQualification(campaigns, thresholds = {}) {
     roundTripLatencyMs: reports.flatMap(report => report.roundTripLatencyMs)
   };
 
-  const readiness = evaluateQrexecReadiness(aggregateReport, { ...thresholds, nowMs, maxReportAgeMs });
+  const readiness = evaluateQrexecReadiness(aggregateReport, { ...thresholds, nowMs, maxReportAgeMs, maxFutureSkewMs });
   const coverage = aggregateCoverage(coverages);
   const qualificationChecks = {
     multipleIndependentRuns: campaigns.length >= minRuns,
