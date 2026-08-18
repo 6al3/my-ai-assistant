@@ -9,9 +9,37 @@ function assertString(value, name) {
   return value.trim();
 }
 
+function assertRunId(value, name = 'runId') {
+  const runId = assertString(value, name);
+  if (runId.length > 128 || !/^[A-Za-z0-9._-]+$/.test(runId)) throw new Error(`${name} must be 1-128 characters using letters, digits, dot, underscore, or hyphen`);
+  return runId;
+}
+
 function assertResponse(value, name = 'response') {
   if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.ok !== 'boolean') throw new Error(`${name} must be a coordinator response object`);
   return value;
+}
+
+function countRunTokens(value) {
+  if (typeof value === 'string') return value.split('{{RUN_ID}}').length - 1;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + countRunTokens(item), 0);
+  if (value && typeof value === 'object') return Object.values(value).reduce((sum, item) => sum + countRunTokens(item), 0);
+  return 0;
+}
+
+function replaceRunTokens(value, runId) {
+  if (typeof value === 'string') return value.replaceAll('{{RUN_ID}}', runId);
+  if (Array.isArray(value)) return value.map(item => replaceRunTokens(item, runId));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, replaceRunTokens(item, runId)]));
+  return value;
+}
+
+export function materializeQrexecCampaignSteps({ steps, runId, requireRunToken = false } = {}) {
+  if (!Array.isArray(steps) || steps.length === 0) throw new TypeError('steps must be a non-empty array');
+  const normalizedRunId = assertRunId(runId);
+  const tokenCount = countRunTokens(steps);
+  if (requireRunToken && tokenCount === 0) throw new Error('campaign must contain at least one {{RUN_ID}} token');
+  return replaceRunTokens(steps, normalizedRunId);
 }
 
 function resolveRef(value, captures, name = 'value') {
@@ -134,8 +162,11 @@ async function main() {
   if (sourceQube === target) throw new Error('DIG_QREXEC_SOURCE and DIG_QREXEC_TARGET must differ');
   const secret = process.env.DIG_TRANSPORT_SECRET;
   if (!secret || Buffer.byteLength(secret, 'utf8') < 32) throw new Error('DIG_TRANSPORT_SECRET must be at least 32 bytes');
-  const parsed = JSON.parse(await readStdin()); const steps = Array.isArray(parsed) ? parsed : parsed.steps;
-  const runId = randomUUID(); const startedAt = new Date().toISOString();
+  const parsed = JSON.parse(await readStdin());
+  const rawSteps = Array.isArray(parsed) ? parsed : parsed.steps;
+  const runId = assertRunId(process.env.DIG_CAMPAIGN_RUN_ID || randomUUID(), 'DIG_CAMPAIGN_RUN_ID');
+  const steps = materializeQrexecCampaignSteps({ steps: rawSteps, runId });
+  const startedAt = new Date().toISOString();
   const invoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm' });
   const events = await runQrexecCampaignSteps({ steps, invoke, secret });
   process.stdout.write(`${JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube, targetQube: target, service, gitSha, startedAt })}\n`);
