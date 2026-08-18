@@ -33,14 +33,14 @@ function evaluateProvenance(provenance, limits) {
   const startedAt = Date.parse(assertString(provenance.startedAt, 'provenance.startedAt'));
   const finishedAt = Date.parse(assertString(provenance.finishedAt, 'provenance.finishedAt'));
   if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || finishedAt < startedAt) return { valid: false, fresh: false, matchesGitSha: false, matchesTopology: false };
-  const ageMs = Math.max(0, limits.nowMs - finishedAt);
+  const futureDated = startedAt > limits.nowMs + limits.maxFutureSkewMs || finishedAt > limits.nowMs + limits.maxFutureSkewMs;
+  const ageMs = limits.nowMs - finishedAt;
   return {
     valid: transport === 'qrexec' && sourceQube !== targetQube && /^[0-9a-f]{40}$/i.test(gitSha),
-    fresh: ageMs <= limits.maxReportAgeMs,
-    matchesGitSha: limits.expectedGitSha == null || gitSha === limits.expectedGitSha,
-    matchesTopology: (limits.expectedSourceQube == null || sourceQube === limits.expectedSourceQube) &&
-      (limits.expectedTargetQube == null || targetQube === limits.expectedTargetQube) &&
-      (limits.expectedService == null || service === limits.expectedService),
+    fresh: !futureDated && ageMs <= limits.maxReportAgeMs,
+    matchesGitSha: limits.expectedGitSha != null && gitSha === limits.expectedGitSha,
+    matchesTopology: limits.expectedSourceQube != null && limits.expectedTargetQube != null && limits.expectedService != null &&
+      sourceQube === limits.expectedSourceQube && targetQube === limits.expectedTargetQube && service === limits.expectedService,
     ageMs
   };
 }
@@ -52,6 +52,7 @@ export function evaluateQrexecReadiness(report, thresholds = {}) {
     maxRecoveryP95Ms: thresholds.maxRecoveryP95Ms ?? 5000,
     maxRoundTripP95Ms: thresholds.maxRoundTripP95Ms ?? 1000,
     maxReportAgeMs: thresholds.maxReportAgeMs ?? 24 * 60 * 60 * 1000,
+    maxFutureSkewMs: thresholds.maxFutureSkewMs ?? 5 * 60 * 1000,
     expectedGitSha: thresholds.expectedGitSha ?? null,
     expectedSourceQube: thresholds.expectedSourceQube ?? null,
     expectedTargetQube: thresholds.expectedTargetQube ?? null,
@@ -60,11 +61,12 @@ export function evaluateQrexecReadiness(report, thresholds = {}) {
   };
   assertNonNegativeInteger(limits.minSamples, 'minSamples');
   if (limits.minSamples === 0) throw new TypeError('minSamples must be greater than zero');
-  for (const name of ['maxRecoveryP95Ms', 'maxRoundTripP95Ms', 'maxReportAgeMs']) if (!Number.isFinite(limits[name]) || limits[name] < 0) throw new TypeError(`${name} must be non-negative`);
+  for (const name of ['maxRecoveryP95Ms', 'maxRoundTripP95Ms', 'maxReportAgeMs', 'maxFutureSkewMs']) if (!Number.isFinite(limits[name]) || limits[name] < 0) throw new TypeError(`${name} must be non-negative`);
   if (!Number.isFinite(limits.nowMs)) throw new TypeError('nowMs must be finite');
   if (limits.expectedGitSha != null && !/^[0-9a-f]{40}$/i.test(limits.expectedGitSha)) throw new TypeError('expectedGitSha must be a 40-character hex SHA');
   for (const name of ['expectedSourceQube', 'expectedTargetQube', 'expectedService']) if (limits[name] != null) limits[name] = assertString(limits[name], name);
   if (limits.expectedSourceQube != null && limits.expectedSourceQube === limits.expectedTargetQube) throw new TypeError('expected source and target Qubes must differ');
+  const explicitQualificationBinding = limits.expectedGitSha != null && limits.expectedSourceQube != null && limits.expectedTargetQube != null && limits.expectedService != null;
 
   const counters = {
     duplicateCommittedMutations: report.duplicateCommittedMutations,
@@ -83,6 +85,7 @@ export function evaluateQrexecReadiness(report, thresholds = {}) {
   const recoveryP95Ms = percentile(report.recoveryLatencyMs, 95);
   const roundTripP95Ms = percentile(report.roundTripLatencyMs, 95);
   const checks = {
+    explicitQualificationBinding,
     validQrexecProvenance: provenance.valid,
     freshCampaignReport: provenance.fresh,
     matchingGitSha: provenance.matchesGitSha,
