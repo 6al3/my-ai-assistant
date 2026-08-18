@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { evaluateMultiRunQualification, parseMultiRunJson } from './qubes-multi-run-qualification.mjs';
+import { runQualificationPreflightFromEnv } from './qubes-qrexec-qualification-preflight.mjs';
 
 const HARNESS = new URL('./qubes-qrexec-campaign-harness.mjs', import.meta.url);
 const LEASE_CAMPAIGN = new URL('./qubes-qrexec-lease-fencing-campaign.json', import.meta.url);
@@ -72,9 +73,10 @@ export function evaluateQualificationCampaignSet(campaigns, { env = process.env,
 async function main() {
   const qualificationRunId = process.env.DIG_QUALIFICATION_RUN_ID || randomUUID();
   const recoveryRuns = process.env.DIG_RECOVERY_RUNS ? Number(process.env.DIG_RECOVERY_RUNS) : 3;
+  const preflight = await runQualificationPreflightFromEnv();
   const campaigns = await runQualificationCampaignSet({ qualificationRunId, recoveryRuns });
   const qualification = evaluateQualificationCampaignSet(campaigns);
-  process.stdout.write(`${JSON.stringify({ qualificationRunId, qualification, campaigns }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ qualificationRunId, preflight, qualification, campaigns }, null, 2)}\n`);
   if (!qualification.ready) process.exitCode = 2;
 }
 
