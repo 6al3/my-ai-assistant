@@ -1,20 +1,20 @@
 {
-  "decision": "Use a deterministic multi-run qualification aggregator over independent raw Qubes campaign event sets.",
-  "problem": "A single canonical qrexec campaign may not produce the minimum recovery and round-trip sample count required for p95 readiness, and simply concatenating raw events would destroy per-run provenance boundaries or permit stale/mixed evidence.",
+  "decision": "Use a deterministic multi-run qualification aggregator over independent raw Qubes campaign event sets, with strict campaign framing and bounded clock-skew validation.",
+  "problem": "A single canonical qrexec campaign may not produce the minimum recovery and round-trip sample count required for p95 readiness. Aggregation must preserve per-run provenance and must not accept evidence outside explicit campaign boundaries or future-dated evidence that can bypass freshness checks.",
   "reviewers": [
     {
       "role": "correctness/reconciliation reviewer",
-      "preferred": "multi-run aggregator with unique runId, same SHA/topology enforcement, per-run freshness, aggregate scenario coverage, and summed correctness counters",
-      "reason": "preserves independent-run boundaries while allowing recovery/reconciliation, QA join, and lease-fencing evidence to be accumulated safely"
+      "preferred": "multi-run aggregator with unique runId, same SHA/topology enforcement, per-run freshness, strict start/end framing, aggregate scenario coverage, and summed correctness counters",
+      "reason": "preserves independent-run boundaries while preventing pre-start or post-end events from being counted as qualification evidence"
     },
     {
       "role": "transport/security reviewer",
-      "preferred": "reject any qualification that mixes transport, source/target Qubes, qrexec service, commit SHA, duplicate run IDs, or stale reports",
-      "reason": "prevents a valid-looking aggregate from being assembled from unrelated, simulated, old, or differently deployed evidence"
+      "preferred": "reject mixed transport/topology/SHA, duplicate run IDs, stale reports, future-dated provenance beyond bounded skew, and malformed campaign boundaries",
+      "reason": "prevents valid-looking aggregates from being assembled from unrelated, simulated, stale, clock-manipulated, or out-of-frame evidence"
     },
     {
       "role": "performance/regression reviewer",
-      "preferred": "offline deterministic aggregation instead of extra qrexec probes or a telemetry daemon",
+      "preferred": "offline deterministic aggregation and validation instead of extra qrexec probes or a telemetry daemon",
       "reason": "adds no worker round trips, negligible CPU/memory overhead, and no production coordinator or mission-queue semantics"
     }
   ],
@@ -47,9 +47,9 @@
       "verdict": "deferred"
     },
     {
-      "name": "deterministic multi-run offline aggregator",
+      "name": "deterministic multi-run offline aggregator with strict framing and clock-skew checks",
       "correctness": "strong for current qualification requirements",
-      "robustness": "fail-closed on incomplete provenance, duplicate run IDs, mixed topology/SHA, missing scenario coverage, insufficient samples, or stale runs",
+      "robustness": "fail-closed on incomplete provenance, duplicate run IDs, mixed topology/SHA, missing scenario coverage, insufficient samples, stale/future runs, or evidence outside campaign boundaries",
       "latency": "linear offline pass only; no qrexec calls added",
       "resources": "negligible",
       "regressionRisk": "low because production worker/coordinator semantics are untouched",
@@ -63,8 +63,12 @@
       "mixed commit SHA or Qubes topology is rejected",
       "too few runs or latency samples fail closed",
       "a stale member run fails qualification even if the aggregate endpoint looks recent",
+      "future-dated runs beyond bounded clock skew fail closed",
+      "events before campaign_start or after campaign_end are rejected",
+      "duplicate campaign boundaries are rejected",
       "missing aggregate scenario coverage fails closed",
-      "JSON input accepts event arrays or JSONL campaign strings"
+      "JSON input accepts event arrays or JSONL campaign strings",
+      "GitHub Node QA explicitly runs QA-join evidence, real-worker evidence, and multi-run qualification suites"
     ],
     "ciRequirement": "Node QA and Swift QA must both be green on the exact new head before Qubes qualification evidence is accepted."
   },
@@ -72,6 +76,9 @@
     "Zero correctness counters are not enough; the qualification must prove that required scenarios were actually exercised across the run set.",
     "Sample aggregation must preserve per-run provenance rather than synthesize one unverifiable campaign.",
     "Freshness must be evaluated for every member run, not only the newest aggregate timestamp.",
+    "Freshness checks must reject future-dated provenance beyond a bounded clock-skew allowance; clamping negative age to zero can otherwise accept clock-manipulated evidence.",
+    "Qualification evidence must be strictly framed: campaign_start first, campaign_end last, exactly once each.",
+    "A green sharded CI result is only meaningful if every readiness test suite is explicitly included in the shard; package-level npm test coverage alone does not guarantee the workflow ran those files.",
     "Real Qubes execution evidence remains mandatory; this aggregator cannot turn simulation into REAL-WORKER READY evidence."
   ]
 }
