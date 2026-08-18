@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { signWorkerEnvelope } from './worker-transport-envelope.mjs';
+import { verifyCoordinatorResponseAttestation } from './qrexec-response-attestation.mjs';
 
 function assertString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${name} must be a non-empty string`);
@@ -18,6 +19,14 @@ function assertRunId(value, name = 'runId') {
 function assertResponse(value, name = 'response') {
   if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.ok !== 'boolean') throw new Error(`${name} must be a coordinator response object`);
   return value;
+}
+
+export function verifyQrexecCoordinatorResponse(response, { publicKeyPem, expectedKeyId, expectedGitSha, expectedService } = {}) {
+  publicKeyPem = assertString(publicKeyPem, 'publicKeyPem');
+  expectedKeyId = assertString(expectedKeyId, 'expectedKeyId');
+  expectedGitSha = assertString(expectedGitSha, 'expectedGitSha');
+  expectedService = assertString(expectedService, 'expectedService');
+  return verifyCoordinatorResponseAttestation(assertResponse(response), { publicKeyPem, expectedKeyId, expectedGitSha, expectedService });
 }
 
 function countRunTokens(value) {
@@ -58,7 +67,7 @@ function resolveRef(value, captures, name = 'value') {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveRef(item, captures, `${name}.${key}`)]));
 }
 
-export function createQrexecProcessTransport({ target, service, qrexecBin = 'qrexec-client-vm', env = process.env, now = () => Date.now() } = {}) {
+export function createQrexecProcessTransport({ target, service, qrexecBin = 'qrexec-client-vm', env = process.env, now = () => Date.now(), attestation = null } = {}) {
   target = assertString(target, 'target');
   service = assertString(service, 'service');
   qrexecBin = assertString(qrexecBin, 'qrexecBin');
@@ -81,7 +90,9 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
     }
     let response;
     try { response = JSON.parse(lines[0]); } catch (error) { throw new Error(`qrexec transport returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
-    return { response: assertResponse(response), durationMs };
+    response = assertResponse(response);
+    if (attestation) response = verifyQrexecCoordinatorResponse(response, { ...attestation, expectedService: selectedService });
+    return { response, durationMs };
   };
 }
 
@@ -162,12 +173,14 @@ async function main() {
   if (sourceQube === target) throw new Error('DIG_QREXEC_SOURCE and DIG_QREXEC_TARGET must differ');
   const secret = process.env.DIG_TRANSPORT_SECRET;
   if (!secret || Buffer.byteLength(secret, 'utf8') < 32) throw new Error('DIG_TRANSPORT_SECRET must be at least 32 bytes');
+  const publicKeyPem = assertString(process.env.DIG_RESPONSE_ATTESTATION_PUBLIC_KEY, 'DIG_RESPONSE_ATTESTATION_PUBLIC_KEY');
+  const expectedKeyId = assertString(process.env.DIG_RESPONSE_ATTESTATION_KEY_ID, 'DIG_RESPONSE_ATTESTATION_KEY_ID');
   const parsed = JSON.parse(await readStdin());
   const rawSteps = Array.isArray(parsed) ? parsed : parsed.steps;
   const runId = assertRunId(process.env.DIG_CAMPAIGN_RUN_ID || randomUUID(), 'DIG_CAMPAIGN_RUN_ID');
   const steps = materializeQrexecCampaignSteps({ steps: rawSteps, runId });
   const startedAt = new Date().toISOString();
-  const rawInvoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm' });
+  const rawInvoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm', attestation: { publicKeyPem, expectedKeyId, expectedGitSha: gitSha } });
   const serviceCalls = [];
   const invoke = async (envelope, options = {}) => {
     const selectedService = assertString(options.service ?? service, 'qrexec service');
