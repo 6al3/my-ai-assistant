@@ -84,7 +84,8 @@
         "leaseToken": { "$ref": "newCoderClaim.result.leaseToken" },
         "result": { "synthetic": true, "agentId": "coder", "lease": "current" }
       },
-      "mutationKey": "complete:coder:reclaimed:v1"
+      "mutationKey": "complete:coder:reclaimed:v1",
+      "fencingCurrentCompletion": true
     }
   ]
 }
