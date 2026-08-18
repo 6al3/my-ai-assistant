@@ -12,6 +12,8 @@ const events = [
   { type: 'request_resolved', requestId: 'r1' },
   { type: 'stale_completion_probe', rejected: true },
   { type: 'current_lease_completion' },
+  { type: 'qa_barrier_probe', blocked: true },
+  { type: 'qa_post_join_start' },
   { type: 'qa_started', pendingDependencies: 0 },
   { type: 'recovery', durationMs: 100 },
   { type: 'recovery', durationMs: 120 },
@@ -28,7 +30,9 @@ test('coverage requires every release-critical scenario to be exercised, not mer
   assert.equal(result.ready, true);
   assert.deepEqual(result.failedChecks, []);
   assert.equal(result.metrics.resolvedAfterPending, 1);
-  assert.equal(result.metrics.qaJoinProbes, 1);
+  assert.equal(result.metrics.qaBarrierProbes, 1);
+  assert.equal(result.metrics.qaBarrierBlocks, 1);
+  assert.equal(result.metrics.qaPostJoinStarts, 1);
 });
 
 test('combined gate can classify complete fresh evidence REAL-WORKER READY', () => {
@@ -37,14 +41,29 @@ test('combined gate can classify complete fresh evidence REAL-WORKER READY', () 
   assert.equal(result.classification, 'REAL-WORKER READY');
 });
 
-test('zero-error reports cannot pass when recovery or QA join was never exercised', () => {
+test('zero-error reports cannot pass when recovery or either side of QA join causality was never exercised', () => {
   const noRecovery = events.filter(event => event.type !== 'recovery');
   const recoveryResult = evaluateCampaignCoverage(noRecovery);
   assert.ok(recoveryResult.failedChecks.includes('recoveryWasActuallyExercised'));
 
-  const noQa = events.filter(event => event.type !== 'qa_started');
-  const qaResult = evaluateCampaignCoverage(noQa);
-  assert.ok(qaResult.failedChecks.includes('qaJoinWasActuallyProbed'));
+  const noBarrier = events.filter(event => event.type !== 'qa_barrier_probe');
+  const barrierResult = evaluateCampaignCoverage(noBarrier);
+  assert.ok(barrierResult.failedChecks.includes('qaBarrierWasActuallyProbed'));
+  assert.ok(barrierResult.failedChecks.includes('qaWasBlockedBeforeJoin'));
+
+  const noPostJoin = events.filter(event => event.type !== 'qa_post_join_start');
+  const postJoinResult = evaluateCampaignCoverage(noPostJoin);
+  assert.ok(postJoinResult.failedChecks.includes('qaStartedAfterJoin'));
+});
+
+test('an early QA claim is a blocker even when QA later starts after join', () => {
+  const altered = events.map(event => event.type === 'qa_barrier_probe' ? { ...event, blocked: false } : event);
+  const result = evaluateCampaignCoverage(altered);
+  assert.equal(result.ready, false);
+  assert.ok(result.failedChecks.includes('qaWasBlockedBeforeJoin'));
+  const combined = evaluateRealWorkerEvidence(altered, thresholds);
+  assert.equal(combined.ready, false);
+  assert.ok(combined.failedChecks.includes('readiness:noQaBeforeJoin'));
 });
 
 test('request resolution only counts when the same request was first observed pending', () => {
