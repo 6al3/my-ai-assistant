@@ -1,0 +1,44 @@
+{
+  "decision": "Require explicit scenario coverage in addition to zero-error counters before REAL-WORKER READY",
+  "problem": "A campaign could previously report zero duplicate mutations, zero unresolved requests, and zero QA-before-join without actually exercising retry/reconciliation or the QA join barrier. Absence of observed failure is weaker than evidence that the failure mode was tested.",
+  "independent_reviews": [
+    {
+      "approach": "Trust zero-valued aggregate counters",
+      "correctness": "weak: unexercised scenarios look identical to successful scenarios",
+      "robustness": "weak against incomplete campaigns",
+      "latency": "best",
+      "resource_use": "best",
+      "regression_risk": "high release-certification false-positive risk",
+      "qa": "existing tests pass but cannot prove scenario coverage",
+      "result": "rejected"
+    },
+    {
+      "approach": "Explicit raw-event scenario coverage gate composed with the existing collector/readiness gate",
+      "correctness": "strong: requires framing, mutation, pending-to-resolved reconciliation, recovery, QA join, stale-token probe, and current-token completion",
+      "robustness": "fail-closed on missing evidence while preserving existing provenance/topology/latency checks",
+      "latency": "no extra qrexec calls; one linear in-memory pass over campaign events",
+      "resource_use": "O(n) time and bounded request-id sets for a bounded campaign",
+      "regression_risk": "low: additive release gate; production coordinator and worker semantics unchanged",
+      "qa": "new positive and omission tests cover every required scenario",
+      "result": "selected"
+    },
+    {
+      "approach": "External telemetry/attestation service decides campaign completeness",
+      "correctness": "potentially strongest with trusted attestation",
+      "robustness": "adds another distributed dependency and key/service lifecycle",
+      "latency": "additional network/service path",
+      "resource_use": "highest",
+      "regression_risk": "larger operational and security surface before Qubes execution is proven",
+      "qa": "would require service lifecycle and failure-mode tests",
+      "result": "deferred"
+    }
+  ],
+  "winner": "Explicit raw-event scenario coverage gate",
+  "why": "It closes a concrete false-readiness path without changing production behavior or adding distributed infrastructure.",
+  "failures_and_lessons": [
+    "A zero counter proves only that a failure was not observed; it does not prove the corresponding fault path was exercised.",
+    "Release evidence should bind both outcome invariants and scenario coverage.",
+    "Cryptographic/dom0 attestation remains a later hardening step; this change addresses completeness, not trust-root provenance."
+  ],
+  "safety": "Synthetic/defensive Qubes validation only. No real financial transactions or external side effects."
+}
