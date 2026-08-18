@@ -102,6 +102,29 @@ test('rejects stale runs even if the aggregate report looks fresh', () => {
   assert.ok(result.failedChecks.includes('everyRunFresh'));
 });
 
+test('rejects future-dated campaign provenance beyond bounded clock skew', () => {
+  const campaigns = goodCampaigns();
+  campaigns[0][0].startedAt = new Date(NOW + 10 * 60 * 1000).toISOString();
+  campaigns[0].at(-1).finishedAt = new Date(NOW + 11 * 60 * 1000).toISOString();
+  const result = evaluateMultiRunQualification(campaigns, { ...thresholds, maxFutureSkewMs: 5 * 60 * 1000 });
+  assert.equal(result.ready, false);
+  assert.ok(result.failedChecks.includes('everyRunFresh'));
+});
+
+test('rejects evidence outside explicit campaign boundaries', () => {
+  const beforeStart = goodCampaigns();
+  beforeStart[0].unshift({ type: 'round_trip', durationMs: 1 });
+  assert.throws(() => evaluateMultiRunQualification(beforeStart, thresholds), /must start with campaign_start/);
+
+  const afterEnd = goodCampaigns();
+  afterEnd[0].push({ type: 'mutation_committed', mutationKey: 'after-end' });
+  assert.throws(() => evaluateMultiRunQualification(afterEnd, thresholds), /must end with campaign_end/);
+
+  const duplicateBoundary = goodCampaigns();
+  duplicateBoundary[0].splice(1, 0, { ...duplicateBoundary[0][0] });
+  assert.throws(() => evaluateMultiRunQualification(duplicateBoundary, thresholds), /exactly one campaign_start and campaign_end/);
+});
+
 test('fails closed when aggregate scenario coverage is missing', () => {
   const campaigns = goodCampaigns();
   campaigns[1] = campaign('run-2', 1000, {});
