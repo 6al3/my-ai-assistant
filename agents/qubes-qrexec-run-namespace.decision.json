@@ -1,0 +1,68 @@
+{
+  "decision": "Use explicit {{RUN_ID}} tokens in repeatable Qubes campaign manifests, materialized by the qrexec harness with a validated DIG_CAMPAIGN_RUN_ID or generated UUID, so each qualification run has fresh request-journal and mission idempotency identities while preserving the same protocol and scenario semantics.",
+  "problem": "The canonical lease-fencing manifest used fixed requestId and submit idempotencyKey values. Re-running it against the same durable coordinator could therefore reuse committed journal responses or the prior mission graph, making nominally independent multi-run qualification evidence depend on cached state instead of fresh execution.",
+  "reviewers": [
+    {
+      "role": "correctness/reconciliation reviewer",
+      "preferred": "explicit run-scoped request and mission idempotency identities",
+      "reason": "fresh identifiers force each run to exercise durable begin/commit, mission creation, claim, fencing, and QA-join behavior instead of inheriting a prior committed request"
+    },
+    {
+      "role": "transport/security reviewer",
+      "preferred": "validated externally-settable run ID with deterministic token substitution",
+      "reason": "operators can correlate the exact run across qrexec/fault-service configuration without adding a new unauthenticated control channel; unsafe or ambiguous run IDs fail closed"
+    },
+    {
+      "role": "performance/regression reviewer",
+      "preferred": "materialize the manifest before transport and leave runQrexecCampaignSteps unchanged",
+      "reason": "adds no qrexec round trips, no daemon, no database, negligible CPU/memory cost, and keeps the tested worker/coordinator protocol unchanged"
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "keep static request IDs and reset/delete durable stores between runs",
+      "correctness": "can produce fresh runs only if the operator resets every relevant store correctly",
+      "robustness": "weak because manual cleanup can omit the request journal or mission store and destroys useful recovery state",
+      "latency": "low",
+      "resources": "low",
+      "regressionRisk": "high operational false-evidence risk",
+      "verdict": "rejected"
+    },
+    {
+      "name": "automatically rewrite every campaign request/idempotency field with an opaque internal suffix",
+      "correctness": "fresh identities are strong",
+      "robustness": "weaker for fault campaigns because external qrexec fault-service configuration may need to know the exact request ID before invocation",
+      "latency": "negligible",
+      "resources": "negligible",
+      "regressionRisk": "medium because hidden rewriting changes manifest semantics and complicates diagnosis",
+      "verdict": "rejected"
+    },
+    {
+      "name": "explicit {{RUN_ID}} token materialization with optional DIG_CAMPAIGN_RUN_ID",
+      "correctness": "fresh request-journal and mission idempotency identities per run while preserving intentionally shared worker IDs for lease-fencing tests",
+      "robustness": "deterministic and inspectable; supports externally coordinated fault-service request IDs and generated UUIDs for ordinary runs",
+      "latency": "no additional transport calls",
+      "resources": "linear in manifest size and negligible compared with qrexec execution",
+      "regressionRisk": "low because only pre-transport manifest data changes and lower-level campaign execution remains unchanged",
+      "verdict": "selected"
+    }
+  ],
+  "qa": {
+    "tests": [
+      "recursive replacement covers requestId, submit idempotencyKey, mutationKey, and nested evidence strings",
+      "two distinct run IDs materialize distinct durable identities",
+      "the source manifest is not mutated",
+      "$ref capture objects remain intact",
+      "requireRunToken fails closed for a static manifest when independence is required",
+      "unsafe run IDs containing spaces or unsupported characters are rejected",
+      "the canonical lease-fencing manifest uses {{RUN_ID}} for every request ID and all durable/idempotency mutation identities",
+      "GitHub Node QA and Swift QA must be green on the exact resulting head before using the manifest for Qubes qualification"
+    ]
+  },
+  "failuresAndLessons": [
+    "Unique provenance runId values alone do not make executions independent if the underlying request journal and mission idempotency keys are reused.",
+    "Resetting durable stores between qualification runs weakens the very persistence/recovery behavior being qualified and is easy to perform incompletely.",
+    "Worker IDs intentionally remain stable in the lease-fencing scenario because same-worker reclaim is the property under test; request and mission identities, not worker identity, must be run-scoped.",
+    "This change makes repeated campaigns fresh, but it still does not replace real Qube-to-Qube qrexec evidence or cryptographic/dom0 attestation."
+  ]
+}
