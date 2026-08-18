@@ -1,0 +1,52 @@
+{
+  "decision": "stateful campaign captures plus bounded lease-expiry waits",
+  "problem": "The Qubes campaign harness could send fixed requests but could not carry a claimed mission id or lease token into later qrexec calls, so same-worker stale-token fencing could not be exercised end-to-end from real coordinator responses.",
+  "approaches": [
+    {
+      "name": "hard-coded mission ids and lease tokens",
+      "correctness": "low",
+      "robustness": "low",
+      "latency": "low",
+      "resources": "low",
+      "regressionRisk": "high",
+      "result": "rejected",
+      "lesson": "Synthetic constants do not prove the tokens came from the live coordinator or survived qrexec process boundaries."
+    },
+    {
+      "name": "stateful capture/reference campaign DSL with bounded wait",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "one intentional lease-expiry interval for the fencing probe",
+      "resources": "low",
+      "regressionRisk": "low",
+      "result": "selected",
+      "lesson": "Reusing actual prior responses lets the VM-boundary campaign prove old-token rejection and current-token acceptance without changing production coordinator semantics."
+    },
+    {
+      "name": "add test-only lease expiry controls to the production qrexec coordinator",
+      "correctness": "high",
+      "robustness": "medium",
+      "latency": "low",
+      "resources": "low",
+      "regressionRisk": "medium-high",
+      "result": "rejected",
+      "lesson": "Test-only time controls inside the production service would widen its command/configuration surface and could make the campaign less representative of real deployment behavior."
+    }
+  ],
+  "qa": {
+    "added": [
+      "capture claim response and resolve nested $ref values into later signed request bodies",
+      "same-worker old-token/new-token fencing sequence after bounded lease wait",
+      "fail-closed unknown capture reference",
+      "fail-closed excessive wait duration"
+    ],
+    "expectedRealQubesSequence": [
+      "claim mission and capture old lease token",
+      "wait beyond 30 second lease",
+      "reclaim with the same workerId and capture a new lease token",
+      "attempt completion with old token and require rejection",
+      "complete with new token and require success"
+    ]
+  },
+  "safety": "Synthetic and defensive worker reliability testing only; no real financial operations or external side effects."
+}
