@@ -85,13 +85,6 @@
         "result": { "synthetic": true, "agentId": "coder", "lease": "current" }
       },
       "mutationKey": "complete:coder:reclaimed:v1"
-    },
-    {
-      "mode": "qa_barrier_probe",
-      "requestId": "lease-campaign-qa-join-v1",
-      "op": "claim",
-      "body": { "worker": { "id": "qa-worker", "capabilities": ["qa"] } },
-      "saveAs": "qaClaim"
     }
   ]
 }
