@@ -78,6 +78,9 @@ jobs:
               agents/qubes-qrexec-readiness-gate.test.mjs
               agents/qubes-qrexec-campaign-collector.test.mjs
               agents/qubes-qrexec-campaign-harness.test.mjs
+              agents/qubes-qrexec-qa-join-evidence.test.mjs
+              agents/qubes-real-worker-evidence-gate.test.mjs
+              agents/qubes-multi-run-qualification.test.mjs
           - name: synthetic-sandboxes
             tests: >-
               agents/benchmark-arena.test.mjs
