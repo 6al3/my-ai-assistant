@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { buildQualificationRunPlan, runQualificationCampaignSet } from './qubes-qrexec-qualification-runner.mjs';
+import { buildQualificationRunPlan, evaluateQualificationCampaignSet, runQualificationCampaignSet } from './qubes-qrexec-qualification-runner.mjs';
 
 const REQUIRED_ENV = {
   DIG_QREXEC_TARGET: 'coordinator',
@@ -43,4 +43,23 @@ test('qualification runner executes every planned campaign with a distinct run-s
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('qualification evaluation fails closed on incomplete campaign evidence and accepts qrexec env aliases', () => {
+  const campaigns = Array.from({ length: 4 }, (_, index) => {
+    const runId = `qual-eval-${index}`;
+    return [
+      JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube: 'worker', targetQube: 'coordinator', service: 'dig.Coordinator', gitSha: 'a'.repeat(40), startedAt: '2026-08-18T10:00:00.000Z' }),
+      JSON.stringify({ type: 'campaign_end', runId, finishedAt: '2026-08-18T10:00:01.000Z' })
+    ].join('\n');
+  });
+  const qualification = evaluateQualificationCampaignSet(campaigns, { env: REQUIRED_ENV, nowMs: Date.parse('2026-08-18T10:00:02.000Z') });
+  assert.equal(qualification.ready, false);
+  assert.equal(qualification.classification, 'LAB READY');
+  assert.ok(qualification.failedChecks.includes('aggregateScenarioCoverage'));
+  assert.ok(qualification.failedChecks.includes('aggregateReadiness'));
+});
+
+test('qualification evaluation requires explicit deployment binding', () => {
+  assert.throws(() => evaluateQualificationCampaignSet([], { env: {} }), /expectedGitSha is required/);
 });
