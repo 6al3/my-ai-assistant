@@ -167,9 +167,16 @@ async function main() {
   const runId = assertRunId(process.env.DIG_CAMPAIGN_RUN_ID || randomUUID(), 'DIG_CAMPAIGN_RUN_ID');
   const steps = materializeQrexecCampaignSteps({ steps: rawSteps, runId });
   const startedAt = new Date().toISOString();
-  const invoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm' });
+  const rawInvoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm' });
+  const serviceCalls = [];
+  const invoke = async (envelope, options = {}) => {
+    const selectedService = assertString(options.service ?? service, 'qrexec service');
+    serviceCalls.push(selectedService);
+    return rawInvoke(envelope, { ...options, service: selectedService });
+  };
   const events = await runQrexecCampaignSteps({ steps, invoke, secret });
   process.stdout.write(`${JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube, targetQube: target, service, gitSha, startedAt })}\n`);
+  for (const selectedService of serviceCalls) process.stdout.write(`${JSON.stringify({ type: 'qrexec_service_call', service: selectedService })}\n`);
   for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
   process.stdout.write(`${JSON.stringify({ type: 'campaign_end', runId, finishedAt: new Date().toISOString() })}\n`);
 }
