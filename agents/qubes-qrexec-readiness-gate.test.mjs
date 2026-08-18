@@ -33,12 +33,37 @@ test('gate marks a fresh matching qrexec campaign REAL-WORKER READY only with fe
   assert.equal(result.metrics.roundTripP95Ms, 55);
 });
 
-test('provenance blocks simulation, stale reports, same-qube reports, and wrong commits', () => {
+test('gate refuses REAL-WORKER READY without explicit expected SHA and topology binding', () => {
+  const missingAll = evaluateQrexecReadiness(passingReport, { nowMs });
+  assert.equal(missingAll.ready, false);
+  assert.equal(missingAll.classification, 'LAB READY');
+  assert.ok(missingAll.failedChecks.includes('explicitQualificationBinding'));
+  assert.ok(missingAll.failedChecks.includes('matchingGitSha'));
+  assert.ok(missingAll.failedChecks.includes('matchingExpectedTopology'));
+
+  for (const field of ['expectedGitSha', 'expectedSourceQube', 'expectedTargetQube', 'expectedService']) {
+    const partial = { ...thresholds };
+    delete partial[field];
+    const result = evaluateQrexecReadiness(passingReport, partial);
+    assert.equal(result.ready, false, field);
+    assert.ok(result.failedChecks.includes('explicitQualificationBinding'), field);
+  }
+});
+
+test('provenance blocks simulation, stale reports, same-qube reports, wrong commits, and future-dated evidence', () => {
   const simulated = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, transport: 'stdio' } }, thresholds); assert.ok(simulated.failedChecks.includes('validQrexecProvenance'));
   const sameQube = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, targetQube: 'AI' } }, thresholds); assert.ok(sameQube.failedChecks.includes('validQrexecProvenance'));
   const stale = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, finishedAt: '2026-08-15T15:55:00.000Z' } }, thresholds); assert.ok(stale.failedChecks.includes('freshCampaignReport'));
   const wrongSha = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, gitSha: 'b'.repeat(40) } }, thresholds); assert.ok(wrongSha.failedChecks.includes('matchingGitSha'));
+  const future = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, startedAt: '2026-08-17T16:10:00.000Z', finishedAt: '2026-08-17T16:11:00.000Z' } }, thresholds); assert.ok(future.failedChecks.includes('freshCampaignReport'));
   const missing = evaluateQrexecReadiness({ ...passingReport, provenance: null }, thresholds); assert.ok(missing.failedChecks.includes('validQrexecProvenance'));
+});
+
+test('gate permits only bounded future clock skew', () => {
+  const withinSkew = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, startedAt: '2026-08-17T16:03:00.000Z', finishedAt: '2026-08-17T16:04:00.000Z' } }, thresholds);
+  assert.equal(withinSkew.checks.freshCampaignReport, true);
+  const beyondSkew = evaluateQrexecReadiness({ ...passingReport, provenance: { ...passingReport.provenance, startedAt: '2026-08-17T16:06:00.000Z', finishedAt: '2026-08-17T16:07:00.000Z' } }, thresholds);
+  assert.equal(beyondSkew.checks.freshCampaignReport, false);
 });
 
 test('gate binds evidence to the configured Qube topology and service', () => {
