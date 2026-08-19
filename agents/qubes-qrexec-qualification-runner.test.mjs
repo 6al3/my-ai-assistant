@@ -7,8 +7,9 @@ import { buildQualificationRunPlan, evaluateQualificationCampaignSet, materializ
 
 const REQUIRED_ENV = {
   DIG_QREXEC_TARGET: 'coordinator', DIG_QREXEC_SOURCE: 'worker', DIG_QREXEC_SERVICE: 'dig.Coordinator', DIG_QREXEC_FAULT_SERVICE: 'dig.CoordinatorFault',
-  DIG_GIT_SHA: 'a'.repeat(40), DIG_TRANSPORT_SECRET: 'qualification-test-secret-000000000000', DIG_RESPONSE_ATTESTATION_KEY_ID: 'dig-coordinator-key-1'
+  DIG_GIT_SHA: 'a'.repeat(40), DIG_TRANSPORT_SECRET: 'qualification-test-secret-000000000000', DIG_RESPONSE_ATTESTATION_KEY_ID: 'dig-coordinator-key-1', DIG_RESPONSE_ATTESTATION_PUBLIC_KEY: 'test-public-key'
 };
+const verified = service => ({ service, keyId: REQUIRED_ENV.DIG_RESPONSE_ATTESTATION_KEY_ID, gitSha: REQUIRED_ENV.DIG_GIT_SHA });
 
 test('qualification plan uses one lease/QA run plus at least three independent recovery runs', () => {
   const plan = buildQualificationRunPlan({ qualificationRunId: 'qual-1', recoveryRuns: 3 });
@@ -39,7 +40,7 @@ test('qualification runner executes every planned campaign with a distinct run-s
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test('qualification evaluation fails closed when cryptographic attestation evidence is missing', () => {
+test('qualification evaluation fails closed when campaign or preflight cryptographic attestation evidence is missing', () => {
   const campaigns = Array.from({ length: 4 }, (_, index) => {
     const runId = `qual-eval-${index}`;
     return [JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube: 'worker', targetQube: 'coordinator', service: 'dig.Coordinator', gitSha: 'a'.repeat(40), startedAt: '2026-08-18T10:00:00.000Z' }), JSON.stringify({ type: 'campaign_end', runId, finishedAt: '2026-08-18T10:00:01.000Z' })].join('\n');
@@ -47,8 +48,22 @@ test('qualification evaluation fails closed when cryptographic attestation evide
   const qualification = evaluateQualificationCampaignSet(campaigns, { env: REQUIRED_ENV, nowMs: Date.parse('2026-08-18T10:00:02.000Z') });
   assert.equal(qualification.ready, false); assert.equal(qualification.classification, 'LAB READY');
   assert.ok(qualification.failedChecks.includes('verifiedAttestationEvidencePresent'));
-  assert.ok(qualification.failedChecks.includes('verifiedNormalServiceAttestationObserved'));
-  assert.ok(qualification.failedChecks.includes('verifiedFaultServiceAttestationObserved'));
+  assert.ok(qualification.failedChecks.includes('verifiedNormalServiceCampaignAttestationObserved'));
+  assert.ok(qualification.failedChecks.includes('verifiedFaultServicePreflightAttestationObserved'));
+});
+
+test('qualification evaluation consumes separately verified preflight attestations', () => {
+  const runId = 'qual-attested';
+  const campaigns = [[
+    JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube: 'worker', targetQube: 'coordinator', service: 'dig.Coordinator', gitSha: REQUIRED_ENV.DIG_GIT_SHA, startedAt: '2026-08-18T10:00:00.000Z' }),
+    JSON.stringify({ type: 'attestation_verified', ...verified('dig.Coordinator') }),
+    JSON.stringify({ type: 'campaign_end', runId, finishedAt: '2026-08-18T10:00:01.000Z' })
+  ].join('\n')];
+  const qualification = evaluateQualificationCampaignSet(campaigns, { env: REQUIRED_ENV, nowMs: Date.parse('2026-08-18T10:00:02.000Z'), preflightVerifiedAttestations: [verified('dig.Coordinator'), verified('dig.CoordinatorFault')] });
+  assert.equal(qualification.checks.verifiedNormalServiceCampaignAttestationObserved, true);
+  assert.equal(qualification.checks.verifiedNormalServicePreflightAttestationObserved, true);
+  assert.equal(qualification.checks.verifiedFaultServicePreflightAttestationObserved, true);
+  assert.equal(qualification.ready, false);
 });
 
 test('qualification evaluation requires explicit deployment and attestation binding', () => {
