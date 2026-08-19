@@ -96,15 +96,17 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
     let attestationVerified = null;
     if (attestation) {
       response = verifyQrexecCoordinatorResponse(response, { ...attestation, expectedService: selectedService, expectedRequestId: requestId });
-      attestationVerified = {
-        service: selectedService,
-        keyId: assertString(attestation.expectedKeyId, 'attestation.expectedKeyId'),
-        gitSha: assertString(attestation.expectedGitSha, 'attestation.expectedGitSha'),
-        requestId
-      };
+      attestationVerified = { service: selectedService, keyId: assertString(attestation.expectedKeyId, 'attestation.expectedKeyId'), gitSha: assertString(attestation.expectedGitSha, 'attestation.expectedGitSha'), requestId };
     }
     return { response, durationMs, attestationVerified };
   };
+}
+
+function recordVerifiedAttestation(events, outcome, requestId) {
+  if (!outcome?.attestationVerified) return;
+  const evidence = outcome.attestationVerified;
+  if (assertString(evidence.requestId, 'attestationVerified.requestId') !== requestId) throw new Error(`verified attestation requestId mismatch for ${requestId}`);
+  events.push({ type: 'attestation_verified', service: assertString(evidence.service, 'attestationVerified.service'), keyId: assertString(evidence.keyId, 'attestationVerified.keyId'), gitSha: assertString(evidence.gitSha, 'attestationVerified.gitSha'), requestId });
 }
 
 export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt = () => Date.now(), sleepFn = sleep } = {}) {
@@ -123,9 +125,7 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
     if (mode === 'wait') {
       const durationMs = Number(step.durationMs);
       if (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 120_000) throw new Error(`step[${index}].durationMs must be between 0 and 120000`);
-      await sleepFn(durationMs);
-      events.push({ type: 'wait', durationMs });
-      continue;
+      await sleepFn(durationMs); events.push({ type: 'wait', durationMs }); continue;
     }
     const requestId = assertString(step.requestId, `step[${index}].requestId`);
     events.push({ type: 'request_pending', requestId });
@@ -134,6 +134,7 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
       try { await send(step, assertString(step.faultService, `step[${index}].faultService`)); } catch { firstFailed = true; }
       if (!firstFailed) throw new Error(`step[${index}] expected the fault service to terminate without a committed response`);
       const recovered = await send(step, assertString(step.recoveryService, `step[${index}].recoveryService`));
+      recordVerifiedAttestation(events, recovered, requestId);
       assertResponse(recovered.response, `step[${index}] recovery response`);
       if (!recovered.response.ok) throw new Error(`step[${index}] recovery failed: ${recovered.response.error ?? 'unknown error'}`);
       if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(recovered.response));
@@ -141,27 +142,23 @@ export async function runQrexecCampaignSteps({ steps, invoke, secret, issuedAt =
       if (step.mutationKey) events.push({ type: 'mutation_committed', mutationKey: assertString(step.mutationKey, `step[${index}].mutationKey`) });
       continue;
     }
-    const outcome = await send(step, step.service); const response = assertResponse(outcome.response, `step[${index}] response`);
+    const outcome = await send(step, step.service);
+    recordVerifiedAttestation(events, outcome, requestId);
+    const response = assertResponse(outcome.response, `step[${index}] response`);
     if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(response));
     events.push({ type: 'round_trip', durationMs: outcome.durationMs });
     if (mode === 'stale_probe') {
-      events.push({ type: 'stale_completion_probe', rejected: !response.ok });
-      if (response.ok) events.push({ type: 'stale_completion' });
-      events.push({ type: 'request_resolved', requestId });
-      continue;
+      events.push({ type: 'stale_completion_probe', rejected: !response.ok }); if (response.ok) events.push({ type: 'stale_completion' }); events.push({ type: 'request_resolved', requestId }); continue;
     }
     if (mode === 'qa_barrier_probe') {
       if (!response.ok) throw new Error(`step[${index}] QA barrier probe failed: ${response.error ?? 'unknown error'}`);
-      events.push({ type: 'qa_barrier_probe', blocked: response.result == null });
-      events.push({ type: 'request_resolved', requestId });
-      continue;
+      events.push({ type: 'qa_barrier_probe', blocked: response.result == null }, { type: 'request_resolved', requestId }); continue;
     }
     if (mode === 'qa_post_join_probe') {
       if (!response.ok) throw new Error(`step[${index}] QA post-join probe failed: ${response.error ?? 'unknown error'}`);
       if (response.result == null) throw new Error(`step[${index}] expected QA mission after dependency join`);
       if (step.saveAs) captures.set(assertString(step.saveAs, `step[${index}].saveAs`), structuredClone(response));
-      events.push({ type: 'qa_started', pendingDependencies: 0 }, { type: 'qa_post_join_start' }, { type: 'request_resolved', requestId });
-      continue;
+      events.push({ type: 'qa_started', pendingDependencies: 0 }, { type: 'qa_post_join_start' }, { type: 'request_resolved', requestId }); continue;
     }
     if (mode !== 'request') throw new Error(`unsupported campaign step mode: ${mode}`);
     const expectError = step.expectError === true;
@@ -186,26 +183,22 @@ async function main() {
   if (!secret || Buffer.byteLength(secret, 'utf8') < 32) throw new Error('DIG_TRANSPORT_SECRET must be at least 32 bytes');
   const publicKeyPem = assertString(process.env.DIG_RESPONSE_ATTESTATION_PUBLIC_KEY, 'DIG_RESPONSE_ATTESTATION_PUBLIC_KEY');
   const expectedKeyId = assertString(process.env.DIG_RESPONSE_ATTESTATION_KEY_ID, 'DIG_RESPONSE_ATTESTATION_KEY_ID');
-  const parsed = JSON.parse(await readStdin());
-  const rawSteps = Array.isArray(parsed) ? parsed : parsed.steps;
+  const parsed = JSON.parse(await readStdin()); const rawSteps = Array.isArray(parsed) ? parsed : parsed.steps;
   const runId = assertRunId(process.env.DIG_CAMPAIGN_RUN_ID || randomUUID(), 'DIG_CAMPAIGN_RUN_ID');
   const steps = materializeQrexecCampaignSteps({ steps: rawSteps, runId });
   const startedAt = new Date().toISOString();
   const rawInvoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm', attestation: { publicKeyPem, expectedKeyId, expectedGitSha: gitSha } });
   const serviceCalls = [];
-  const attestationEvents = [];
   const invoke = async (envelope, options = {}) => {
     const selectedService = assertString(options.service ?? service, 'qrexec service');
     serviceCalls.push(selectedService);
     const outcome = await rawInvoke(envelope, { ...options, service: selectedService });
     if (!outcome.attestationVerified) throw new Error(`verified attestation evidence missing for ${selectedService}`);
-    attestationEvents.push({ type: 'attestation_verified', ...outcome.attestationVerified });
     return outcome;
   };
   const events = await runQrexecCampaignSteps({ steps, invoke, secret });
   process.stdout.write(`${JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube, targetQube: target, service, gitSha, startedAt })}\n`);
   for (const selectedService of serviceCalls) process.stdout.write(`${JSON.stringify({ type: 'qrexec_service_call', service: selectedService })}\n`);
-  for (const event of attestationEvents) process.stdout.write(`${JSON.stringify(event)}\n`);
   for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
   process.stdout.write(`${JSON.stringify({ type: 'campaign_end', runId, finishedAt: new Date().toISOString() })}\n`);
 }
