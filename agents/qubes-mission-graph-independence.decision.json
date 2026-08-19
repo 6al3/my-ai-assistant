@@ -1,0 +1,53 @@
+{
+  "decision": "explicit mission-instance evidence with offline DAG validation",
+  "status": "selected",
+  "problem": "run/request/mutation/idempotency identities can be fresh while durable mission ids or dependency edges still alias state from a previous qualification run",
+  "reviews": [
+    {
+      "agent": "correctness",
+      "preferred": "emit mission ids and dependency edges from the coordinator submit response and reject cross-run mission-id or graph-instance reuse",
+      "reason": "proves actual durable mission instances are fresh while allowing the same logical orchestration template to repeat"
+    },
+    {
+      "agent": "security-robustness",
+      "preferred": "fail-closed graph validation",
+      "reason": "rejects external dependency references, duplicate/self edges, duplicate ids, and dependency cycles before evidence can influence readiness"
+    },
+    {
+      "agent": "performance-regression",
+      "preferred": "offline evidence validation",
+      "reason": "adds no qrexec round trips, no daemon or database, O(missions + edges) local work, and does not change MissionQueue/coordinator mutation semantics"
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "infer graph independence from request and idempotency keys",
+      "rejected": "does not prove the coordinator returned fresh durable mission ids or same-run dependency references"
+    },
+    {
+      "approach": "clear durable stores between runs",
+      "rejected": "hides replay/recovery defects and weakens the qualification objective"
+    },
+    {
+      "approach": "change production mission-id namespace",
+      "rejected": "higher migration and regression surface before evidence shows a production identity collision"
+    }
+  ],
+  "qa": {
+    "required": [
+      "submit emits mission_graph_instance from real response missions",
+      "duplicate mission ids rejected",
+      "self and duplicate edges rejected",
+      "cross-graph dependency references rejected",
+      "cycles rejected",
+      "cross-run mission-id reuse blocks readiness",
+      "cross-run durable graph-instance reuse blocks readiness",
+      "same logical DAG with fresh mission ids remains allowed"
+    ]
+  },
+  "lessons": [
+    "logical DAG equality is not a failure; durable instance reuse is",
+    "qualification evidence should come from coordinator responses rather than synthetic identifiers",
+    "identity independence must be checked at transport, mutation, idempotency, and mission-instance layers"
+  ]
+}
