@@ -5,13 +5,14 @@ import { evaluateAttestedMultiRunQualification } from './qubes-attested-multi-ru
 const SHA = 'a'.repeat(40), NORMAL = 'dig.Coordinator', FAULT = 'dig.CoordinatorFault', KEY = 'dig-key-1';
 const baseThresholds = { expectedGitSha: SHA, expectedSourceQube: 'worker', expectedTargetQube: 'coordinator', expectedService: NORMAL, expectedFaultService: FAULT, expectedAttestationKeyId: KEY, nowMs: Date.parse('2026-08-18T10:00:02Z') };
 const a = (service, requestId) => ({ service, keyId: KEY, gitSha: SHA, ...(requestId ? { requestId } : {}) });
-function campaign(attestations = [], { runId = 'r1', second = 0 } = {}) {
+function campaign(attestations = [], { runId = 'r1', second = 0, mutationKey = null } = {}) {
   const requestIds = [...new Set(attestations.map(item => item.requestId).filter(Boolean))];
   const pad = String(second).padStart(2, '0');
   return [
     { type:'campaign_start', runId, transport:'qrexec', sourceQube:'worker', targetQube:'coordinator', service:NORMAL, gitSha:SHA, startedAt:`2026-08-18T10:00:${pad}Z` },
     ...requestIds.map(requestId => ({ type:'request_pending', requestId })),
     ...attestations.map(item => ({ type:'attestation_verified', ...item })),
+    ...(mutationKey ? [{ type:'mutation_committed', mutationKey }] : []),
     ...requestIds.map(requestId => ({ type:'request_resolved', requestId })),
     { type:'campaign_end', runId, finishedAt:`2026-08-18T10:00:${String(second + 1).padStart(2, '0')}Z` }
   ];
@@ -29,7 +30,7 @@ test('attested qualification fails closed without verified campaign and dual-ser
 
 test('fault service attestation is sourced from read-only preflight while normal campaign response is request-bound and resolved', () => {
   const thresholds = { ...baseThresholds, preflightVerifiedAttestations: [a(NORMAL), a(FAULT)] };
-  const result = evaluateAttestedMultiRunQualification([campaign([a(NORMAL, 'req-1')])], thresholds);
+  const result = evaluateAttestedMultiRunQualification([campaign([a(NORMAL, 'req-1')], { mutationKey:'mutation-r1' })], thresholds);
   assert.equal(result.checks.verifiedNormalServiceCampaignAttestationObserved, true);
   assert.equal(result.checks.verifiedNormalServicePreflightAttestationObserved, true);
   assert.equal(result.checks.verifiedFaultServicePreflightAttestationObserved, true);
@@ -37,12 +38,13 @@ test('fault service attestation is sourced from read-only preflight while normal
   assert.equal(result.checks.allCampaignAttestationsBoundToObservedRequests, true);
   assert.equal(result.checks.allCampaignAttestationsBoundToCompletedLifecycles, true);
   assert.equal(result.checks.requestIdsIndependentAcrossRuns, true);
+  assert.equal(result.checks.mutationIdentitiesIndependentAcrossRuns, true);
   assert.equal(result.metrics.completedVerifiedRequestLifecycles, 1);
   assert.equal(result.metrics.crossRunRequestReuse, 0);
+  assert.equal(result.metrics.crossRunMutationIdentityReuse, 0);
   assert.equal(result.metrics.verifiedCampaignAttestations, 1);
   assert.equal(result.metrics.verifiedPreflightAttestations, 2);
   assert.equal(result.ready, false);
-  assert.ok(result.failedChecks.some(name => !name.startsWith('verified') && name !== 'onlyExpectedAttestationBindingsObserved' && name !== 'allCampaignAttestationsBoundToObservedRequests' && name !== 'allCampaignAttestationsBoundToCompletedLifecycles' && name !== 'requestIdsIndependentAcrossRuns'));
 });
 
 test('collector rejects a verified response whose request lifecycle never started', () => {
@@ -73,15 +75,32 @@ test('attested qualification rejects request identity reuse across otherwise dis
   assert.equal(result.ready, false);
 });
 
-test('attested qualification accepts independent request identities across runs for the independence check', () => {
+test('attested qualification rejects committed mutation identity reuse across distinct runs', () => {
   const thresholds = { ...baseThresholds, minRuns: 2, preflightVerifiedAttestations: [a(NORMAL), a(FAULT)] };
   const result = evaluateAttestedMultiRunQualification([
-    campaign([a(NORMAL, 'request-r1')], { runId: 'r1', second: 0 }),
-    campaign([a(NORMAL, 'request-r2')], { runId: 'r2', second: 2 })
+    campaign([a(NORMAL, 'request-r1')], { runId:'r1', second:0, mutationKey:'shared-mutation' }),
+    campaign([a(NORMAL, 'request-r2')], { runId:'r2', second:2, mutationKey:'shared-mutation' })
   ], thresholds);
   assert.equal(result.checks.requestIdsIndependentAcrossRuns, true);
+  assert.equal(result.checks.mutationIdentitiesIndependentAcrossRuns, false);
+  assert.equal(result.metrics.uniqueCommittedMutationIdentities, 1);
+  assert.equal(result.metrics.crossRunMutationIdentityReuse, 1);
+  assert.ok(result.failedChecks.includes('mutationIdentitiesIndependentAcrossRuns'));
+  assert.equal(result.ready, false);
+});
+
+test('attested qualification accepts independent request and mutation identities across runs for independence checks', () => {
+  const thresholds = { ...baseThresholds, minRuns: 2, preflightVerifiedAttestations: [a(NORMAL), a(FAULT)] };
+  const result = evaluateAttestedMultiRunQualification([
+    campaign([a(NORMAL, 'request-r1')], { runId:'r1', second:0, mutationKey:'mutation-r1' }),
+    campaign([a(NORMAL, 'request-r2')], { runId:'r2', second:2, mutationKey:'mutation-r2' })
+  ], thresholds);
+  assert.equal(result.checks.requestIdsIndependentAcrossRuns, true);
+  assert.equal(result.checks.mutationIdentitiesIndependentAcrossRuns, true);
   assert.equal(result.metrics.uniqueObservedRequestIds, 2);
   assert.equal(result.metrics.crossRunRequestReuse, 0);
+  assert.equal(result.metrics.uniqueCommittedMutationIdentities, 2);
+  assert.equal(result.metrics.crossRunMutationIdentityReuse, 0);
 });
 
 test('attested qualification rejects wrong key id, sha, service, and missing fault preflight coverage', () => {
