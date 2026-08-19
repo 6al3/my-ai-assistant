@@ -7,6 +7,15 @@ function nonEmpty(value, name) {
   return value.trim();
 }
 
+function normalizeAttestation(item, name) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) throw new TypeError(`${name} must be an object`);
+  return {
+    service: nonEmpty(item.service, `${name}.service`),
+    keyId: nonEmpty(item.keyId, `${name}.keyId`),
+    gitSha: nonEmpty(item.gitSha, `${name}.gitSha`)
+  };
+}
+
 export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}) {
   const expectedGitSha = nonEmpty(thresholds.expectedGitSha, 'expectedGitSha');
   const expectedService = nonEmpty(thresholds.expectedService, 'expectedService');
@@ -16,18 +25,23 @@ export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}
 
   const base = evaluateMultiRunQualification(campaigns, thresholds);
   const reports = campaigns.map(collectQrexecCampaign);
-  const attestations = reports.flatMap(report => report.verifiedAttestations ?? []);
-  const services = new Set(attestations.map(item => item.service));
-  const exactBindings = attestations.length > 0 && attestations.every(item =>
+  const campaignAttestations = reports.flatMap(report => report.verifiedAttestations ?? []).map((item, index) => normalizeAttestation(item, `campaignAttestations[${index}]`));
+  const preflightAttestations = (thresholds.preflightVerifiedAttestations ?? []).map((item, index) => normalizeAttestation(item, `preflightVerifiedAttestations[${index}]`));
+  const allAttestations = [...campaignAttestations, ...preflightAttestations];
+  const campaignServices = new Set(campaignAttestations.map(item => item.service));
+  const preflightServices = new Set(preflightAttestations.map(item => item.service));
+  const allServices = new Set(allAttestations.map(item => item.service));
+  const exactBindings = allAttestations.length > 0 && allAttestations.every(item =>
     item.gitSha === expectedGitSha &&
     item.keyId === expectedAttestationKeyId &&
     (item.service === expectedService || item.service === expectedFaultService)
   );
   const checks = {
     ...base.checks,
-    verifiedAttestationEvidencePresent: attestations.length > 0,
-    verifiedNormalServiceAttestationObserved: services.has(expectedService),
-    verifiedFaultServiceAttestationObserved: services.has(expectedFaultService),
+    verifiedAttestationEvidencePresent: allAttestations.length > 0,
+    verifiedNormalServiceCampaignAttestationObserved: campaignServices.has(expectedService),
+    verifiedNormalServicePreflightAttestationObserved: preflightServices.has(expectedService),
+    verifiedFaultServicePreflightAttestationObserved: preflightServices.has(expectedFaultService),
     onlyExpectedAttestationBindingsObserved: exactBindings
   };
   const failedChecks = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
@@ -37,7 +51,14 @@ export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}
     classification: failedChecks.length === 0 ? 'REAL-WORKER READY' : 'LAB READY',
     failedChecks,
     checks,
-    metrics: { ...base.metrics, verifiedAttestations: attestations.length, attestedServices: [...services].sort(), attestationKeyId: expectedAttestationKeyId }
+    metrics: {
+      ...base.metrics,
+      verifiedAttestations: allAttestations.length,
+      verifiedCampaignAttestations: campaignAttestations.length,
+      verifiedPreflightAttestations: preflightAttestations.length,
+      attestedServices: [...allServices].sort(),
+      attestationKeyId: expectedAttestationKeyId
+    }
   };
 }
 
