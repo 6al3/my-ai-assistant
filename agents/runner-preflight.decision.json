@@ -1,0 +1,36 @@
+{
+  "decision": "minimal dual-platform hosted-runner preflight",
+  "scope": "CI diagnosis before further DIG runtime changes",
+  "problem": "Node and Swift workflow jobs are failing with steps=null, so current evidence cannot distinguish hosted-runner provisioning failure from project code regressions.",
+  "independent_reviews": [
+    {
+      "reviewer": "correctness",
+      "candidate": "minimal no-checkout runner probe",
+      "assessment": "Best fault isolation. If this job also has no steps, project checkout/tests cannot be the cause. If it runs, investigation moves back to workflow/project bootstrap."
+    },
+    {
+      "reviewer": "robustness-security",
+      "candidate": "revert recent reliability/security code until CI turns green",
+      "assessment": "Rejected. There is no failing assertion or compiler diagnostic tying recent runtime changes to the failure; reverting security gates without evidence increases regression and security risk."
+    },
+    {
+      "reviewer": "latency-resources-regression",
+      "candidate": "full duplicated fallback CI suite",
+      "assessment": "Rejected for first diagnosis. It consumes more runners and duplicates maintenance. The minimal probe uses two short jobs, no checkout, no package install, and no third-party actions."
+    }
+  ],
+  "winner": "minimal no-checkout Ubuntu + macOS preflight",
+  "why_it_won": {
+    "correctness": "Separates runner allocation/execution from repository code and action dependencies.",
+    "robustness": "Fails independently of npm, Node setup, checkout, Xcode project state, and DIG runtime code.",
+    "latency": "Only shell metadata plus swift --version on macOS; expected runtime is seconds once a runner is allocated.",
+    "resource_use": "Two short hosted jobs; no dependency installation or test suite execution.",
+    "regression_risk": "No production runtime semantics changed."
+  },
+  "failure_lessons": [
+    "A red CI badge without workflow steps is not sufficient evidence of a code regression.",
+    "Do not weaken queue, qrexec, attestation, or iPhone controls without a concrete failing assertion/compiler diagnostic.",
+    "Runner health must be established before interpreting full-suite failures."
+  ],
+  "next_gate": "Require ubuntu-runner and macos-runner preflight jobs to execute at least one step. If either still returns steps=null, treat GitHub-hosted runner/account provisioning as the blocker; if both execute, re-run Node/Swift QA and isolate the first failing project step."
+}
