@@ -1,61 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectQrexecCampaign, parseCampaignJsonl } from './qubes-qrexec-campaign-collector.mjs';
-
 const start = { type: 'campaign_start', runId: 'run-1', transport: 'qrexec', sourceQube: 'AI', targetQube: 'DIG-Coordinator', service: 'dig.Coordinator', gitSha: 'a'.repeat(40), startedAt: '2026-08-17T15:00:00.000Z' };
 const end = { type: 'campaign_end', runId: 'run-1', finishedAt: '2026-08-17T15:01:00.000Z' };
-
-test('collects clean campaign provenance and causal request attestation evidence', () => {
-  const report = collectQrexecCampaign([start, { type:'request_pending', requestId:'r1' }, { type:'attestation_verified', service:'dig.Coordinator', keyId:'k1', gitSha:'a'.repeat(40), requestId:'r1' }, { type:'mutation_committed', mutationKey:'r1:complete:coder' }, { type:'stale_completion_probe', rejected:true }, { type:'current_lease_completion' }, { type:'request_resolved', requestId:'r1' }, { type:'round_trip', durationMs:12 }, { type:'recovery', durationMs:110 }, end]);
-  assert.equal(report.provenance.runId, 'run-1');
-  assert.deepEqual(report.observedRequestIds, ['r1']);
-  assert.deepEqual(report.resolvedRequestIds, ['r1']);
-  assert.deepEqual(report.verifiedRequestIds, ['r1']);
-  assert.deepEqual(report.verifiedAttestations, [{ service:'dig.Coordinator', keyId:'k1', gitSha:'a'.repeat(40), requestId:'r1' }]);
-  assert.equal(report.duplicateCommittedMutations, 0);
-  assert.equal(report.staleCompletionRejections, 1);
-  assert.equal(report.currentLeaseCompletions, 1);
-  assert.equal(report.unresolvedPendingRequests, 0);
-  assert.deepEqual(report.recoveryLatencyMs, [110]);
-  assert.deepEqual(report.roundTripLatencyMs, [12]);
-});
-
-test('bounded wait is metadata and does not affect latency', () => {
-  const report = collectQrexecCampaign([{ type:'wait', durationMs:31_000 }, { type:'round_trip', durationMs:7 }]);
-  assert.deepEqual(report.recoveryLatencyMs, []); assert.deepEqual(report.roundTripLatencyMs, [7]);
-});
-
-test('derives duplicate, stale, fencing, unresolved, and QA-before-join evidence', () => {
-  const report = collectQrexecCampaign([{ type:'request_pending', requestId:'left-open' }, { type:'mutation_committed', mutationKey:'same' }, { type:'mutation_committed', mutationKey:'same' }, { type:'stale_completion_probe', rejected:false }, { type:'stale_completion' }, { type:'current_lease_completion' }, { type:'qa_started', pendingDependencies:2 }]);
-  assert.equal(report.duplicateCommittedMutations,1); assert.equal(report.staleCompletions,1); assert.equal(report.currentLeaseCompletions,1); assert.equal(report.unresolvedPendingRequests,1); assert.equal(report.qaBeforeJoin,1);
-});
-
-test('request lifecycle rejects duplicate pending and resolve-without-pending', () => {
-  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'a' }, { type:'request_pending', requestId:'a' }]), /fresh lifecycle/);
-  assert.throws(() => collectQrexecCampaign([{ type:'request_resolved', requestId:'a' }]), /requires pending request/);
-  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'a' }, { type:'request_resolved', requestId:'a' }, { type:'request_resolved', requestId:'a' }]), /requires pending request/);
-});
-
-test('attestation evidence must occur while the same request is pending', () => {
-  const attestation = { type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40), requestId:'r1' };
-  assert.throws(() => collectQrexecCampaign([attestation]), /requires pending request/);
-  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, { type:'request_resolved', requestId:'r1' }, attestation]), /requires pending request/);
-  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, attestation, attestation]), /only once/);
-});
-
-test('attestation evidence requires request binding', () => {
-  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, { type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40) }]), /requestId/);
-  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, { type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40), requestId:'' }]), /requestId/);
-});
-
-test('provenance framing rejects duplicates, mismatches, same-qube, and inverted time', () => {
-  assert.throws(() => collectQrexecCampaign([start,start]), /only once/); assert.throws(() => collectQrexecCampaign([end]), /requires campaign_start/); assert.throws(() => collectQrexecCampaign([start,{...end,runId:'other'}]), /runId mismatch/); assert.throws(() => collectQrexecCampaign([{...start,targetQube:'AI'}]), /must differ/); assert.throws(() => collectQrexecCampaign([start,{...end,finishedAt:'2026-08-17T14:59:00.000Z'}]), /precedes/);
-});
-
-test('rejects malformed and unsupported events fail-closed', () => {
-  assert.throws(() => collectQrexecCampaign([{type:'round_trip',durationMs:-1}]), /non-negative finite/); assert.throws(() => collectQrexecCampaign([{type:'wait',durationMs:120001}]), /at most 120000/); assert.throws(() => collectQrexecCampaign([{type:'qrexec_service_call',service:''}]), /non-empty string/); assert.throws(() => collectQrexecCampaign([{type:'stale_completion_probe',rejected:'yes'}]), /boolean/); assert.throws(() => collectQrexecCampaign([{type:'mystery'}]), /unsupported/); assert.throws(() => collectQrexecCampaign([null]), /object/);
-});
-
-test('parses JSONL and reports failing line', () => {
-  assert.deepEqual(parseCampaignJsonl('{"type":"stale_completion_probe","rejected":true}\n'), [{type:'stale_completion_probe',rejected:true}]); assert.throws(() => parseCampaignJsonl('{"type":"stale_completion"}\nnot-json'), /line 2/);
-});
+test('collects clean campaign provenance and causal request attestation evidence',()=>{const report=collectQrexecCampaign([start,{type:'request_pending',requestId:'r1'},{type:'attestation_verified',service:'dig.Coordinator',keyId:'k1',gitSha:'a'.repeat(40),requestId:'r1'},{type:'mutation_committed',mutationKey:'r1:complete:coder'},{type:'stale_completion_probe',rejected:true},{type:'current_lease_completion'},{type:'request_resolved',requestId:'r1'},{type:'round_trip',durationMs:12},{type:'recovery',durationMs:110},end]);assert.equal(report.provenance.runId,'run-1');assert.deepEqual(report.observedRequestIds,['r1']);assert.deepEqual(report.resolvedRequestIds,['r1']);assert.deepEqual(report.verifiedRequestIds,['r1']);assert.deepEqual(report.verifiedAttestations,[{service:'dig.Coordinator',keyId:'k1',gitSha:'a'.repeat(40),requestId:'r1'}]);assert.equal(report.duplicateCommittedMutations,0);assert.equal(report.staleCompletionRejections,1);assert.equal(report.currentLeaseCompletions,1);assert.equal(report.unresolvedPendingRequests,0);assert.deepEqual(report.recoveryLatencyMs,[110]);assert.deepEqual(report.roundTripLatencyMs,[12]);});
+test('validates and normalizes mission graph evidence',()=>{const graph={type:'mission_graph_instance',missionIds:['qa','coder','planner'],dependencyEdges:[{from:'coder',to:'qa'},{from:'planner',to:'coder'}]};const report=collectQrexecCampaign([graph]);assert.deepEqual(report.missionGraphInstances,[{missionIds:['coder','planner','qa'],dependencyEdges:[{from:'coder',to:'qa'},{from:'planner',to:'coder'}]}]);for(const bad of [{...graph,missionIds:['a','a']},{...graph,dependencyEdges:[{from:'coder',to:'coder'}]},{...graph,dependencyEdges:[{from:'outside',to:'qa'}]},{...graph,dependencyEdges:[{from:'planner',to:'coder'},{from:'planner',to:'coder'}]},{type:'mission_graph_instance',missionIds:['a','b'],dependencyEdges:[{from:'a',to:'b'},{from:'b',to:'a'}]}])assert.throws(()=>collectQrexecCampaign([bad]),/unique|self-referential|same graph|acyclic/);});
+test('bounded wait is metadata and does not affect latency',()=>{const report=collectQrexecCampaign([{type:'wait',durationMs:31_000},{type:'round_trip',durationMs:7}]);assert.deepEqual(report.recoveryLatencyMs,[]);assert.deepEqual(report.roundTripLatencyMs,[7]);});
+test('derives duplicate, stale, fencing, unresolved, and QA-before-join evidence',()=>{const report=collectQrexecCampaign([{type:'request_pending',requestId:'left-open'},{type:'mutation_committed',mutationKey:'same'},{type:'mutation_committed',mutationKey:'same'},{type:'stale_completion_probe',rejected:false},{type:'stale_completion'},{type:'current_lease_completion'},{type:'qa_started',pendingDependencies:2}]);assert.equal(report.duplicateCommittedMutations,1);assert.equal(report.staleCompletions,1);assert.equal(report.currentLeaseCompletions,1);assert.equal(report.unresolvedPendingRequests,1);assert.equal(report.qaBeforeJoin,1);});
+test('request lifecycle rejects duplicate pending and resolve-without-pending',()=>{assert.throws(()=>collectQrexecCampaign([{type:'request_pending',requestId:'a'},{type:'request_pending',requestId:'a'}]),/fresh lifecycle/);assert.throws(()=>collectQrexecCampaign([{type:'request_resolved',requestId:'a'}]),/requires pending request/);assert.throws(()=>collectQrexecCampaign([{type:'request_pending',requestId:'a'},{type:'request_resolved',requestId:'a'},{type:'request_resolved',requestId:'a'}]),/requires pending request/);});
+test('attestation evidence must occur while the same request is pending',()=>{const attestation={type:'attestation_verified',service:'dig.Coordinator',keyId:'k',gitSha:'a'.repeat(40),requestId:'r1'};assert.throws(()=>collectQrexecCampaign([attestation]),/requires pending request/);assert.throws(()=>collectQrexecCampaign([{type:'request_pending',requestId:'r1'},{type:'request_resolved',requestId:'r1'},attestation]),/requires pending request/);assert.throws(()=>collectQrexecCampaign([{type:'request_pending',requestId:'r1'},attestation,attestation]),/only once/);});
+test('attestation evidence requires request binding',()=>{assert.throws(()=>collectQrexecCampaign([{type:'request_pending',requestId:'r1'},{type:'attestation_verified',service:'dig.Coordinator',keyId:'k',gitSha:'a'.repeat(40)}]),/requestId/);assert.throws(()=>collectQrexecCampaign([{type:'request_pending',requestId:'r1'},{type:'attestation_verified',service:'dig.Coordinator',keyId:'k',gitSha:'a'.repeat(40),requestId:''}]),/requestId/);});
+test('provenance framing rejects duplicates, mismatches, same-qube, and inverted time',()=>{assert.throws(()=>collectQrexecCampaign([start,start]),/only once/);assert.throws(()=>collectQrexecCampaign([end]),/requires campaign_start/);assert.throws(()=>collectQrexecCampaign([start,{...end,runId:'other'}]),/runId mismatch/);assert.throws(()=>collectQrexecCampaign([{...start,targetQube:'AI'}]),/must differ/);assert.throws(()=>collectQrexecCampaign([start,{...end,finishedAt:'2026-08-17T14:59:00.000Z'}]),/precedes/);});
+test('rejects malformed and unsupported events fail-closed',()=>{assert.throws(()=>collectQrexecCampaign([{type:'round_trip',durationMs:-1}]),/non-negative finite/);assert.throws(()=>collectQrexecCampaign([{type:'wait',durationMs:120001}]),/at most 120000/);assert.throws(()=>collectQrexecCampaign([{type:'qrexec_service_call',service:''}]),/non-empty string/);assert.throws(()=>collectQrexecCampaign([{type:'stale_completion_probe',rejected:'yes'}]),/boolean/);assert.throws(()=>collectQrexecCampaign([{type:'mystery'}]),/unsupported/);assert.throws(()=>collectQrexecCampaign([null]),/object/);});
+test('parses JSONL and reports failing line',()=>{assert.deepEqual(parseCampaignJsonl('{"type":"stale_completion_probe","rejected":true}\n'),[{type:'stale_completion_probe',rejected:true}]);assert.throws(()=>parseCampaignJsonl('{"type":"stale_completion"}\nnot-json'),/line 2/);});
