@@ -18,12 +18,13 @@ function canonicalJson(value) {
   throw new TypeError('attested response must contain only JSON-compatible values');
 }
 
-function assertContext({ keyId, gitSha, service } = {}) {
+function assertContext({ keyId, gitSha, service, requestId = null } = {}) {
   keyId = assertString(keyId, 'keyId');
   gitSha = assertString(gitSha, 'gitSha');
   service = assertString(service, 'service');
   if (!/^[0-9a-f]{40}$/i.test(gitSha)) throw new Error('gitSha must be a 40-character hex SHA');
-  return { keyId, gitSha: gitSha.toLowerCase(), service };
+  if (requestId != null) requestId = assertString(requestId, 'requestId');
+  return { keyId, gitSha: gitSha.toLowerCase(), service, ...(requestId == null ? {} : { requestId }) };
 }
 
 function signingPayload(response, context) {
@@ -45,10 +46,10 @@ export function loadResponseAttestationConfig(env = process.env) {
   return { ...context, privateKey };
 }
 
-export function attestCoordinatorResponse(response, config) {
+export function attestCoordinatorResponse(response, config, { requestId = null } = {}) {
   if (!response || typeof response !== 'object' || Array.isArray(response) || typeof response.ok !== 'boolean') throw new TypeError('response must be a coordinator response object');
   if (!config?.privateKey) throw new Error('response attestation config is required');
-  const context = assertContext(config);
+  const context = assertContext({ ...config, requestId });
   const unsignedResponse = structuredClone(response);
   delete unsignedResponse.attestation;
   const signature = sign(null, signingPayload(unsignedResponse, context), config.privateKey).toString('base64');
@@ -59,21 +60,28 @@ export function attestCoordinatorResponse(response, config) {
       keyId: context.keyId,
       gitSha: context.gitSha,
       service: context.service,
+      ...(context.requestId == null ? {} : { requestId: context.requestId }),
       signature
     }
   };
 }
 
-export function verifyCoordinatorResponseAttestation(response, { publicKeyPem, expectedKeyId, expectedGitSha, expectedService } = {}) {
+export function verifyCoordinatorResponseAttestation(response, { publicKeyPem, expectedKeyId, expectedGitSha, expectedService, expectedRequestId = null } = {}) {
   if (!response || typeof response !== 'object' || Array.isArray(response) || typeof response.ok !== 'boolean') throw new TypeError('response must be a coordinator response object');
   if (!publicKeyPem) throw new Error('publicKeyPem is required');
   const attestation = response.attestation;
   if (!attestation || typeof attestation !== 'object' || Array.isArray(attestation)) throw new Error('response attestation is required');
   if (attestation.alg !== 'Ed25519') throw new Error('unsupported response attestation algorithm');
-  const context = assertContext({ keyId: attestation.keyId, gitSha: attestation.gitSha, service: attestation.service });
+  const requestId = attestation.requestId == null ? null : attestation.requestId;
+  const context = assertContext({ keyId: attestation.keyId, gitSha: attestation.gitSha, service: attestation.service, requestId });
   if (expectedKeyId != null && context.keyId !== assertString(expectedKeyId, 'expectedKeyId')) throw new Error('response attestation keyId mismatch');
   if (expectedGitSha != null && context.gitSha !== assertString(expectedGitSha, 'expectedGitSha').toLowerCase()) throw new Error('response attestation gitSha mismatch');
   if (expectedService != null && context.service !== assertString(expectedService, 'expectedService')) throw new Error('response attestation service mismatch');
+  if (expectedRequestId != null) {
+    const normalizedExpectedRequestId = assertString(expectedRequestId, 'expectedRequestId');
+    if (context.requestId == null) throw new Error('response attestation requestId is required');
+    if (context.requestId !== normalizedExpectedRequestId) throw new Error('response attestation requestId mismatch');
+  }
   const signature = Buffer.from(assertString(attestation.signature, 'attestation.signature'), 'base64');
   const unsignedResponse = structuredClone(response);
   delete unsignedResponse.attestation;
