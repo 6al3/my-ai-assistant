@@ -21,12 +21,13 @@ function assertResponse(value, name = 'response') {
   return value;
 }
 
-export function verifyQrexecCoordinatorResponse(response, { publicKeyPem, expectedKeyId, expectedGitSha, expectedService } = {}) {
+export function verifyQrexecCoordinatorResponse(response, { publicKeyPem, expectedKeyId, expectedGitSha, expectedService, expectedRequestId } = {}) {
   publicKeyPem = assertString(publicKeyPem, 'publicKeyPem');
   expectedKeyId = assertString(expectedKeyId, 'expectedKeyId');
   expectedGitSha = assertString(expectedGitSha, 'expectedGitSha');
   expectedService = assertString(expectedService, 'expectedService');
-  return verifyCoordinatorResponseAttestation(assertResponse(response), { publicKeyPem, expectedKeyId, expectedGitSha, expectedService });
+  expectedRequestId = assertString(expectedRequestId, 'expectedRequestId');
+  return verifyCoordinatorResponseAttestation(assertResponse(response), { publicKeyPem, expectedKeyId, expectedGitSha, expectedService, expectedRequestId });
 }
 
 function countRunTokens(value) {
@@ -73,6 +74,7 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
   qrexecBin = assertString(qrexecBin, 'qrexecBin');
   return async function invoke(envelope, { service: serviceOverride = service } = {}) {
     const selectedService = assertString(serviceOverride, 'service');
+    const requestId = assertString(envelope?.requestId, 'envelope.requestId');
     const startedAt = now();
     const child = spawn(qrexecBin, [target, selectedService], { env, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = ''; let stderr = '';
@@ -93,8 +95,13 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
     response = assertResponse(response);
     let attestationVerified = null;
     if (attestation) {
-      response = verifyQrexecCoordinatorResponse(response, { ...attestation, expectedService: selectedService });
-      attestationVerified = { service: selectedService, keyId: assertString(attestation.expectedKeyId, 'attestation.expectedKeyId'), gitSha: assertString(attestation.expectedGitSha, 'attestation.expectedGitSha') };
+      response = verifyQrexecCoordinatorResponse(response, { ...attestation, expectedService: selectedService, expectedRequestId: requestId });
+      attestationVerified = {
+        service: selectedService,
+        keyId: assertString(attestation.expectedKeyId, 'attestation.expectedKeyId'),
+        gitSha: assertString(attestation.expectedGitSha, 'attestation.expectedGitSha'),
+        requestId
+      };
     }
     return { response, durationMs, attestationVerified };
   };
