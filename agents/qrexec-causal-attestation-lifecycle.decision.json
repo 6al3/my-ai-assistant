@@ -1,0 +1,41 @@
+{
+  "decision": "interleave verified response attestation inside each request lifecycle and enforce pending -> verified -> resolved",
+  "scope": "Qubes synthetic qualification evidence",
+  "reviews": {
+    "correctness": {
+      "winner": "causal event ordering",
+      "reason": "request-id set membership cannot prove that a verified response was produced while that request was active"
+    },
+    "security": {
+      "winner": "collector fail-closed lifecycle validation",
+      "reason": "rejects verified-before-pending, verified-after-resolved, duplicate verification, duplicate pending, and resolve-without-pending evidence"
+    },
+    "performance": {
+      "winner": "offline ordered evidence",
+      "reason": "adds no qrexec round trips, daemon, database, or production mutation; cost is linear event validation and small request-id sets"
+    }
+  },
+  "rejected": [
+    {
+      "approach": "request-id membership only",
+      "failure": "proves correlation but not causal lifecycle ordering"
+    },
+    {
+      "approach": "durable attestation journal in coordinator state",
+      "failure": "adds persistence and recovery complexity before offline evidence is exhausted"
+    },
+    {
+      "approach": "external or dom0 evidence daemon",
+      "failure": "stronger trust boundary but adds deployment, key lifecycle, IPC, latency, and regression surface before real Qubes execution is available"
+    }
+  ],
+  "qa": [
+    "verified response must occur after request_pending and before request_resolved",
+    "duplicate request_pending is rejected",
+    "resolve without pending is rejected",
+    "duplicate attestation for one request is rejected",
+    "crash/retry recovery attestation remains inside the original request lifecycle",
+    "lease fencing and QA evidence remain independent correctness gates"
+  ],
+  "safety": "synthetic defensive qualification only; no real financial transactions or payment data"
+}
