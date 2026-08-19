@@ -59,7 +59,7 @@ export async function runQualificationCampaignSet({ qualificationRunId = randomU
   return campaigns;
 }
 
-export function evaluateQualificationCampaignSet(campaigns, { env = process.env, nowMs = Date.now() } = {}) {
+export function evaluateQualificationCampaignSet(campaigns, { env = process.env, nowMs = Date.now(), preflightVerifiedAttestations = [] } = {}) {
   const expectedGitSha = env.DIG_GIT_SHA;
   const expectedSourceQube = env.DIG_SOURCE_QUBE || env.DIG_QREXEC_SOURCE;
   const expectedTargetQube = env.DIG_TARGET_QUBE || env.DIG_QREXEC_TARGET;
@@ -71,7 +71,7 @@ export function evaluateQualificationCampaignSet(campaigns, { env = process.env,
   }
   if (expectedService === expectedFaultService) throw new Error('expectedService and expectedFaultService must differ');
   const parsed = parseAttestedMultiRunJson(JSON.stringify(campaigns));
-  return evaluateAttestedMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, expectedFaultService, expectedAttestationKeyId, nowMs });
+  return evaluateAttestedMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, expectedFaultService, expectedAttestationKeyId, preflightVerifiedAttestations, nowMs });
 }
 
 async function main() {
@@ -79,7 +79,7 @@ async function main() {
   const recoveryRuns = process.env.DIG_RECOVERY_RUNS ? Number(process.env.DIG_RECOVERY_RUNS) : 3;
   const preflight = await runQualificationPreflightFromEnv();
   const campaigns = await runQualificationCampaignSet({ qualificationRunId, recoveryRuns });
-  const qualification = evaluateQualificationCampaignSet(campaigns);
+  const qualification = evaluateQualificationCampaignSet(campaigns, { preflightVerifiedAttestations: preflight.verifiedAttestations });
   process.stdout.write(`${JSON.stringify({ qualificationRunId, preflight, qualification, campaigns }, null, 2)}\n`);
   if (!qualification.ready) process.exitCode = 2;
 }
