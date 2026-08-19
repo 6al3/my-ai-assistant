@@ -6,7 +6,7 @@ function assertIsoDate(value, name) { const text = assertString(value, name); if
 
 export function collectQrexecCampaign(events) {
   if (!Array.isArray(events)) throw new TypeError('events must be an array');
-  const recoveryLatencyMs = [], roundTripLatencyMs = [], committedMutationKeys = new Set(), pendingRequests = new Set(), verifiedAttestations = [];
+  const recoveryLatencyMs = [], roundTripLatencyMs = [], committedMutationKeys = new Set(), pendingRequests = new Set(), observedRequestIds = new Set(), verifiedAttestations = [];
   let duplicateCommittedMutations = 0, staleCompletions = 0, staleCompletionProbes = 0, staleCompletionRejections = 0, currentLeaseCompletions = 0, qaBeforeJoin = 0, provenance = null, endedAt = null;
   for (const [index, event] of events.entries()) {
     if (!event || typeof event !== 'object' || Array.isArray(event)) throw new TypeError(`event[${index}] must be an object`);
@@ -20,7 +20,7 @@ export function collectQrexecCampaign(events) {
       }
       case 'campaign_end': if (!provenance) throw new Error('campaign_end requires campaign_start'); else if (endedAt) throw new Error('campaign_end may appear only once'); else { if (assertString(event.runId, `event[${index}].runId`) !== provenance.runId) throw new Error('campaign_end runId mismatch'); endedAt = assertIsoDate(event.finishedAt, `event[${index}].finishedAt`); if (Date.parse(endedAt) < Date.parse(provenance.startedAt)) throw new Error('campaign_end precedes campaign_start'); } break;
       case 'qrexec_service_call': assertString(event.service, `event[${index}].service`); break;
-      case 'attestation_verified': verifiedAttestations.push({ service: assertString(event.service, `event[${index}].service`), keyId: assertString(event.keyId, `event[${index}].keyId`), gitSha: assertString(event.gitSha, `event[${index}].gitSha`) }); break;
+      case 'attestation_verified': verifiedAttestations.push({ service: assertString(event.service, `event[${index}].service`), keyId: assertString(event.keyId, `event[${index}].keyId`), gitSha: assertString(event.gitSha, `event[${index}].gitSha`), requestId: assertString(event.requestId, `event[${index}].requestId`) }); break;
       case 'round_trip': assertFiniteDuration(event.durationMs, `event[${index}].durationMs`); roundTripLatencyMs.push(event.durationMs); break;
       case 'recovery': assertFiniteDuration(event.durationMs, `event[${index}].durationMs`); recoveryLatencyMs.push(event.durationMs); break;
       case 'wait': assertFiniteDuration(event.durationMs, `event[${index}].durationMs`); if (event.durationMs > 120_000) throw new TypeError(`event[${index}].durationMs must be at most 120000`); break;
@@ -28,7 +28,7 @@ export function collectQrexecCampaign(events) {
       case 'stale_completion': staleCompletions += 1; break;
       case 'stale_completion_probe': if (typeof event.rejected !== 'boolean') throw new TypeError(`event[${index}].rejected must be a boolean`); else { staleCompletionProbes += 1; if (event.rejected) staleCompletionRejections += 1; } break;
       case 'current_lease_completion': currentLeaseCompletions += 1; break;
-      case 'request_pending': pendingRequests.add(assertString(event.requestId, `event[${index}].requestId`)); break;
+      case 'request_pending': { const requestId = assertString(event.requestId, `event[${index}].requestId`); observedRequestIds.add(requestId); pendingRequests.add(requestId); break; }
       case 'request_resolved': pendingRequests.delete(assertString(event.requestId, `event[${index}].requestId`)); break;
       case 'qa_barrier_probe': if (typeof event.blocked !== 'boolean') throw new TypeError(`event[${index}].blocked must be a boolean`); else if (!event.blocked) qaBeforeJoin += 1; break;
       case 'qa_post_join_start': break;
@@ -36,7 +36,7 @@ export function collectQrexecCampaign(events) {
       default: throw new Error(`unsupported campaign event type: ${type}`);
     }
   }
-  return { provenance: provenance && endedAt ? { ...provenance, finishedAt: endedAt } : null, duplicateCommittedMutations, staleCompletions, staleCompletionProbes, staleCompletionRejections, currentLeaseCompletions, unresolvedPendingRequests: pendingRequests.size, qaBeforeJoin, recoveryLatencyMs, roundTripLatencyMs, verifiedAttestations };
+  return { provenance: provenance && endedAt ? { ...provenance, finishedAt: endedAt } : null, duplicateCommittedMutations, staleCompletions, staleCompletionProbes, staleCompletionRejections, currentLeaseCompletions, unresolvedPendingRequests: pendingRequests.size, qaBeforeJoin, recoveryLatencyMs, roundTripLatencyMs, observedRequestIds: [...observedRequestIds].sort(), verifiedAttestations };
 }
 
 export function parseCampaignJsonl(input) { if (typeof input !== 'string') throw new TypeError('input must be a string'); return input.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map((line, index) => { try { return JSON.parse(line); } catch (error) { throw new Error(`invalid campaign JSON on line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`); } }); }
