@@ -1,58 +1,64 @@
 {
-  "problem": "Ed25519 response attestation proved coordinator origin, git SHA, service, and key identity, but a valid signed response was not explicitly bound to the worker requestId. A previously valid response from the same service/SHA/key could therefore be replayed against a different request unless higher layers noticed the mismatch.",
+  "problem": "Ed25519 response attestation proved coordinator origin, git SHA, service, and key identity, but a valid signed response was not explicitly bound end-to-end to the worker requestId. The primitive supported requestId, while the qrexec coordinator service and worker harness still omitted it.",
   "reviews": [
     {
       "role": "correctness-reconciliation",
-      "preferred": "bind requestId into the signed attestation context and require the expected requestId during verification",
-      "reason": "Request identity becomes part of the cryptographic statement while preserving durable same-request retry semantics."
+      "preferred": "bind the authenticated envelope requestId at the qrexec process boundary and require the same requestId during worker verification",
+      "reason": "The response becomes cryptographically correlated to the exact durable request while same-request retries remain valid."
     },
     {
       "role": "security-transport",
-      "preferred": "fail closed when request binding is expected but absent or mismatched",
-      "reason": "This prevents a valid coordinator signature from becoming reusable evidence for another request."
+      "preferred": "fail closed on absent or mismatched request binding before a response can enter campaign state or attestation evidence",
+      "reason": "A valid coordinator response from request A must not be reusable as evidence for request B."
     },
     {
       "role": "performance-regression",
-      "preferred": "extend the existing Ed25519 payload instead of adding a second signature or network attestation service",
-      "reason": "No additional qrexec round trip, negligible payload growth, and no new process or key lifecycle."
+      "preferred": "reuse the existing per-call qrexec process and Ed25519 signature rather than add a second signature, daemon, or network attestation service",
+      "reason": "No extra qrexec round trip, negligible payload/CPU growth, and a small integration surface."
     }
   ],
   "alternatives": [
     {
-      "name": "rely on service/SHA/key binding only",
+      "name": "correlate responses only by service/SHA/key binding",
       "rejected": true,
-      "reason": "Authenticates origin but not request-response correlation."
+      "reason": "Authenticates origin but still permits cross-request replay of otherwise valid signed responses."
     },
     {
-      "name": "add a second HMAC over requestId and response",
+      "name": "track request IDs only in worker-side state without signing them",
       "rejected": true,
-      "reason": "The worker already knows the transport HMAC secret, so it would not provide coordinator-origin evidence."
+      "reason": "Local bookkeeping cannot prove that the coordinator signed the response for that request."
+    },
+    {
+      "name": "modify the durable journal or mission coordinator to embed attestation state",
+      "rejected": true,
+      "reason": "Attestation is a transport-boundary concern; mixing it into persistence would expand regression surface and couple unrelated semantics."
     },
     {
       "name": "external attestation daemon",
       "rejected": true,
-      "reason": "Adds latency, policy, lifecycle, and operational failure modes without being necessary for per-request binding."
+      "reason": "Adds lifecycle, policy, latency, and resource cost without improving this specific request-response correlation property."
     }
   ],
-  "winner": "requestId-bound Ed25519 response attestation",
+  "winner": "single-request qrexec boundary capture + requestId-bound Ed25519 response attestation + worker expectedRequestId verification",
   "expected_effects": {
-    "correctness": "Signed responses can be matched to the exact logical worker request.",
-    "robustness": "Missing legacy request binding fails closed when the caller requires request correlation.",
-    "latency": "No extra qrexec calls; only a few bytes added to the signed payload.",
-    "resources": "Negligible CPU and memory change relative to the existing Ed25519 verification.",
-    "regression_risk": "Low at the primitive layer because request binding is opt-in until the qrexec service/harness integration is switched over."
+    "correctness": "Every successful qrexec response consumed by the worker is matched cryptographically to the exact logical request envelope.",
+    "robustness": "Missing legacy request binding and cross-request replay fail closed; same-request durable retry remains valid.",
+    "latency": "No new qrexec calls; only requestId bytes are added to the signed payload.",
+    "resources": "Negligible CPU and memory change relative to existing Ed25519 signing and verification.",
+    "regression_risk": "Low-to-medium because qrexec service input is now explicitly one envelope per process, matching the deployed process-per-call contract."
   },
   "qa": {
     "added": [
-      "successful verification for the matching requestId",
-      "rejection when the same signed response is verified against another requestId",
-      "fail-closed rejection when request binding is required but absent"
+      "worker verifier requires expectedRequestId",
+      "coordinator service emits attestation.requestId from the incoming authenticated envelope",
+      "same-request retry verifies and returns the same durable response",
+      "response from request A is rejected when verified as request B"
     ],
-    "remaining": "Wire the qrexec coordinator service to sign the authenticated envelope requestId and make the worker harness always verify expectedRequestId before recording attestation evidence."
+    "remaining": "Run full Node/Swift CI on the new head, then exercise the same request-bound verification across an actual Qube-to-Qube qrexec qualification campaign."
   },
-  "lessons": [
-    "Origin authentication and request-response correlation are separate properties.",
-    "A cryptographically valid response can still be unsafe evidence if it is reusable across logical requests.",
-    "Durable retries should reuse the same requestId, which is compatible with request-bound attestation and keeps committed-response recovery idempotent."
+  "failures_and_lessons": [
+    "Having requestId support only in the attestation primitive was insufficient because the service wrapper signed output without request context.",
+    "The correct place to bind request identity is the qrexec process boundary, where one request envelope maps to one service process and one response stream.",
+    "Durable retry semantics are compatible with request-bound attestation because retries intentionally reuse the same requestId."
   ]
 }
