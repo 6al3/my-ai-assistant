@@ -23,9 +23,10 @@ test('attested qualification fails closed without verified campaign and dual-ser
   assert.ok(result.failedChecks.includes('verifiedNormalServiceCampaignAttestationObserved'));
   assert.ok(result.failedChecks.includes('verifiedFaultServicePreflightAttestationObserved'));
   assert.ok(result.failedChecks.includes('allCampaignAttestationsBoundToObservedRequests'));
+  assert.ok(result.failedChecks.includes('allCampaignAttestationsBoundToCompletedLifecycles'));
 });
 
-test('fault service attestation is sourced from read-only preflight while normal campaign response is request-bound', () => {
+test('fault service attestation is sourced from read-only preflight while normal campaign response is request-bound and resolved', () => {
   const thresholds = { ...baseThresholds, preflightVerifiedAttestations: [a(NORMAL), a(FAULT)] };
   const result = evaluateAttestedMultiRunQualification([campaign([a(NORMAL, 'req-1')])], thresholds);
   assert.equal(result.checks.verifiedNormalServiceCampaignAttestationObserved, true);
@@ -33,18 +34,27 @@ test('fault service attestation is sourced from read-only preflight while normal
   assert.equal(result.checks.verifiedFaultServicePreflightAttestationObserved, true);
   assert.equal(result.checks.onlyExpectedAttestationBindingsObserved, true);
   assert.equal(result.checks.allCampaignAttestationsBoundToObservedRequests, true);
+  assert.equal(result.checks.allCampaignAttestationsBoundToCompletedLifecycles, true);
+  assert.equal(result.metrics.completedVerifiedRequestLifecycles, 1);
   assert.equal(result.metrics.verifiedCampaignAttestations, 1);
   assert.equal(result.metrics.verifiedPreflightAttestations, 2);
   assert.equal(result.ready, false);
-  assert.ok(result.failedChecks.some(name => !name.startsWith('verified') && name !== 'onlyExpectedAttestationBindingsObserved' && name !== 'allCampaignAttestationsBoundToObservedRequests'));
+  assert.ok(result.failedChecks.some(name => !name.startsWith('verified') && name !== 'onlyExpectedAttestationBindingsObserved' && name !== 'allCampaignAttestationsBoundToObservedRequests' && name !== 'allCampaignAttestationsBoundToCompletedLifecycles'));
 });
 
-test('attested qualification rejects a verified response whose requestId was never observed in that campaign', () => {
+test('collector rejects a verified response whose request lifecycle never started', () => {
   const events = campaign([a(NORMAL, 'req-1')]).filter(event => event.type !== 'request_pending');
+  assert.throws(() => evaluateAttestedMultiRunQualification([events], { ...baseThresholds, preflightVerifiedAttestations: [a(NORMAL), a(FAULT)] }), /attestation_verified requires pending request/);
+});
+
+test('attested qualification rejects verified evidence whose request never resolves', () => {
+  const events = campaign([a(NORMAL, 'req-1')]).filter(event => event.type !== 'request_resolved');
   const result = evaluateAttestedMultiRunQualification([events], { ...baseThresholds, preflightVerifiedAttestations: [a(NORMAL), a(FAULT)] });
   assert.equal(result.ready, false);
-  assert.equal(result.checks.allCampaignAttestationsBoundToObservedRequests, false);
-  assert.ok(result.failedChecks.includes('allCampaignAttestationsBoundToObservedRequests'));
+  assert.equal(result.checks.allCampaignAttestationsBoundToObservedRequests, true);
+  assert.equal(result.checks.allCampaignAttestationsBoundToCompletedLifecycles, false);
+  assert.equal(result.metrics.completedVerifiedRequestLifecycles, 0);
+  assert.ok(result.failedChecks.includes('allCampaignAttestationsBoundToCompletedLifecycles'));
 });
 
 test('attested qualification rejects wrong key id, sha, service, and missing fault preflight coverage', () => {
