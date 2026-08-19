@@ -5,10 +5,12 @@ import { collectQrexecCampaign, parseCampaignJsonl } from './qubes-qrexec-campai
 const start = { type: 'campaign_start', runId: 'run-1', transport: 'qrexec', sourceQube: 'AI', targetQube: 'DIG-Coordinator', service: 'dig.Coordinator', gitSha: 'a'.repeat(40), startedAt: '2026-08-17T15:00:00.000Z' };
 const end = { type: 'campaign_end', runId: 'run-1', finishedAt: '2026-08-17T15:01:00.000Z' };
 
-test('collects clean campaign provenance, request identities, and attestation evidence', () => {
+test('collects clean campaign provenance and causal request attestation evidence', () => {
   const report = collectQrexecCampaign([start, { type:'request_pending', requestId:'r1' }, { type:'attestation_verified', service:'dig.Coordinator', keyId:'k1', gitSha:'a'.repeat(40), requestId:'r1' }, { type:'mutation_committed', mutationKey:'r1:complete:coder' }, { type:'stale_completion_probe', rejected:true }, { type:'current_lease_completion' }, { type:'request_resolved', requestId:'r1' }, { type:'round_trip', durationMs:12 }, { type:'recovery', durationMs:110 }, end]);
   assert.equal(report.provenance.runId, 'run-1');
   assert.deepEqual(report.observedRequestIds, ['r1']);
+  assert.deepEqual(report.resolvedRequestIds, ['r1']);
+  assert.deepEqual(report.verifiedRequestIds, ['r1']);
   assert.deepEqual(report.verifiedAttestations, [{ service:'dig.Coordinator', keyId:'k1', gitSha:'a'.repeat(40), requestId:'r1' }]);
   assert.equal(report.duplicateCommittedMutations, 0);
   assert.equal(report.staleCompletionRejections, 1);
@@ -28,14 +30,22 @@ test('derives duplicate, stale, fencing, unresolved, and QA-before-join evidence
   assert.equal(report.duplicateCommittedMutations,1); assert.equal(report.staleCompletions,1); assert.equal(report.currentLeaseCompletions,1); assert.equal(report.unresolvedPendingRequests,1); assert.equal(report.qaBeforeJoin,1);
 });
 
-test('request resolution is idempotent and observed IDs remain auditable', () => {
-  const report = collectQrexecCampaign([{ type:'request_pending', requestId:'a' }, { type:'request_pending', requestId:'a' }, { type:'request_pending', requestId:'b' }, { type:'request_resolved', requestId:'a' }, { type:'request_resolved', requestId:'a' }]);
-  assert.equal(report.unresolvedPendingRequests,1); assert.deepEqual(report.observedRequestIds,['a','b']);
+test('request lifecycle rejects duplicate pending and resolve-without-pending', () => {
+  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'a' }, { type:'request_pending', requestId:'a' }]), /fresh lifecycle/);
+  assert.throws(() => collectQrexecCampaign([{ type:'request_resolved', requestId:'a' }]), /requires pending request/);
+  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'a' }, { type:'request_resolved', requestId:'a' }, { type:'request_resolved', requestId:'a' }]), /requires pending request/);
+});
+
+test('attestation evidence must occur while the same request is pending', () => {
+  const attestation = { type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40), requestId:'r1' };
+  assert.throws(() => collectQrexecCampaign([attestation]), /requires pending request/);
+  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, { type:'request_resolved', requestId:'r1' }, attestation]), /requires pending request/);
+  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, attestation, attestation]), /only once/);
 });
 
 test('attestation evidence requires request binding', () => {
-  assert.throws(() => collectQrexecCampaign([{ type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40) }]), /requestId/);
-  assert.throws(() => collectQrexecCampaign([{ type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40), requestId:'' }]), /requestId/);
+  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, { type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40) }]), /requestId/);
+  assert.throws(() => collectQrexecCampaign([{ type:'request_pending', requestId:'r1' }, { type:'attestation_verified', service:'dig.Coordinator', keyId:'k', gitSha:'a'.repeat(40), requestId:'' }]), /requestId/);
 });
 
 test('provenance framing rejects duplicates, mismatches, same-qube, and inverted time', () => {
