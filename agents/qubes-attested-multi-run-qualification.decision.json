@@ -1,0 +1,19 @@
+{
+  "decision": "Require explicit verified-response evidence before REAL-WORKER READY qualification",
+  "reviews": [
+    {"agent": "correctness", "preferred": "verified response events", "reason": "service-call presence cannot prove the response used by qualification passed Ed25519 verification"},
+    {"agent": "security", "preferred": "exact keyId/SHA/service binding", "reason": "rejects worker-declared or stale attestations and unexpected endpoints"},
+    {"agent": "performance-regression", "preferred": "offline evidence validation", "reason": "adds no qrexec round trips, daemon, database, or production coordinator mutation"}
+  ],
+  "alternatives": [
+    {"name": "trust qrexec_service_call events", "rejected": "worker-side events are not cryptographic proof"},
+    {"name": "external attestation service", "rejected": "stronger future option but adds key lifecycle, IPC, resources, latency, and failure modes before real-Qubes evidence exists"}
+  ],
+  "winner": "transport-boundary Ed25519 verification followed by explicit attestation_verified evidence and fail-closed aggregate qualification",
+  "lessons": [
+    "Cryptographic verification that is not represented in readiness evidence cannot strengthen the final readiness decision.",
+    "Qualification must bind evidence to the expected coordinator key, git SHA, and exact normal/fault qrexec services.",
+    "The crash leg may intentionally produce no response; recovery and successful normal/fault probes provide the attestable response evidence."
+  ],
+  "remainingGate": "Wire the attested aggregate evaluator into the qualification runner, add negative regression tests, obtain green Node/Swift CI, then run on real Qubes."
+}
