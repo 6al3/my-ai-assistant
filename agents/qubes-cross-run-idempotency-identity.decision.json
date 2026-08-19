@@ -1,0 +1,15 @@
+{
+  "decision":"Require run-independent enqueue idempotency keys in attested multi-run Qubes qualification",
+  "reviews":[
+    {"lens":"correctness","winner":"explicit enqueue-idempotency evidence","reason":"Distinct run IDs, request IDs, and mutation labels do not prove the durable enqueue deduplication identity is fresh; reusing an idempotency key can alias a prior mission."},
+    {"lens":"robustness/security","winner":"fail-closed cross-run ownership map","reason":"Evidence records the actual submit idempotency identity and rejects reuse across campaigns without deleting the persistent state being tested."},
+    {"lens":"latency/resources/regression","winner":"offline Map/Set validation","reason":"No additional qrexec round trips, no daemon/database, O(number of enqueue identities) memory, and no MissionQueue/coordinator mutation-semantic change."}
+  ],
+  "rejected":[
+    {"approach":"trust RUN_ID/requestId uniqueness","failure":"transport identity independence does not imply mission enqueue deduplication independence"},
+    {"approach":"wipe durable stores between runs","failure":"destroys the persistence/reconciliation state the qualification is intended to exercise"},
+    {"approach":"add a persistence namespace solely for qualification","failure":"changes production semantics and increases regression surface unnecessarily"}
+  ],
+  "qa":["reject shared enqueue idempotency key across distinct runs","accept distinct run-scoped enqueue idempotency keys","include attested qualification suites in npm check/test so the gate cannot silently escape full QA"],
+  "lesson":"Qualification independence must be proven at every durable deduplication identity, not inferred from outer transport/run identifiers."
+}
