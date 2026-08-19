@@ -113,7 +113,7 @@ test('request-bound attestation rejects replay against a different request id', 
   }), /requestId is required/);
 });
 
-test('worker-side qrexec verifier strips attestation and fails closed on deployment mismatch', () => {
+test('worker-side qrexec verifier requires matching request identity and deployment binding', () => {
   const { privateKeyPem, publicKeyPem } = keyMaterial();
   const config = loadResponseAttestationConfig({
     DIG_RESPONSE_ATTESTATION_PRIVATE_KEY: privateKeyPem,
@@ -121,25 +121,36 @@ test('worker-side qrexec verifier strips attestation and fails closed on deploym
     DIG_GIT_SHA: GIT_SHA,
     DIG_QREXEC_SERVICE_ID: SERVICE_ID
   });
-  const attested = attestCoordinatorResponse({ ok: true, result: { total: 1 } }, config);
+  const requestId = randomUUID();
+  const attested = attestCoordinatorResponse({ ok: true, result: { total: 1 } }, config, { requestId });
   assert.deepEqual(verifyQrexecCoordinatorResponse(attested, {
     publicKeyPem,
     expectedKeyId: KEY_ID,
     expectedGitSha: GIT_SHA,
-    expectedService: SERVICE_ID
+    expectedService: SERVICE_ID,
+    expectedRequestId: requestId
   }), { ok: true, result: { total: 1 } });
   assert.throws(() => verifyQrexecCoordinatorResponse({ ok: true, result: { total: 1 } }, {
     publicKeyPem,
     expectedKeyId: KEY_ID,
     expectedGitSha: GIT_SHA,
-    expectedService: SERVICE_ID
+    expectedService: SERVICE_ID,
+    expectedRequestId: requestId
   }), /attestation is required/);
   assert.throws(() => verifyQrexecCoordinatorResponse(attested, {
     publicKeyPem,
     expectedKeyId: KEY_ID,
     expectedGitSha: GIT_SHA,
-    expectedService: 'dig.CoordinatorFault'
+    expectedService: 'dig.CoordinatorFault',
+    expectedRequestId: requestId
   }), /service mismatch/);
+  assert.throws(() => verifyQrexecCoordinatorResponse(attested, {
+    publicKeyPem,
+    expectedKeyId: KEY_ID,
+    expectedGitSha: GIT_SHA,
+    expectedService: SERVICE_ID,
+    expectedRequestId: randomUUID()
+  }), /requestId mismatch/);
 });
 
 test('response attestation configuration is all-or-none and Ed25519-only', () => {
@@ -154,24 +165,45 @@ test('response attestation configuration is all-or-none and Ed25519-only', () =>
   }), /40-character hex SHA/);
 });
 
-test('qrexec coordinator emits verifiable coordinator-side attestation on authenticated response', async () => {
+test('qrexec coordinator signs the authenticated envelope request id and same-request retry stays valid', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'dig-qrexec-attestation-'));
   const storePath = path.join(dir, 'queue.json');
   const journalPath = path.join(dir, 'journal.json');
   const { privateKeyPem, publicKeyPem } = keyMaterial();
   try {
-    const envelope = signWorkerEnvelope({ requestId: randomUUID(), op: 'stats', body: null, secret: SECRET });
-    const result = await invokeService({ storePath, journalPath, envelope, privateKeyPem });
-    assert.equal(result.code, 0, result.stderr);
-    assert.equal(result.responses.length, 1);
-    const unsigned = verifyCoordinatorResponseAttestation(result.responses[0], {
+    const requestId = randomUUID();
+    const envelope = signWorkerEnvelope({ requestId, op: 'stats', body: null, secret: SECRET });
+    const first = await invokeService({ storePath, journalPath, envelope, privateKeyPem });
+    assert.equal(first.code, 0, first.stderr);
+    assert.equal(first.responses.length, 1);
+    assert.equal(first.responses[0].attestation.requestId, requestId);
+    const unsigned = verifyCoordinatorResponseAttestation(first.responses[0], {
       publicKeyPem,
       expectedKeyId: KEY_ID,
       expectedGitSha: GIT_SHA,
-      expectedService: SERVICE_ID
+      expectedService: SERVICE_ID,
+      expectedRequestId: requestId
     });
     assert.equal(unsigned.ok, true);
     assert.equal(typeof unsigned.result.total, 'number');
+
+    const retry = await invokeService({ storePath, journalPath, envelope, privateKeyPem });
+    assert.equal(retry.code, 0, retry.stderr);
+    assert.deepEqual(verifyCoordinatorResponseAttestation(retry.responses[0], {
+      publicKeyPem,
+      expectedKeyId: KEY_ID,
+      expectedGitSha: GIT_SHA,
+      expectedService: SERVICE_ID,
+      expectedRequestId: requestId
+    }), unsigned);
+
+    assert.throws(() => verifyCoordinatorResponseAttestation(first.responses[0], {
+      publicKeyPem,
+      expectedKeyId: KEY_ID,
+      expectedGitSha: GIT_SHA,
+      expectedService: SERVICE_ID,
+      expectedRequestId: randomUUID()
+    }), /requestId mismatch/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
