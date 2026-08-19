@@ -91,8 +91,12 @@ export function createQrexecProcessTransport({ target, service, qrexecBin = 'qre
     let response;
     try { response = JSON.parse(lines[0]); } catch (error) { throw new Error(`qrexec transport returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
     response = assertResponse(response);
-    if (attestation) response = verifyQrexecCoordinatorResponse(response, { ...attestation, expectedService: selectedService });
-    return { response, durationMs };
+    let attestationVerified = null;
+    if (attestation) {
+      response = verifyQrexecCoordinatorResponse(response, { ...attestation, expectedService: selectedService });
+      attestationVerified = { service: selectedService, keyId: assertString(attestation.expectedKeyId, 'attestation.expectedKeyId'), gitSha: assertString(attestation.expectedGitSha, 'attestation.expectedGitSha') };
+    }
+    return { response, durationMs, attestationVerified };
   };
 }
 
@@ -182,14 +186,19 @@ async function main() {
   const startedAt = new Date().toISOString();
   const rawInvoke = createQrexecProcessTransport({ target, service, qrexecBin: process.env.DIG_QREXEC_BIN || 'qrexec-client-vm', attestation: { publicKeyPem, expectedKeyId, expectedGitSha: gitSha } });
   const serviceCalls = [];
+  const attestationEvents = [];
   const invoke = async (envelope, options = {}) => {
     const selectedService = assertString(options.service ?? service, 'qrexec service');
     serviceCalls.push(selectedService);
-    return rawInvoke(envelope, { ...options, service: selectedService });
+    const outcome = await rawInvoke(envelope, { ...options, service: selectedService });
+    if (!outcome.attestationVerified) throw new Error(`verified attestation evidence missing for ${selectedService}`);
+    attestationEvents.push({ type: 'attestation_verified', ...outcome.attestationVerified });
+    return outcome;
   };
   const events = await runQrexecCampaignSteps({ steps, invoke, secret });
   process.stdout.write(`${JSON.stringify({ type: 'campaign_start', runId, transport: 'qrexec', sourceQube, targetQube: target, service, gitSha, startedAt })}\n`);
   for (const selectedService of serviceCalls) process.stdout.write(`${JSON.stringify({ type: 'qrexec_service_call', service: selectedService })}\n`);
+  for (const event of attestationEvents) process.stdout.write(`${JSON.stringify(event)}\n`);
   for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
   process.stdout.write(`${JSON.stringify({ type: 'campaign_end', runId, finishedAt: new Date().toISOString() })}\n`);
 }
