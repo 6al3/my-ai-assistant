@@ -81,6 +81,38 @@ test('Ed25519 response attestation binds response, git SHA, service, and key ide
   assert.throws(() => verifyCoordinatorResponseAttestation(attested, { publicKeyPem, expectedService: 'dig.Other' }), /service mismatch/);
 });
 
+test('request-bound attestation rejects replay against a different request id', () => {
+  const { privateKeyPem, publicKeyPem } = keyMaterial();
+  const config = loadResponseAttestationConfig({
+    DIG_RESPONSE_ATTESTATION_PRIVATE_KEY: privateKeyPem,
+    DIG_RESPONSE_ATTESTATION_KEY_ID: KEY_ID,
+    DIG_GIT_SHA: GIT_SHA,
+    DIG_QREXEC_SERVICE_ID: SERVICE_ID
+  });
+  const requestId = randomUUID();
+  const attested = attestCoordinatorResponse({ ok: true, result: { total: 7 } }, config, { requestId });
+  assert.equal(attested.attestation.requestId, requestId);
+  assert.deepEqual(verifyCoordinatorResponseAttestation(attested, {
+    publicKeyPem,
+    expectedKeyId: KEY_ID,
+    expectedGitSha: GIT_SHA,
+    expectedService: SERVICE_ID,
+    expectedRequestId: requestId
+  }), { ok: true, result: { total: 7 } });
+  assert.throws(() => verifyCoordinatorResponseAttestation(attested, {
+    publicKeyPem,
+    expectedKeyId: KEY_ID,
+    expectedGitSha: GIT_SHA,
+    expectedService: SERVICE_ID,
+    expectedRequestId: randomUUID()
+  }), /requestId mismatch/);
+  const legacy = attestCoordinatorResponse({ ok: true, result: { total: 7 } }, config);
+  assert.throws(() => verifyCoordinatorResponseAttestation(legacy, {
+    publicKeyPem,
+    expectedRequestId: requestId
+  }), /requestId is required/);
+});
+
 test('worker-side qrexec verifier strips attestation and fails closed on deployment mismatch', () => {
   const { privateKeyPem, publicKeyPem } = keyMaterial();
   const config = loadResponseAttestationConfig({
