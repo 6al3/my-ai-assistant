@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { runProcessCoordinator } from './orchestration-process-coordinator.mjs';
 import { attestCoordinatorResponse, loadResponseAttestationConfig } from './qrexec-response-attestation.mjs';
@@ -27,9 +28,24 @@ export function loadQrexecCoordinatorConfig(env = process.env) {
   };
 }
 
-export function createAttestedResponseOutput({ output, responseAttestation } = {}) {
+async function readSingleQrexecEnvelope(input) {
+  let raw = '';
+  input.setEncoding?.('utf8');
+  for await (const chunk of input) raw += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+  const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (lines.length !== 1) throw new Error('qrexec coordinator service requires exactly one request envelope per process');
+  let envelope;
+  try { envelope = JSON.parse(lines[0]); } catch (error) { throw new Error(`qrexec request must be valid JSON: ${error instanceof Error ? error.message : String(error)}`); }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw new Error('qrexec request must be an envelope object');
+  if (typeof envelope.requestId !== 'string' || envelope.requestId.trim() === '') throw new Error('qrexec requestId is required');
+  return { line: `${lines[0]}\n`, requestId: envelope.requestId.trim() };
+}
+
+export function createAttestedResponseOutput({ output, responseAttestation, requestId = null } = {}) {
   if (!output || typeof output.write !== 'function') throw new TypeError('output.write is required');
   if (!responseAttestation) return output;
+  if (typeof requestId !== 'string' || requestId.trim() === '') throw new Error('requestId is required for attested qrexec responses');
+  const boundRequestId = requestId.trim();
   let pending = '';
   return {
     write(chunk) {
@@ -40,7 +56,7 @@ export function createAttestedResponseOutput({ output, responseAttestation } = {
         pending = pending.slice(newlineIndex + 1);
         if (!line.trim()) continue;
         const response = JSON.parse(line);
-        output.write(`${JSON.stringify(attestCoordinatorResponse(response, responseAttestation))}\n`);
+        output.write(`${JSON.stringify(attestCoordinatorResponse(response, responseAttestation, { requestId: boundRequestId }))}\n`);
       }
       return true;
     }
@@ -50,8 +66,9 @@ export function createAttestedResponseOutput({ output, responseAttestation } = {
 export async function runQrexecCoordinatorService({ env = process.env, input = process.stdin, output = process.stdout } = {}) {
   const config = loadQrexecCoordinatorConfig(env);
   const { responseAttestation, ...coordinatorConfig } = config;
-  const coordinatorOutput = createAttestedResponseOutput({ output, responseAttestation });
-  return runProcessCoordinator({ ...coordinatorConfig, input, output: coordinatorOutput });
+  const request = await readSingleQrexecEnvelope(input);
+  const coordinatorOutput = createAttestedResponseOutput({ output, responseAttestation, requestId: request.requestId });
+  return runProcessCoordinator({ ...coordinatorConfig, input: Readable.from([request.line]), output: coordinatorOutput });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
