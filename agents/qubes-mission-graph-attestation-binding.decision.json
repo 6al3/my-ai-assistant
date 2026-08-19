@@ -1,0 +1,63 @@
+{
+  "decision": "Bind mission graph evidence to the single verified pending submit request and require that request to resolve before readiness can use the graph evidence.",
+  "status": "selected",
+  "problem": "mission_graph_instance evidence was validated structurally but was not causally bound to the Ed25519-verified request lifecycle that produced the coordinator submit response. A fabricated graph event could therefore be inserted independently of a verified response.",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "causal verified-request binding",
+      "reason": "A graph must be accepted only while exactly one attested request is pending, and readiness must later prove that request resolved. This closes the provenance gap without weakening existing DAG validation."
+    },
+    {
+      "agent": "security-robustness-review",
+      "preferred": "fail-closed causal binding",
+      "reason": "Reject zero or multiple active verified requests. This prevents ambiguous attribution and blocks worker-authored mission graph evidence from being treated as coordinator-derived unless it is temporally attached to a verified response lifecycle."
+    },
+    {
+      "agent": "performance-regression-review",
+      "preferred": "collector-side binding using ordered evidence",
+      "reason": "No additional qrexec round trip, no new daemon, no persistence migration, and only small Set scans over active request identities. This has lower regression surface than changing the transport event schema or durable journal."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "Trust structurally valid mission_graph_instance events",
+      "rejected": true,
+      "reason": "Does not prove coordinator origin or causal relation to the submit response."
+    },
+    {
+      "approach": "Add requestId directly to mission_graph_instance in the harness",
+      "rejected": false,
+      "deferred": true,
+      "reason": "Explicit request IDs are clear but require a broader event-format change. Ordered lifecycle binding achieves the same security property for the current sequential harness with less regression risk."
+    },
+    {
+      "approach": "Persist mission graph attestation in the durable journal",
+      "rejected": true,
+      "reason": "Adds persistence schema and recovery complexity without improving current qualification latency or worker correctness enough to justify the migration."
+    },
+    {
+      "approach": "External or dom0 evidence service",
+      "rejected": true,
+      "reason": "Would add IPC, deployment, key lifecycle, and operational failure modes before real Qubes qualification is available."
+    }
+  ],
+  "correctness": "Mission graph evidence is accepted only when exactly one request is both pending and Ed25519-verified; attested multi-run qualification additionally requires that graph's request ID to be verified and resolved.",
+  "robustness": "Ambiguous concurrent verified pending requests fail closed instead of guessing attribution.",
+  "latency": "No extra qrexec calls; local validation only.",
+  "resource_use": "O(active verified requests + missions + dependency edges) with small bounded campaign sets.",
+  "regression_risk": "Low-to-medium; collector output gains requestId on missionGraphInstances and tests are updated, while worker/coordinator runtime semantics remain unchanged.",
+  "qa": [
+    "mission graph without a verified pending request is rejected",
+    "mission graph with an unverified pending request is rejected",
+    "mission graph with multiple verified pending requests is rejected as ambiguous",
+    "valid graph is normalized and bound to the verified submit request",
+    "qualification requires mission graph request lifecycle to resolve",
+    "existing DAG checks for duplicate IDs, self edges, cross-graph references, duplicate edges, and cycles remain enforced"
+  ],
+  "failure_lessons": [
+    "Structural graph validation is not origin validation.",
+    "A signed response does not automatically authenticate derived worker-side evidence unless that evidence stays causally attached to the signed request lifecycle.",
+    "Prefer fail-closed attribution over selecting an arbitrary active request."
+  ]
+}
