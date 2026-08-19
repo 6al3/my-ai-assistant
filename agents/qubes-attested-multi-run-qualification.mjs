@@ -37,6 +37,15 @@ export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}
     const resolved = new Set(report.resolvedRequestIds ?? []);
     return verified.has(item.requestId) && resolved.has(item.requestId);
   });
+  const requestOwners = new Map();
+  let crossRunRequestReuse = 0;
+  for (const [reportIndex, report] of reports.entries()) {
+    for (const requestId of report.observedRequestIds ?? []) {
+      const previousOwner = requestOwners.get(requestId);
+      if (previousOwner !== undefined && previousOwner !== reportIndex) crossRunRequestReuse += 1;
+      else requestOwners.set(requestId, reportIndex);
+    }
+  }
   const checks = {
     ...base.checks,
     verifiedAttestationEvidencePresent: allAttestations.length > 0,
@@ -45,10 +54,11 @@ export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}
     verifiedFaultServicePreflightAttestationObserved: preflightServices.has(expectedFaultService),
     onlyExpectedAttestationBindingsObserved: exactBindings,
     allCampaignAttestationsBoundToObservedRequests: requestBindings,
-    allCampaignAttestationsBoundToCompletedLifecycles: completedLifecycleBindings
+    allCampaignAttestationsBoundToCompletedLifecycles: completedLifecycleBindings,
+    requestIdsIndependentAcrossRuns: crossRunRequestReuse === 0
   };
   const failedChecks = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
-  return { ...base, ready: failedChecks.length === 0, classification: failedChecks.length === 0 ? 'REAL-WORKER READY' : 'LAB READY', failedChecks, checks, metrics: { ...base.metrics, verifiedAttestations: allAttestations.length, verifiedCampaignAttestations: campaignAttestations.length, verifiedPreflightAttestations: preflightAttestations.length, completedVerifiedRequestLifecycles: campaignAttestations.filter(item => new Set(reports[item.reportIndex].resolvedRequestIds ?? []).has(item.requestId)).length, attestedServices: [...allServices].sort(), attestationKeyId: expectedAttestationKeyId } };
+  return { ...base, ready: failedChecks.length === 0, classification: failedChecks.length === 0 ? 'REAL-WORKER READY' : 'LAB READY', failedChecks, checks, metrics: { ...base.metrics, verifiedAttestations: allAttestations.length, verifiedCampaignAttestations: campaignAttestations.length, verifiedPreflightAttestations: preflightAttestations.length, completedVerifiedRequestLifecycles: campaignAttestations.filter(item => new Set(reports[item.reportIndex].resolvedRequestIds ?? []).has(item.requestId)).length, uniqueObservedRequestIds: requestOwners.size, crossRunRequestReuse, attestedServices: [...allServices].sort(), attestationKeyId: expectedAttestationKeyId } };
 }
 
 export function parseAttestedMultiRunJson(input) {
