@@ -31,6 +31,12 @@ export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}
   const allServices = new Set(allAttestations.map(item => item.service));
   const exactBindings = allAttestations.length > 0 && allAttestations.every(item => item.gitSha === expectedGitSha && item.keyId === expectedAttestationKeyId && (item.service === expectedService || item.service === expectedFaultService));
   const requestBindings = campaignAttestations.length > 0 && campaignAttestations.every(item => new Set(reports[item.reportIndex].observedRequestIds ?? []).has(item.requestId));
+  const completedLifecycleBindings = campaignAttestations.length > 0 && campaignAttestations.every(item => {
+    const report = reports[item.reportIndex];
+    const verified = new Set(report.verifiedRequestIds ?? []);
+    const resolved = new Set(report.resolvedRequestIds ?? []);
+    return verified.has(item.requestId) && resolved.has(item.requestId);
+  });
   const checks = {
     ...base.checks,
     verifiedAttestationEvidencePresent: allAttestations.length > 0,
@@ -38,10 +44,11 @@ export function evaluateAttestedMultiRunQualification(campaigns, thresholds = {}
     verifiedNormalServicePreflightAttestationObserved: preflightServices.has(expectedService),
     verifiedFaultServicePreflightAttestationObserved: preflightServices.has(expectedFaultService),
     onlyExpectedAttestationBindingsObserved: exactBindings,
-    allCampaignAttestationsBoundToObservedRequests: requestBindings
+    allCampaignAttestationsBoundToObservedRequests: requestBindings,
+    allCampaignAttestationsBoundToCompletedLifecycles: completedLifecycleBindings
   };
   const failedChecks = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
-  return { ...base, ready: failedChecks.length === 0, classification: failedChecks.length === 0 ? 'REAL-WORKER READY' : 'LAB READY', failedChecks, checks, metrics: { ...base.metrics, verifiedAttestations: allAttestations.length, verifiedCampaignAttestations: campaignAttestations.length, verifiedPreflightAttestations: preflightAttestations.length, attestedServices: [...allServices].sort(), attestationKeyId: expectedAttestationKeyId } };
+  return { ...base, ready: failedChecks.length === 0, classification: failedChecks.length === 0 ? 'REAL-WORKER READY' : 'LAB READY', failedChecks, checks, metrics: { ...base.metrics, verifiedAttestations: allAttestations.length, verifiedCampaignAttestations: campaignAttestations.length, verifiedPreflightAttestations: preflightAttestations.length, completedVerifiedRequestLifecycles: campaignAttestations.filter(item => new Set(reports[item.reportIndex].resolvedRequestIds ?? []).has(item.requestId)).length, attestedServices: [...allServices].sort(), attestationKeyId: expectedAttestationKeyId } };
 }
 
 export function parseAttestedMultiRunJson(input) {
