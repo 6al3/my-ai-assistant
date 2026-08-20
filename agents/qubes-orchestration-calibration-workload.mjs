@@ -75,16 +75,28 @@ export async function sendWorkloadCommandViaQrexec(worker, command, { service, e
 export function createOrchestrationCalibrationHooks(plan, { service, sendCommand = sendWorkloadCommandViaQrexec, timeoutMs = 5000 } = {}) {
   if (!plan || plan.version !== 1 || !Array.isArray(plan.workers) || plan.workers.length === 0) throw new Error('valid workload plan is required');
   const qrexecService = safeName(service, 'qrexec workload service');
+  const assertBinding = ({ workloadId, topology }) => {
+    if (workloadId !== plan.workloadId || topology?.id !== plan.topologyId) throw new Error('calibration workload binding mismatch');
+  };
+  const stopAll = async ({ runId }) => {
+    const results = await Promise.allSettled(plan.workers.map(worker => sendCommand(worker, { action: 'stop', runId: safeName(runId, 'runId'), workloadId: plan.workloadId }, { service: qrexecService, timeoutMs })));
+    return results.filter(result => result.status === 'rejected').map(result => result.reason);
+  };
   return {
-    startWorkload: async ({ runId, workloadId, topology }) => {
-      if (workloadId !== plan.workloadId || topology?.id !== plan.topologyId) throw new Error('calibration workload binding mismatch');
-      await Promise.all(plan.workers.map(worker => sendCommand(worker, { action: 'start', runId: safeName(runId, 'runId'), workloadId: plan.workloadId, durationMs: plan.durationMs, schedule: worker.schedule }, { service: qrexecService, timeoutMs })));
+    startWorkload: async context => {
+      assertBinding(context);
+      const runId = safeName(context.runId, 'runId');
+      const starts = await Promise.allSettled(plan.workers.map(worker => sendCommand(worker, { action: 'start', runId, workloadId: plan.workloadId, durationMs: plan.durationMs, schedule: worker.schedule }, { service: qrexecService, timeoutMs })));
+      const startFailures = starts.filter(result => result.status === 'rejected').map(result => result.reason);
+      if (startFailures.length) {
+        const cleanupFailures = await stopAll({ runId });
+        throw new AggregateError([...startFailures, ...cleanupFailures], cleanupFailures.length ? 'failed to start synthetic workload and rollback all workers' : 'failed to start synthetic workload; rollback completed');
+      }
     },
-    stopWorkload: async ({ runId, workloadId, topology }) => {
-      if (workloadId !== plan.workloadId || topology?.id !== plan.topologyId) throw new Error('calibration workload binding mismatch');
-      const results = await Promise.allSettled(plan.workers.map(worker => sendCommand(worker, { action: 'stop', runId: safeName(runId, 'runId'), workloadId: plan.workloadId }, { service: qrexecService, timeoutMs })));
-      const failed = results.filter(result => result.status === 'rejected');
-      if (failed.length) throw new AggregateError(failed.map(result => result.reason), 'failed to stop synthetic workload on all workers');
+    stopWorkload: async context => {
+      assertBinding(context);
+      const failed = await stopAll({ runId: context.runId });
+      if (failed.length) throw new AggregateError(failed, 'failed to stop synthetic workload on all workers');
     }
   };
 }
