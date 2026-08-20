@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { buildOrchestrationCalibrationPlan, createOrchestrationCalibrationHooks } from './qubes-orchestration-calibration-workload.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,6 +25,28 @@ function positiveInteger(value, label, max) {
 function nonNegativeInteger(value, label, max) {
   if (!Number.isInteger(value) || value < 0 || value > max) throw new Error(`${label} must be an integer between 0 and ${max}`);
   return value;
+}
+
+function parseJsonObject(value, label) {
+  let parsed;
+  try {
+    parsed = JSON.parse(nonEmpty(value, label));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object`);
+  return parsed;
+}
+
+function parseJsonArray(value, label) {
+  let parsed;
+  try {
+    parsed = JSON.parse(nonEmpty(value, label));
+  } catch (error) {
+    throw new Error(`${label} must be valid JSON: ${error.message}`);
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error(`${label} must be a non-empty JSON array`);
+  return parsed;
 }
 
 export function validateCalibrationTopology(topology) {
@@ -72,6 +95,45 @@ export async function probeWorkerViaQrexec(worker, {
     throw new Error(`resource probe failed for ${workerId}: ${error.message}`);
   }
   return parseResourceProbeResponse(result?.stdout ?? '');
+}
+
+export function buildQubesCalibrationRuntime({
+  topology,
+  missions,
+  durationsMs,
+  workloadId = 'synthetic-dag-v1',
+  resourceService,
+  workloadService,
+  probeTimeoutMs = 5000,
+  workloadTimeoutMs = 5000,
+  reconciliationAttempts = 3,
+  reconciliationDelayMs = 100,
+  probeWorker = probeWorkerViaQrexec,
+  sendWorkloadCommand
+} = {}) {
+  const normalizedTopology = validateCalibrationTopology(topology);
+  if (!Array.isArray(missions) || missions.length === 0) throw new Error('calibration missions are required');
+  if (!durationsMs || typeof durationsMs !== 'object' || Array.isArray(durationsMs)) throw new Error('calibration durationsMs are required');
+  const qrexecResourceService = safeName(resourceService, 'qrexec resource service');
+  const qrexecWorkloadService = safeName(workloadService, 'qrexec workload service');
+  const probeTimeout = positiveInteger(probeTimeoutMs, 'probe timeoutMs', 60000);
+  const workloadTimeout = positiveInteger(workloadTimeoutMs, 'workload timeoutMs', 60000);
+  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology: normalizedTopology, workloadId });
+  const hookOptions = {
+    service: qrexecWorkloadService,
+    timeoutMs: workloadTimeout,
+    reconciliationAttempts,
+    reconciliationDelayMs
+  };
+  if (sendWorkloadCommand) hookOptions.sendCommand = sendWorkloadCommand;
+  const hooks = createOrchestrationCalibrationHooks(plan, hookOptions);
+  return {
+    topology: normalizedTopology,
+    plan,
+    startWorkload: hooks.startWorkload,
+    stopWorkload: hooks.stopWorkload,
+    sampleWorker: worker => probeWorker(worker, { service: qrexecResourceService, timeoutMs: probeTimeout })
+  };
 }
 
 export async function runQubesResourceCalibration({
@@ -130,23 +192,37 @@ export async function runQubesResourceCalibration({
   return events;
 }
 
+export function calibrationCliConfigFromEnv(env = process.env) {
+  const gitSha = nonEmpty(env.DIG_GIT_SHA, 'DIG_GIT_SHA');
+  const resourceService = safeName(env.DIG_QREXEC_RESOURCE_SERVICE, 'DIG_QREXEC_RESOURCE_SERVICE');
+  const workloadService = safeName(env.DIG_QREXEC_WORKLOAD_SERVICE, 'DIG_QREXEC_WORKLOAD_SERVICE');
+  const topology = parseJsonObject(env.DIG_CALIBRATION_TOPOLOGY_JSON, 'DIG_CALIBRATION_TOPOLOGY_JSON');
+  const missions = parseJsonArray(env.DIG_CALIBRATION_MISSIONS_JSON, 'DIG_CALIBRATION_MISSIONS_JSON');
+  const durationsMs = parseJsonObject(env.DIG_CALIBRATION_DURATIONS_JSON, 'DIG_CALIBRATION_DURATIONS_JSON');
+  const runId = env.DIG_CALIBRATION_RUN_ID || randomUUID();
+  const workloadId = env.DIG_CALIBRATION_WORKLOAD_ID || 'synthetic-dag-v1';
+  const sampleCount = env.DIG_CALIBRATION_SAMPLE_COUNT ? Number(env.DIG_CALIBRATION_SAMPLE_COUNT) : 5;
+  const intervalMs = env.DIG_CALIBRATION_INTERVAL_MS ? Number(env.DIG_CALIBRATION_INTERVAL_MS) : 1000;
+  const probeTimeoutMs = env.DIG_CALIBRATION_PROBE_TIMEOUT_MS ? Number(env.DIG_CALIBRATION_PROBE_TIMEOUT_MS) : 5000;
+  const workloadTimeoutMs = env.DIG_CALIBRATION_WORKLOAD_TIMEOUT_MS ? Number(env.DIG_CALIBRATION_WORKLOAD_TIMEOUT_MS) : 5000;
+  const reconciliationAttempts = env.DIG_CALIBRATION_RECONCILIATION_ATTEMPTS ? Number(env.DIG_CALIBRATION_RECONCILIATION_ATTEMPTS) : 3;
+  const reconciliationDelayMs = env.DIG_CALIBRATION_RECONCILIATION_DELAY_MS ? Number(env.DIG_CALIBRATION_RECONCILIATION_DELAY_MS) : 100;
+  return { gitSha, resourceService, workloadService, topology, missions, durationsMs, runId, workloadId, sampleCount, intervalMs, probeTimeoutMs, workloadTimeoutMs, reconciliationAttempts, reconciliationDelayMs };
+}
+
 async function main() {
-  const gitSha = nonEmpty(process.env.DIG_GIT_SHA, 'DIG_GIT_SHA');
-  const service = safeName(process.env.DIG_QREXEC_RESOURCE_SERVICE, 'DIG_QREXEC_RESOURCE_SERVICE');
-  const topology = JSON.parse(nonEmpty(process.env.DIG_CALIBRATION_TOPOLOGY_JSON, 'DIG_CALIBRATION_TOPOLOGY_JSON'));
-  const runId = process.env.DIG_CALIBRATION_RUN_ID || randomUUID();
-  const workloadId = process.env.DIG_CALIBRATION_WORKLOAD_ID || 'synthetic-calibration-v1';
-  const sampleCount = process.env.DIG_CALIBRATION_SAMPLE_COUNT ? Number(process.env.DIG_CALIBRATION_SAMPLE_COUNT) : 5;
-  const intervalMs = process.env.DIG_CALIBRATION_INTERVAL_MS ? Number(process.env.DIG_CALIBRATION_INTERVAL_MS) : 1000;
-  const timeoutMs = process.env.DIG_CALIBRATION_PROBE_TIMEOUT_MS ? Number(process.env.DIG_CALIBRATION_PROBE_TIMEOUT_MS) : 5000;
+  const config = calibrationCliConfigFromEnv();
+  const runtime = buildQubesCalibrationRuntime(config);
   const events = await runQubesResourceCalibration({
-    gitSha,
-    topology,
-    runId,
-    workloadId,
-    sampleCount,
-    intervalMs,
-    sampleWorker: worker => probeWorkerViaQrexec(worker, { service, timeoutMs })
+    gitSha: config.gitSha,
+    topology: runtime.topology,
+    runId: config.runId,
+    workloadId: runtime.plan.workloadId,
+    sampleCount: config.sampleCount,
+    intervalMs: config.intervalMs,
+    sampleWorker: runtime.sampleWorker,
+    startWorkload: runtime.startWorkload,
+    stopWorkload: runtime.stopWorkload
   });
   for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
 }
