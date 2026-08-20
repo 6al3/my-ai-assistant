@@ -82,7 +82,6 @@ function defaultSpawnExecutor(statePath) {
 export async function handleSyntheticWorkloadCommand(commandInput, {
   store,
   spawnExecutor = defaultSpawnExecutor,
-  killProcess = pid => process.kill(pid, 'SIGTERM'),
   now = () => Date.now()
 } = {}) {
   if (!store || typeof store.get !== 'function' || typeof store.put !== 'function') throw new Error('workload store is required');
@@ -91,14 +90,11 @@ export async function handleSyntheticWorkloadCommand(commandInput, {
 
   if (command.action === 'stop') {
     if (!existing) return { ok: true, action: 'stop', runId: command.runId, workloadId: command.workloadId, status: 'not-running' };
-    if (existing.status === 'running' && Number.isInteger(existing.pid) && existing.pid > 1) {
-      try { killProcess(existing.pid); } catch (error) { if (error?.code !== 'ESRCH') throw error; }
-    }
-    await store.put(command, { ...existing, status: 'stopped', stoppedAt: now() });
+    await store.put(command, { ...existing, status: 'stopped', stoppedAt: existing.stoppedAt ?? now() });
     return { ok: true, action: 'stop', runId: command.runId, workloadId: command.workloadId, status: 'stopped' };
   }
 
-  if (existing?.status === 'running') throw new Error('workload already running for runId/workloadId');
+  if (existing?.status === 'running' || existing?.status === 'starting') throw new Error('workload already running for runId/workloadId');
   const state = { version: 1, ...command, status: 'starting', pid: null, startedAt: now(), completedAt: null, stoppedAt: null };
   const statePath = await store.put(command, state);
   const pid = spawnExecutor(statePath);
@@ -115,15 +111,17 @@ function busySlice(ms) {
 }
 
 async function executeState(statePath) {
-  let stopRequested = false;
-  process.once('SIGTERM', () => { stopRequested = true; });
-  const state = JSON.parse(await readFile(statePath, 'utf8'));
-  const command = normalizeSyntheticWorkloadCommand(state);
+  const initial = JSON.parse(await readFile(statePath, 'utf8'));
+  const command = normalizeSyntheticWorkloadCommand(initial);
   if (command.action !== 'start') throw new Error('executor state must contain a start command');
   const started = performance.now();
-  while (!stopRequested) {
+  let cancelled = false;
+  while (true) {
     const elapsed = performance.now() - started;
     if (elapsed >= command.durationMs) break;
+    const latest = JSON.parse(await readFile(statePath, 'utf8'));
+    if (latest.status === 'stopped') { cancelled = true; break; }
+    if (!['starting', 'running'].includes(latest.status)) break;
     const active = command.schedule.some(item => elapsed >= item.startMs && elapsed < item.startMs + item.durationMs);
     if (active) busySlice(Math.min(LOOP_SLICE_MS, command.durationMs - elapsed));
     else await new Promise(resolve => setTimeout(resolve, Math.min(10, Math.max(1, command.durationMs - elapsed))));
@@ -131,7 +129,7 @@ async function executeState(statePath) {
   }
   const latest = JSON.parse(await readFile(statePath, 'utf8'));
   if (latest.status === 'running' || latest.status === 'starting') {
-    const finalState = { ...latest, status: stopRequested ? 'stopped' : 'completed', completedAt: stopRequested ? null : Date.now(), stoppedAt: stopRequested ? Date.now() : latest.stoppedAt };
+    const finalState = { ...latest, status: cancelled ? 'stopped' : 'completed', completedAt: cancelled ? null : Date.now(), stoppedAt: cancelled ? (latest.stoppedAt ?? Date.now()) : latest.stoppedAt };
     const temp = `${statePath}.${process.pid}.tmp`;
     await writeFile(temp, `${JSON.stringify(finalState)}\n`, { encoding: 'utf8', mode: 0o600 });
     await rename(temp, statePath);
