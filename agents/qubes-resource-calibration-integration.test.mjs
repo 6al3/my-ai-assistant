@@ -34,7 +34,7 @@ function memoryStore() {
   };
 }
 
-function syntheticTransport(plan, { failStartWorker = null, failStopWorker = null } = {}) {
+function syntheticTransport(plan, { failStartWorker = null, failStopWorker = null, loseStopResponseWorker = null } = {}) {
   const stores = new Map(plan.workers.map(worker => [worker.workerId, memoryStore()]));
   const calls = [];
   let pid = 1000;
@@ -44,12 +44,14 @@ function syntheticTransport(plan, { failStartWorker = null, failStopWorker = nul
     async sendCommand(worker, command) {
       calls.push({ workerId: worker.workerId, action: command.action });
       if (command.action === 'start' && worker.workerId === failStartWorker) throw new Error(`synthetic start failure: ${worker.workerId}`);
-      if (command.action === 'stop' && worker.workerId === failStopWorker) throw new Error(`synthetic stop failure: ${worker.workerId}`);
-      return handleSyntheticWorkloadCommand(command, {
+      if (command.action === 'stop' && worker.workerId === failStopWorker) throw new Error(`synthetic stop failure before commit: ${worker.workerId}`);
+      const response = await handleSyntheticWorkloadCommand(command, {
         store: stores.get(worker.workerId),
         spawnExecutor: () => ++pid,
         now: () => 1_700_000_000_000
       });
+      if (command.action === 'stop' && worker.workerId === loseStopResponseWorker) throw new Error(`synthetic stop response lost after commit: ${worker.workerId}`);
+      return response;
     }
   };
 }
@@ -76,10 +78,10 @@ function resourceSample(worker, round) {
   });
 }
 
-function integrationFixture(options = {}) {
+function integrationFixture(options = {}, hookOptions = {}) {
   const plan = buildOrchestrationCalibrationPlan({ missions: MISSIONS, durationsMs: DURATIONS, topology: TOPOLOGY, workloadId: WORKLOAD_ID });
   const transport = syntheticTransport(plan, options);
-  const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', sendCommand: transport.sendCommand });
+  const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', sendCommand: transport.sendCommand, reconciliationDelayMs: 0, ...hookOptions });
   return { plan, transport, hooks };
 }
 
@@ -169,13 +171,41 @@ test('probe failure still stops all successfully started workloads', async () =>
   assert.equal(transport.calls.filter(call => call.action === 'stop').length, 2);
 });
 
-test('stop failure is fail-closed and all workers still receive a cleanup attempt', async () => {
-  const { transport, hooks } = integrationFixture({ failStopWorker: 'system' });
+test('lost stop response reconciles through read-only status and leaves no orphaned workload', async () => {
+  const { transport, hooks } = integrationFixture({ loseStopResponseWorker: 'system' });
+  const events = await runQubesResourceCalibration({
+    gitSha: GIT_SHA,
+    topology: TOPOLOGY,
+    runId: 'integration-lost-stop-response',
+    workloadId: WORKLOAD_ID,
+    sampleCount: 3,
+    intervalMs: 0,
+    startWorkload: hooks.startWorkload,
+    stopWorkload: hooks.stopWorkload,
+    sampleWorker: resourceSample
+  });
+
+  const report = collectQubesResourceCalibration(events, {
+    expectedGitSha: GIT_SHA,
+    expectedTopologyId: TOPOLOGY.id,
+    expectedWorkloadId: WORKLOAD_ID,
+    requireWorkloadEvidence: true,
+    minSamplesPerWorker: 3
+  });
+
+  assert.equal(report.workloadBound, true);
+  assert.equal(transport.stores.get('coord-code-qa').state('integration-lost-stop-response', WORKLOAD_ID).status, 'stopped');
+  assert.equal(transport.stores.get('system').state('integration-lost-stop-response', WORKLOAD_ID).status, 'stopped');
+  assert.deepEqual(transport.calls.filter(call => call.workerId === 'system').map(call => call.action), ['start', 'stop', 'status']);
+});
+
+test('unconfirmed stop failure remains fail-closed after bounded status reconciliation', async () => {
+  const { transport, hooks } = integrationFixture({ failStopWorker: 'system' }, { reconciliationAttempts: 3 });
   await assert.rejects(
     runQubesResourceCalibration({
       gitSha: GIT_SHA,
       topology: TOPOLOGY,
-      runId: 'integration-stop-failure',
+      runId: 'integration-stop-unconfirmed',
       workloadId: WORKLOAD_ID,
       sampleCount: 3,
       intervalMs: 0,
@@ -183,11 +213,12 @@ test('stop failure is fail-closed and all workers still receive a cleanup attemp
       stopWorkload: hooks.stopWorkload,
       sampleWorker: resourceSample
     }),
-    /failed to stop synthetic workload on all workers/
+    /failed to confirm synthetic workload stopped on all workers/
   );
   assert.equal(transport.calls.filter(call => call.action === 'stop').length, 2);
-  assert.equal(transport.stores.get('coord-code-qa').state('integration-stop-failure', WORKLOAD_ID).status, 'stopped');
-  assert.equal(transport.stores.get('system').state('integration-stop-failure', WORKLOAD_ID).status, 'running');
+  assert.equal(transport.calls.filter(call => call.workerId === 'system' && call.action === 'status').length, 3);
+  assert.equal(transport.stores.get('coord-code-qa').state('integration-stop-unconfirmed', WORKLOAD_ID).status, 'stopped');
+  assert.equal(transport.stores.get('system').state('integration-stop-unconfirmed', WORKLOAD_ID).status, 'running');
 });
 
 test('collector rejects otherwise valid integration evidence when provenance binding is wrong', async () => {
