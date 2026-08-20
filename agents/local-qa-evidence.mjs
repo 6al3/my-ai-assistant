@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import os from 'node:os';
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_DIAGNOSTIC_TAIL_BYTES = 4096;
 
 export const QA_SHARDS = Object.freeze([
   { name: 'syntax-check', command: ['npm', ['run', 'check']] },
@@ -46,8 +47,29 @@ async function gitEvidence() {
   return { sha: sha.stdout.trim(), clean: status.stdout.trim() === '' };
 }
 
+function sha256(text) {
+  return createHash('sha256').update(text).digest('hex');
+}
+
+function redactDiagnostic(text) {
+  return text
+    .replace(/-----BEGIN [^-]+PRIVATE KEY-----[\s\S]*?-----END [^-]+PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]')
+    .replace(/\b(gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\b/g, '[REDACTED_TOKEN]')
+    .replace(/\b(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*([^\s]+)/gi, '$1=[REDACTED]');
+}
+
+function outputEvidence(text, { includeTail = false, tailBytes = DEFAULT_DIAGNOSTIC_TAIL_BYTES } = {}) {
+  const value = String(text ?? '');
+  const bytes = Buffer.byteLength(value);
+  const evidence = { bytes, sha256: sha256(value) };
+  if (!includeTail || bytes === 0) return evidence;
+  const buffer = Buffer.from(value);
+  const tail = buffer.subarray(Math.max(0, buffer.length - tailBytes)).toString('utf8');
+  return { ...evidence, diagnosticTail: redactDiagnostic(tail), diagnosticTailTruncated: buffer.length > tailBytes };
+}
+
 function digestReport(report) {
-  return createHash('sha256').update(JSON.stringify(report)).digest('hex');
+  return sha256(JSON.stringify(report));
 }
 
 export async function runLocalQaEvidence({ shards = QA_SHARDS, timeoutMs = DEFAULT_TIMEOUT_MS, run = runProcess, git = gitEvidence } = {}) {
@@ -61,17 +83,28 @@ export async function runLocalQaEvidence({ shards = QA_SHARDS, timeoutMs = DEFAU
   for (const shard of shards) {
     const [file, args] = shard.command;
     const outcome = await run(file, args, { timeoutMs });
-    results.push({ name: shard.name, ...outcome, passed: outcome.exitCode === 0 && !outcome.timedOut });
+    const passed = outcome.exitCode === 0 && !outcome.timedOut;
+    results.push({
+      name: shard.name,
+      exitCode: outcome.exitCode,
+      signal: outcome.signal,
+      timedOut: outcome.timedOut,
+      durationMs: outcome.durationMs,
+      passed,
+      stdout: outputEvidence(outcome.stdout, { includeTail: !passed }),
+      stderr: outputEvidence(outcome.stderr, { includeTail: !passed })
+    });
   }
 
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'dig-local-qa-evidence',
     gitSha: repository.sha,
     startedAt,
     finishedAt: new Date().toISOString(),
     runtime: { node: process.version, platform: process.platform, arch: process.arch, hostname: os.hostname() },
     source: 'local-runner',
+    outputPolicy: { fullOutputStored: false, failedDiagnosticTailBytes: DEFAULT_DIAGNOSTIC_TAIL_BYTES, redactionApplied: true },
     allPassed: results.every(result => result.passed),
     results
   };
