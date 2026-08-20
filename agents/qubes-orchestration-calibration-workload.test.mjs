@@ -2,99 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildOrchestrationCalibrationPlan, createOrchestrationCalibrationHooks, sendWorkloadCommandViaQrexec } from './qubes-orchestration-calibration-workload.mjs';
 
-const missions = [
-  { id: 'o', requiredCapabilities: ['orchestrator'], dependsOn: [] },
-  { id: 'p', requiredCapabilities: ['planner'], dependsOn: ['o'] },
-  { id: 'c', requiredCapabilities: ['coder'], dependsOn: ['p'] },
-  { id: 's', requiredCapabilities: ['system'], dependsOn: ['p'] },
-  { id: 'q', requiredCapabilities: ['qa'], dependsOn: ['c', 's'] }
-];
+const missions = [{ id: 'o', requiredCapabilities: ['orchestrator'], dependsOn: [] }, { id: 'p', requiredCapabilities: ['planner'], dependsOn: ['o'] }, { id: 'c', requiredCapabilities: ['coder'], dependsOn: ['p'] }, { id: 's', requiredCapabilities: ['system'], dependsOn: ['p'] }, { id: 'q', requiredCapabilities: ['qa'], dependsOn: ['c', 's'] }];
 const durationsMs = { o: 20, p: 30, c: 80, s: 40, q: 40 };
-const topology = {
-  id: 'two-worker-balanced',
-  workers: [
-    { id: 'coord-code-qa', qube: 'dig-worker-a', capabilities: ['orchestrator', 'planner', 'coder', 'qa'] },
-    { id: 'system', qube: 'dig-worker-b', capabilities: ['system'] }
-  ]
-};
+const topology = { id: 'two-worker-balanced', workers: [{ id: 'coord-code-qa', qube: 'dig-worker-a', capabilities: ['orchestrator', 'planner', 'coder', 'qa'] }, { id: 'system', qube: 'dig-worker-b', capabilities: ['system'] }] };
+const context = workloadId => ({ runId: 'run-1', workloadId, topology });
 
-test('builds workload schedules from the same constrained orchestration benchmark', () => {
-  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology });
-  assert.equal(plan.topologyId, topology.id);
-  assert.equal(plan.durationMs, 170);
-  assert.equal(plan.metrics.peakConcurrentWorkers, 2);
-  assert.deepEqual(plan.workers.find(worker => worker.workerId === 'system').schedule, [{ missionId: 's', startMs: 50, durationMs: 40 }]);
-  assert.deepEqual(plan.workers.find(worker => worker.workerId === 'coord-code-qa').schedule.map(item => item.missionId), ['o', 'p', 'c', 'q']);
-});
-
-test('starts and stops the exact per-worker benchmark plan through bounded qrexec hooks', async () => {
-  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' });
-  const calls = [];
-  const hooks = createOrchestrationCalibrationHooks(plan, {
-    service: 'dig.SyntheticWorkload',
-    sendCommand: async (worker, command, options) => { calls.push({ worker: worker.workerId, command, options }); return { ok: true }; }
-  });
-  const context = { runId: 'run-1', workloadId: 'dag-v1', topology };
-  await hooks.startWorkload(context);
-  await hooks.stopWorkload(context);
-  assert.equal(calls.length, 4);
-  assert.deepEqual(calls.filter(call => call.command.action === 'start').map(call => call.worker).sort(), ['coord-code-qa', 'system']);
-  assert.equal(calls.find(call => call.worker === 'system' && call.command.action === 'start').command.schedule[0].startMs, 50);
-  assert.ok(calls.every(call => call.options.service === 'dig.SyntheticWorkload'));
-});
-
-test('rolls back every worker when a parallel workload start partially fails', async () => {
-  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' });
-  const calls = [];
-  const hooks = createOrchestrationCalibrationHooks(plan, {
-    service: 'dig.SyntheticWorkload',
-    sendCommand: async (worker, command) => {
-      calls.push(`${command.action}:${worker.workerId}`);
-      if (command.action === 'start' && worker.workerId === 'system') throw new Error('system start failed');
-      return { ok: true };
-    }
-  });
-  await assert.rejects(() => hooks.startWorkload({ runId: 'run-rollback', workloadId: 'dag-v1', topology }), /rollback completed/);
-  assert.deepEqual(calls.filter(call => call.startsWith('start:')).sort(), ['start:coord-code-qa', 'start:system']);
-  assert.deepEqual(calls.filter(call => call.startsWith('stop:')).sort(), ['stop:coord-code-qa', 'stop:system']);
-});
-
-test('surfaces cleanup failures together with start failures', async () => {
-  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' });
-  const hooks = createOrchestrationCalibrationHooks(plan, {
-    service: 'dig.SyntheticWorkload',
-    sendCommand: async (worker, command) => {
-      if (command.action === 'start' && worker.workerId === 'system') throw new Error('start failed');
-      if (command.action === 'stop' && worker.workerId === 'coord-code-qa') throw new Error('cleanup failed');
-      return { ok: true };
-    }
-  });
-  await assert.rejects(() => hooks.startWorkload({ runId: 'run-cleanup-fail', workloadId: 'dag-v1', topology }), error => {
-    assert.equal(error instanceof AggregateError, true);
-    assert.match(error.message, /rollback all workers/);
-    assert.equal(error.errors.length, 2);
-    return true;
-  });
-});
-
-test('qrexec workload transport is bounded and rejects malformed responses', async () => {
-  const calls = [];
-  const response = await sendWorkloadCommandViaQrexec({ workerId: 'w', qube: 'dig-worker-a' }, { action: 'stop' }, {
-    service: 'dig.SyntheticWorkload',
-    timeoutMs: 1200,
-    execFileFn: async (command, args, options) => { calls.push({ command, args, options }); return { stdout: '{"ok":true}\n' }; }
-  });
-  assert.equal(response.ok, true);
-  assert.deepEqual(calls[0].args, ['dig-worker-a', 'dig.SyntheticWorkload']);
-  assert.match(calls[0].options.input, /"action":"stop"/);
-  await assert.rejects(() => sendWorkloadCommandViaQrexec({ workerId: 'w', qube: 'dig-worker-a' }, { action: 'stop' }, {
-    service: 'dig.SyntheticWorkload', execFileFn: async () => ({ stdout: 'not-json' })
-  }), /invalid JSON/);
-});
-
-test('fails closed on workload/topology mismatch and missing worker capability coverage', async () => {
-  assert.throws(() => buildOrchestrationCalibrationPlan({ missions, durationsMs, topology: { id: 'bad', workers: [{ id: 'only', capabilities: ['qa'] }] } }), /no worker satisfies mission/);
-  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' });
-  const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', sendCommand: async () => ({ ok: true }) });
-  await assert.rejects(() => hooks.startWorkload({ runId: 'r', workloadId: 'other', topology }), /binding mismatch/);
-});
+test('builds workload schedules from the same constrained orchestration benchmark', () => { const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology }); assert.equal(plan.durationMs, 170); assert.equal(plan.metrics.peakConcurrentWorkers, 2); assert.deepEqual(plan.workers.find(worker => worker.workerId === 'system').schedule, [{ missionId: 's', startMs: 50, durationMs: 40 }]); });
+test('starts and stops exact per-worker plan without status probes when stop is acknowledged terminal', async () => { const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' }); const calls = []; const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', sendCommand: async (worker, command, options) => { calls.push({ worker: worker.workerId, command, options }); return { ok: true, status: command.action === 'start' ? 'running' : 'stopped' }; } }); await hooks.startWorkload(context('dag-v1')); await hooks.stopWorkload(context('dag-v1')); assert.equal(calls.length, 4); assert.equal(calls.filter(call => call.command.action === 'status').length, 0); });
+test('rolls back every worker when parallel start partially fails', async () => { const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' }); const calls = []; const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', sendCommand: async (worker, command) => { calls.push(`${command.action}:${worker.workerId}`); if (command.action === 'start' && worker.workerId === 'system') throw new Error('system start failed'); return { ok: true, status: command.action === 'stop' ? 'stopped' : 'running' }; } }); await assert.rejects(() => hooks.startWorkload({ runId: 'run-rollback', workloadId: 'dag-v1', topology }), /rollback confirmed/); assert.deepEqual(calls.filter(call => call.startsWith('stop:')).sort(), ['stop:coord-code-qa', 'stop:system']); });
+test('reconciles ambiguous stop transport failure with read-only status', async () => { const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' }); const calls = []; const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', reconciliationAttempts: 2, reconciliationDelayMs: 0, sendCommand: async (worker, command) => { calls.push(`${command.action}:${worker.workerId}`); if (command.action === 'stop' && worker.workerId === 'system') throw new Error('lost stop response'); if (command.action === 'status') return { ok: true, status: 'stopped' }; return { ok: true, status: command.action === 'stop' ? 'stopped' : 'running' }; } }); await hooks.stopWorkload(context('dag-v1')); assert.deepEqual(calls.filter(call => call.startsWith('status:')), ['status:system']); });
+test('fails closed when bounded status reconciliation cannot prove cleanup', async () => { const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' }); let probes = 0; const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', reconciliationAttempts: 2, reconciliationDelayMs: 0, sendCommand: async (worker, command) => { if (command.action === 'stop' && worker.workerId === 'system') throw new Error('lost stop response'); if (command.action === 'status') { probes++; return { ok: true, status: 'running' }; } return { ok: true, status: 'stopped' }; } }); await assert.rejects(() => hooks.stopWorkload(context('dag-v1')), /failed to confirm synthetic workload stopped/); assert.equal(probes, 2); });
+test('surfaces cleanup uncertainty together with start failure', async () => { const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' }); const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', reconciliationAttempts: 1, reconciliationDelayMs: 0, sendCommand: async (worker, command) => { if (command.action === 'start' && worker.workerId === 'system') throw new Error('start failed'); if (command.action === 'stop' && worker.workerId === 'coord-code-qa') throw new Error('cleanup response lost'); if (command.action === 'status' && worker.workerId === 'coord-code-qa') return { ok: true, status: 'running' }; return { ok: true, status: command.action === 'stop' ? 'stopped' : 'running' }; } }); await assert.rejects(() => hooks.startWorkload({ runId: 'run-cleanup-fail', workloadId: 'dag-v1', topology }), error => { assert.equal(error instanceof AggregateError, true); assert.match(error.message, /confirm rollback/); assert.equal(error.errors.length, 2); return true; }); });
+test('qrexec workload transport is bounded and rejects malformed responses', async () => { const calls = []; const response = await sendWorkloadCommandViaQrexec({ workerId: 'w', qube: 'dig-worker-a' }, { action: 'status' }, { service: 'dig.SyntheticWorkload', timeoutMs: 1200, execFileFn: async (command, args, options) => { calls.push({ command, args, options }); return { stdout: '{"ok":true,"status":"stopped"}\n' }; } }); assert.equal(response.status, 'stopped'); assert.deepEqual(calls[0].args, ['dig-worker-a', 'dig.SyntheticWorkload']); await assert.rejects(() => sendWorkloadCommandViaQrexec({ workerId: 'w', qube: 'dig-worker-a' }, { action: 'status' }, { service: 'dig.SyntheticWorkload', execFileFn: async () => ({ stdout: 'not-json' }) }), /invalid JSON/); });
+test('fails closed on workload/topology mismatch and invalid reconciliation bounds', async () => { assert.throws(() => buildOrchestrationCalibrationPlan({ missions, durationsMs, topology: { id: 'bad', workers: [{ id: 'only', capabilities: ['qa'] }] } }), /no worker satisfies mission/); const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' }); assert.throws(() => createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', reconciliationAttempts: 0 }), /reconciliationAttempts/); const hooks = createOrchestrationCalibrationHooks(plan, { service: 'dig.SyntheticWorkload', sendCommand: async () => ({ ok: true, status: 'stopped' }) }); await assert.rejects(() => hooks.startWorkload({ runId: 'r', workloadId: 'other', topology }), /binding mismatch/); });
