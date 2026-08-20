@@ -260,3 +260,72 @@ export function evaluateFleetReadiness(metrics, {
     maxFleetSize
   };
 }
+
+function normalizeForbiddenCapabilityPairs(pairs = []) {
+  if (!Array.isArray(pairs)) throw new Error('forbiddenCapabilityPairs must be an array');
+  return pairs.map((pair, index) => {
+    if (!Array.isArray(pair) || pair.length !== 2) throw new Error(`forbidden capability pair ${index} must contain exactly two capabilities`);
+    const normalized = pair.map(value => typeof value === 'string' ? value.trim() : '');
+    if (!normalized[0] || !normalized[1] || normalized[0] === normalized[1]) throw new Error(`forbidden capability pair ${index} is invalid`);
+    return normalized;
+  });
+}
+
+function evaluateTopologyConstraints(workers, forbiddenPairs) {
+  const violations = [];
+  for (const worker of workers) {
+    const capabilities = new Set(Array.isArray(worker?.capabilities) ? worker.capabilities : []);
+    for (const [left, right] of forbiddenPairs) {
+      if (capabilities.has(left) && capabilities.has(right)) violations.push({ workerId: worker.id, capabilities: [left, right] });
+    }
+  }
+  return { pass: violations.length === 0, violations };
+}
+
+export function evaluateFleetTopologies(missions, durationsMs = {}, topologies = [], {
+  readiness = {},
+  forbiddenCapabilityPairs = [],
+  maxTopologies = 32
+} = {}) {
+  if (!Array.isArray(topologies) || topologies.length === 0) throw new Error('topologies are required');
+  if (!Number.isInteger(maxTopologies) || maxTopologies < 1) throw new Error('maxTopologies must be a positive integer');
+  if (topologies.length > maxTopologies) throw new Error(`topology count exceeds maxTopologies=${maxTopologies}`);
+  const forbiddenPairs = normalizeForbiddenCapabilityPairs(forbiddenCapabilityPairs);
+  const seen = new Set();
+  const results = topologies.map((topology, index) => {
+    const id = typeof topology?.id === 'string' ? topology.id.trim() : '';
+    if (!id) throw new Error(`topology ${index} requires an id`);
+    if (seen.has(id)) throw new Error(`duplicate topology id: ${id}`);
+    seen.add(id);
+    const workers = Array.isArray(topology.workers) ? topology.workers : [];
+    const constraints = evaluateTopologyConstraints(workers, forbiddenPairs);
+    if (!constraints.pass) {
+      return { id, eligible: false, constraints, readiness: null, metrics: null, error: 'trust-boundary constraint violation' };
+    }
+    try {
+      const metrics = benchmarkOrchestrationFleet(missions, durationsMs, workers);
+      const gate = evaluateFleetReadiness(metrics, readiness);
+      return { id, eligible: gate.pass, constraints, readiness: gate, metrics, error: null };
+    } catch (error) {
+      return { id, eligible: false, constraints, readiness: null, metrics: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  const ranked = results
+    .filter(result => result.eligible)
+    .sort((a, b) =>
+      a.metrics.constrainedLatencyMs - b.metrics.constrainedLatencyMs ||
+      a.metrics.fleetSize - b.metrics.fleetSize ||
+      a.metrics.maxQueueDelayMs - b.metrics.maxQueueDelayMs ||
+      a.metrics.totalQueueDelayMs - b.metrics.totalQueueDelayMs ||
+      a.id.localeCompare(b.id)
+    );
+
+  return {
+    evaluated: results.length,
+    eligible: ranked.length,
+    winner: ranked[0] ?? null,
+    ranking: ranked.map(result => result.id),
+    results
+  };
+}
