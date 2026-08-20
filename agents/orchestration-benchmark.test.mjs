@@ -9,6 +9,7 @@ import {
   benchmarkOrchestrationGraph,
   benchmarkOrchestrationFleet,
   evaluateFleetReadiness,
+  evaluateFleetTopologies,
   evaluateOrchestrationReadiness
 } from './orchestration-benchmark.mjs';
 
@@ -116,6 +117,108 @@ test('worker-fleet benchmark exposes contention when specialists share one worke
   assert.equal(gate.checks.queueDelayBudget, false);
   assert.equal(gate.checks.fleetBudget, true);
   assert.equal(gate.checks.noExtraWork, true);
+});
+
+test('bounded topology evaluator chooses the smallest zero-penalty two-worker layout', async t => {
+  const { missions } = await runtimeFixture(t);
+  const topologies = [
+    {
+      id: 'one-worker',
+      workers: [{ id: 'all', capabilities: ['orchestrator', 'planner', 'coder', 'system', 'qa'] }]
+    },
+    {
+      id: 'two-worker-fused',
+      workers: [
+        { id: 'coord-code-qa', capabilities: ['orchestrator', 'planner', 'coder', 'qa'] },
+        { id: 'system', capabilities: ['system'] }
+      ]
+    },
+    {
+      id: 'three-worker-shared-specialist',
+      workers: [
+        { id: 'coord', capabilities: ['orchestrator', 'planner'] },
+        { id: 'specialist', capabilities: ['coder', 'system'] },
+        { id: 'qa', capabilities: ['qa'] }
+      ]
+    },
+    {
+      id: 'four-worker',
+      workers: [
+        { id: 'coord', capabilities: ['orchestrator', 'planner'] },
+        { id: 'coder', capabilities: ['coder'] },
+        { id: 'system', capabilities: ['system'] },
+        { id: 'qa', capabilities: ['qa'] }
+      ]
+    }
+  ];
+
+  const evaluation = evaluateFleetTopologies(missions, DURATIONS, topologies, {
+    readiness: { minSpeedup: 1.25, maxLatencyPenaltyRatio: 0.1, maxQueueDelayMs: 10, maxFleetSize: 4 }
+  });
+
+  assert.equal(evaluation.evaluated, 4);
+  assert.equal(evaluation.eligible, 2);
+  assert.equal(evaluation.winner.id, 'two-worker-fused');
+  assert.deepEqual(evaluation.ranking, ['two-worker-fused', 'four-worker']);
+  assert.equal(evaluation.winner.metrics.constrainedLatencyMs, 210);
+  assert.equal(evaluation.winner.metrics.latencyPenaltyMs, 0);
+  assert.equal(evaluation.winner.metrics.maxQueueDelayMs, 0);
+  assert.equal(evaluation.winner.metrics.peakConcurrentWorkers, 2);
+
+  const one = evaluation.results.find(result => result.id === 'one-worker');
+  assert.equal(one.eligible, false);
+  assert.equal(one.metrics.constrainedLatencyMs, 290);
+  assert.equal(one.readiness.checks.latencyGain, false);
+
+  const shared = evaluation.results.find(result => result.id === 'three-worker-shared-specialist');
+  assert.equal(shared.eligible, false);
+  assert.equal(shared.metrics.constrainedLatencyMs, 290);
+  assert.equal(shared.readiness.checks.contentionBudget, false);
+});
+
+test('bounded topology evaluator rejects faster layouts that violate trust-boundary co-residency', async t => {
+  const { missions } = await runtimeFixture(t);
+  const evaluation = evaluateFleetTopologies(missions, DURATIONS, [
+    {
+      id: 'fused-fast-but-forbidden',
+      workers: [
+        { id: 'coord-code-qa', capabilities: ['orchestrator', 'planner', 'coder', 'qa'] },
+        { id: 'system', capabilities: ['system'] }
+      ]
+    },
+    {
+      id: 'isolated-four-worker',
+      workers: [
+        { id: 'coord', capabilities: ['orchestrator', 'planner'] },
+        { id: 'coder', capabilities: ['coder'] },
+        { id: 'system', capabilities: ['system'] },
+        { id: 'qa', capabilities: ['qa'] }
+      ]
+    }
+  ], {
+    readiness: { minSpeedup: 1.25, maxLatencyPenaltyRatio: 0.1, maxQueueDelayMs: 10, maxFleetSize: 4 },
+    forbiddenCapabilityPairs: [['coder', 'qa']]
+  });
+
+  assert.equal(evaluation.winner.id, 'isolated-four-worker');
+  const rejected = evaluation.results.find(result => result.id === 'fused-fast-but-forbidden');
+  assert.equal(rejected.eligible, false);
+  assert.equal(rejected.error, 'trust-boundary constraint violation');
+  assert.deepEqual(rejected.constraints.violations, [{ workerId: 'coord-code-qa', capabilities: ['coder', 'qa'] }]);
+});
+
+test('bounded topology evaluator is deterministic and fail-closed on invalid bounds', async t => {
+  const { missions } = await runtimeFixture(t);
+  const layouts = [
+    { id: 'b', workers: [{ id: 'all-b', capabilities: ['orchestrator', 'planner', 'coder', 'system', 'qa'] }] },
+    { id: 'a', workers: [{ id: 'all-a', capabilities: ['orchestrator', 'planner', 'coder', 'system', 'qa'] }] }
+  ];
+  const evaluation = evaluateFleetTopologies(missions, DURATIONS, layouts, {
+    readiness: { minSpeedup: 1, maxLatencyPenaltyRatio: 1, maxQueueDelayMs: 100, maxFleetSize: 2 }
+  });
+  assert.deepEqual(evaluation.ranking, ['a', 'b']);
+  assert.throws(() => evaluateFleetTopologies(missions, DURATIONS, layouts, { maxTopologies: 1 }), /topology count exceeds/);
+  assert.throws(() => evaluateFleetTopologies(missions, DURATIONS, layouts, { forbiddenCapabilityPairs: [['coder']] }), /exactly two capabilities/);
 });
 
 test('worker-fleet benchmark fails closed on missing capability coverage or invalid fleet', async t => {
