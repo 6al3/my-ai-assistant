@@ -1,0 +1,78 @@
+{
+  "decision": "deterministic-worker-fleet-list-scheduling",
+  "status": "selected",
+  "scope": "synthetic orchestration benchmark only; no production worker or mission mutation semantics changed",
+  "problem": "The existing critical-path benchmark assumes independent missions can always run concurrently. That can overstate expected Qubes performance when a finite worker fleet has overlapping capability coverage.",
+  "independent_reviews": [
+    {
+      "review": "correctness",
+      "preferred": "deterministic worker-fleet list scheduling",
+      "reason": "Schedules the actual runtime DAG against explicit worker capability sets, respects dependency completion, and makes worker contention visible instead of inferring it from DAG width alone."
+    },
+    {
+      "review": "robustness",
+      "preferred": "fail-closed fleet model",
+      "reason": "Rejects duplicate worker identities, empty capability sets, and missions with no capable worker. Deterministic tie-breaking keeps benchmark evidence replayable."
+    },
+    {
+      "review": "latency-resources-regression",
+      "preferred": "offline list scheduler",
+      "reason": "Adds no qrexec traffic, daemon, database, worker process, or production state. Runtime cost is local and small for the current mission graphs, while directly exposing queue delay and fleet utilization."
+    }
+  ],
+  "approaches": [
+    {
+      "name": "unlimited-critical-path-only",
+      "correctness": "good for theoretical DAG latency, weak for finite worker capacity",
+      "robustness": "deterministic but optimistic",
+      "latency": "lowest benchmark computation cost",
+      "resources": "minimal",
+      "regression_risk": "minimal",
+      "result": "rejected as the sole readiness signal"
+    },
+    {
+      "name": "deterministic-worker-fleet-list-scheduling",
+      "correctness": "models dependency readiness, worker availability, capability coverage, queue delay, and constrained latency",
+      "robustness": "fail-closed and deterministic",
+      "latency": "offline computation only; no transport overhead",
+      "resources": "small in-memory maps and arrays",
+      "regression_risk": "low because production semantics are unchanged",
+      "result": "selected"
+    },
+    {
+      "name": "benchmark-through-production-worker-scheduler",
+      "correctness": "highest fidelity once a stable Qubes worker environment exists",
+      "robustness": "couples benchmark failures to transport, leases, and VM availability",
+      "latency": "requires real worker execution",
+      "resources": "highest; consumes worker/VM capacity",
+      "regression_risk": "higher before real-worker qualification",
+      "result": "deferred until Qubes execution evidence exists"
+    }
+  ],
+  "selected_metrics": [
+    "unconstrainedLatencyMs",
+    "constrainedLatencyMs",
+    "latencyPenaltyMs",
+    "latencyPenaltyRatio",
+    "constrainedSpeedup",
+    "totalQueueDelayMs",
+    "maxQueueDelayMs",
+    "peakConcurrentWorkers",
+    "workerUtilization"
+  ],
+  "qa": {
+    "required": [
+      "independent specialist workers preserve theoretical fan-out latency",
+      "shared specialist worker exposes contention and fails strict readiness thresholds",
+      "missing capability coverage fails closed",
+      "duplicate worker identities fail closed",
+      "existing critical-path benchmark remains unchanged"
+    ],
+    "release_note": "Hosted GitHub runner provisioning remains a separate blocker. This benchmark can be exercised by local/Qube QA but does not replace independent hosted CI."
+  },
+  "failure_lessons": [
+    "DAG peak concurrency is not equivalent to deployable worker capacity.",
+    "Capability topology must be part of performance evidence before sizing Qubes workers.",
+    "A benchmark that ignores queue delay can report a speedup that disappears when specialists share workers."
+  ]
+}
