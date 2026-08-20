@@ -1,0 +1,22 @@
+{
+  "decision": "bounded read-only status reconciliation after ambiguous synthetic workload stop",
+  "status": "selected",
+  "reviews": {
+    "correctness": "A stop transport failure is ambiguous: the worker may already have persisted stopped state. Re-sending start is unsafe; status must prove a terminal state.",
+    "robustness_security": "Use only the existing bounded qrexec service with a read-only status action. Never signal recorded PIDs and never weaken duration bounds. Fail closed if terminal state cannot be proven.",
+    "latency_resources_regression": "Fast path adds zero calls when stop returns stopped/not-running/completed. Failure path adds at most 3 read-only probes with bounded delay; no daemon, database, listener, or MissionQueue changes."
+  },
+  "alternatives": [
+    { "name": "trust stop attempt", "rejected": "cannot prove remote cleanup after timeout or lost response" },
+    { "name": "repeat stop only", "rejected": "idempotent but still cannot distinguish repeated transport loss from confirmed cleanup" },
+    { "name": "persistent workload-control daemon", "rejected": "adds lifecycle, memory, credential and attack-surface cost before Qubes qualification" }
+  ],
+  "qa": [
+    "status is read-only and reports running/stopped/not-running",
+    "acknowledged terminal stop uses no extra probe",
+    "lost stop response reconciles through status",
+    "bounded probes fail closed while status remains running",
+    "partial start rollback reports both start failure and unresolved cleanup"
+  ],
+  "lesson": "Distributed cleanup needs positive terminal evidence; an attempted stop is not equivalent to confirmed remote cleanup."
+}
