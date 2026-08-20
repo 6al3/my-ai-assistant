@@ -1,0 +1,49 @@
+{
+  "decision": "rollback-all-workers-after-partial-parallel-start-failure",
+  "problem": "Parallel qrexec workload start could succeed on one worker and fail on another. The calibration harness would see startWorkload reject before marking workloadStarted, so its outer finally block would not call stopWorkload, leaving a synthetic workload orphaned in a worker Qube.",
+  "reviews": [
+    {
+      "agent": "correctness",
+      "preferred": "parallel-start-plus-explicit-rollback",
+      "reason": "Preserves parallel start latency while making partial success atomic from the caller's perspective."
+    },
+    {
+      "agent": "robustness-security",
+      "preferred": "stop-all-on-any-start-failure",
+      "reason": "The stop operation is idempotent; stopping all workers is safer than trying to infer which remote start committed before a transport failure."
+    },
+    {
+      "agent": "performance-regression",
+      "preferred": "rollback-only-on-failure",
+      "reason": "Adds no qrexec calls on the success path and changes only synthetic calibration lifecycle semantics."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "sequential-start",
+      "rejected": "Simplifies attribution but increases calibration skew and startup latency; still needs rollback after a later worker fails."
+    },
+    {
+      "approach": "track-only-fulfilled-starts",
+      "rejected": "A timed-out qrexec call can be ambiguous: the remote worker may have started even when the caller sees rejection. Stopping all is safer."
+    },
+    {
+      "approach": "rely-on-outer-finally",
+      "rejected": "The outer harness marks workloadStarted only after startWorkload resolves, so partial-start rejection bypasses its stop hook."
+    }
+  ],
+  "winner": {
+    "approach": "Promise.allSettled start, then idempotent stop on every worker if any start fails",
+    "correctness": "fail-closed and handles ambiguous remote commit",
+    "robustness": "cleanup failures are preserved together with start failures in AggregateError",
+    "latency": "no success-path latency increase; failure path adds bounded cleanup calls",
+    "resourceUse": "no persistent services or extra state",
+    "regressionRisk": "low; calibration-only hooks, no MissionQueue/coordinator mutation changes",
+    "qa": [
+      "partial start failure triggers stop on every worker",
+      "cleanup failure is surfaced with original start failure",
+      "normal parallel start/stop behavior remains covered"
+    ]
+  },
+  "lesson": "Distributed start is not atomic. When remote completion is ambiguous, cleanup must be idempotent and target the full bounded worker set rather than only locally-confirmed successes."
+}
