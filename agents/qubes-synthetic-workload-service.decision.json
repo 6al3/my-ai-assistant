@@ -1,0 +1,45 @@
+{
+  "decision": "Use a bounded process-per-call qrexec controller that launches a detached local synthetic executor with durable per-run state, and terminate it through a later stop call.",
+  "winner": "bounded detached executor + state file",
+  "reviews": {
+    "correctness": {
+      "preferred": "detached executor + durable run/workload state",
+      "reason": "qrexec services are process-per-call, so start must outlive the request while stop must find the same execution later. The state file preserves that lifecycle without changing coordinator semantics."
+    },
+    "security_robustness": {
+      "preferred": "fixed synthetic CPU loop with strict validation and no shell/arbitrary command execution",
+      "reason": "Only runId/workloadId, bounded duration, and mission timing entries are accepted. Names are restricted, duration is capped at 120 seconds, schedule length at 64, files are mode 0600, and stop only signals the recorded PID."
+    },
+    "latency_resources_regression": {
+      "preferred": "one detached executor per active worker calibration",
+      "reason": "No daemon, database, network listener, or coordinator mutation is added. Start/stop qrexec round trips remain constant and CPU load exists only during scheduled synthetic intervals."
+    }
+  },
+  "alternatives": [
+    {
+      "approach": "keep workload in the qrexec service process",
+      "rejectedBecause": "the start call would have to block for the full calibration duration, preventing the calibration harness from sampling resources concurrently"
+    },
+    {
+      "approach": "long-lived worker daemon",
+      "rejectedBecause": "adds lifecycle, credential, listening-surface, and resource complexity before real Qubes qualification"
+    },
+    {
+      "approach": "shell or arbitrary command workload",
+      "rejectedBecause": "unnecessary command-execution authority and unacceptable regression/security surface"
+    }
+  ],
+  "qaGates": [
+    "reject unsafe names, overlong workloads, duplicate missions, and schedule entries outside duration",
+    "persist start state before spawning and reject duplicate active starts",
+    "stop is idempotent and terminates only the persisted executor PID",
+    "ESRCH is treated as already exited while permission/other signal failures fail closed",
+    "service test is present in syntax/full/local/hosted distributed-fault QA"
+  ],
+  "failuresLessons": [
+    "A process-per-call qrexec service cannot represent a running workload with in-memory state.",
+    "Resource calibration must not gain arbitrary-code execution just to produce load; the workload language should stay timing-only and synthetic.",
+    "The workload executor must remain bounded even if stop is never called, so duration is enforced inside the executor."
+  ],
+  "safety": "Synthetic defensive calibration only. No financial transactions, payment data, external side effects, arbitrary shell commands, or weakened security controls."
+}
