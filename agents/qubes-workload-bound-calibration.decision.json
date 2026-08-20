@@ -1,0 +1,43 @@
+{
+  "decision": "Bind Qubes resource samples to an explicit synthetic workload lifecycle and reject qualification samples outside that lifecycle.",
+  "reviews": {
+    "correctness": {
+      "preferred": "workload-bound sampling",
+      "reason": "Idle or uncorrelated probes can understate RAM/CPU and select a topology that fails under the actual DAG workload."
+    },
+    "robustness_security": {
+      "preferred": "bounded start/stop hooks plus read-only resource probes",
+      "reason": "The resource path remains non-mutating and stopWorkload runs in finally when sampling fails."
+    },
+    "latency_resources_regression": {
+      "preferred": "reuse the existing qrexec probe and collector",
+      "reason": "No daemon, database, or extra per-sample transport is introduced; only lifecycle metadata and local validation are added."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "idle resource calibration",
+      "reason": "Lowest cost but weak fidelity; it can materially underestimate peak resource demand."
+    },
+    {
+      "approach": "persistent telemetry daemon",
+      "reason": "Higher fidelity over long windows but adds lifecycle, credentials, attack surface, and resource overhead before Qubes qualification is proven."
+    },
+    {
+      "approach": "dom0-wide privileged sampling",
+      "reason": "Strong observability but unnecessarily expands privilege and trust for the current defensive synthetic lab stage."
+    }
+  ],
+  "qa_gates": [
+    "samples are accepted only while the expected workload is active when workload evidence is required",
+    "workload identity is bound to calibration evidence",
+    "stopWorkload executes when sampling fails",
+    "worker sampling remains concurrent within each round and output ordering remains deterministic",
+    "malformed topology, probe output, hooks, and limits fail closed"
+  ],
+  "lessons": [
+    "Resource measurements are only useful for topology selection when tied to the workload that creates the load.",
+    "Calibration evidence should describe both where it ran and what workload was active."
+  ],
+  "safety": "Synthetic/defensive resource calibration only; no real financial operations or weakened controls."
+}
