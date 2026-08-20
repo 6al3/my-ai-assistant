@@ -1,0 +1,48 @@
+{
+  "decision": "Use a deterministic end-to-end calibration integration gate that composes the real DAG planner, synthetic workload command handler, resource probe, calibration harness, and collector with mocked qrexec transport.",
+  "status": "selected",
+  "reviews": {
+    "correctness": {
+      "winner": "real-module integration with transport fakes",
+      "reason": "Component-only tests cannot detect contract drift across plan binding, workload lifecycle, sampling order, cleanup, and collector provenance. Using the real modules while replacing only qrexec/process boundaries exercises the actual contracts without requiring Qubes in CI."
+    },
+    "robustness_security": {
+      "winner": "fail-closed lifecycle plus cleanup fault injection",
+      "reason": "Partial distributed starts and probe failures must trigger cleanup attempts for every worker. Collector provenance mismatch remains a hard failure. The integration gate does not weaken qrexec policy or introduce privileged monitoring."
+    },
+    "latency_resources_regression": {
+      "winner": "offline deterministic integration gate",
+      "reason": "It adds no qrexec traffic, VM startup, daemon, or database. ResourceProbe uses mocked /proc input and zero-duration sleeps; synthetic workload execution is state-backed with a fake executor PID. Regression surface is test-only."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "component tests only",
+      "reason": "Low cost but misses cross-module lifecycle and provenance drift."
+    },
+    {
+      "approach": "real Qubes integration as the only gate",
+      "reason": "Highest fidelity but unavailable in hosted CI and too expensive/noisy for every change. It remains a later qualification gate."
+    },
+    {
+      "approach": "new calibration orchestrator/daemon",
+      "reason": "Adds runtime state, attack surface, resources, and failure modes without being necessary to validate the existing composition."
+    }
+  ],
+  "qa": {
+    "happy_path": "DAG plan -> SyntheticWorkload start -> ResourceProbe samples -> stop -> collector, with five deterministic samples per worker.",
+    "faults": [
+      "partial start failure rolls back all workers before sampling",
+      "probe failure stops all successfully started workers",
+      "stop failure remains fail-closed and attempts cleanup on every worker",
+      "collector rejects wrong Git SHA provenance",
+      "concurrent sampling preserves deterministic worker event ordering"
+    ]
+  },
+  "failure_lessons": [
+    "A failed stop transport cannot prove immediate remote cleanup. The workload remains duration-bounded by the worker-side service, but qualification must not claim clean shutdown without positive stop evidence.",
+    "Integration tests should replace only environmental boundaries; mocking the planner, workload service, probe, and collector together would recreate the same blind spot as component-only testing.",
+    "Parallel sampling can remain deterministic because Promise.all preserves input ordering; event emission should keep topology order rather than completion order."
+  ],
+  "next_gate": "Add explicit cleanup confirmation/reconciliation for ambiguous stop failures, then run this same lifecycle through dig.SyntheticWorkload and dig.ResourceProbe inside real worker Qubes."
+}
