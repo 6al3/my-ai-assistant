@@ -1,0 +1,42 @@
+{
+  "decision": "Use an offline, provenance-bound Qubes resource calibration collector and apply measured p95 RAM plus declared vCPU profiles to the existing resource-aware fleet evaluator.",
+  "reviews": [
+    {
+      "agent": "correctness",
+      "preferred": "Bind samples to exact git SHA, topology ID, run ID, worker ID and capability profile; fail closed on drift or insufficient samples.",
+      "reason": "Synthetic planning numbers must not be mistaken for deployment evidence, and mixed runs can understate resource requirements."
+    },
+    {
+      "agent": "robustness-security",
+      "preferred": "Keep calibration read-only/offline and reject malformed framing, unexpected workers and profile changes.",
+      "reason": "Avoids adding a privileged daemon or weakening Qubes/qrexec controls merely to collect capacity evidence."
+    },
+    {
+      "agent": "performance-regression",
+      "preferred": "Collect bounded samples and use p95 RAM/CPU summaries without adding worker/coordinator runtime traffic beyond the calibration workload.",
+      "reason": "Linear local aggregation has negligible overhead and leaves MissionQueue and coordinator semantics unchanged."
+    }
+  ],
+  "alternativesRejected": [
+    {
+      "approach": "Keep synthetic RAM/vCPU constants",
+      "failure": "Fast but not evidence of real Qubes memory/CPU pressure."
+    },
+    {
+      "approach": "Continuous telemetry daemon",
+      "failure": "Higher attack surface, lifecycle complexity and resource overhead before qualification needs it."
+    },
+    {
+      "approach": "Single peak sample",
+      "failure": "Too sensitive to noise and can mis-rank fleet topologies."
+    }
+  ],
+  "qa": [
+    "p95 aggregation for multiple workers",
+    "exact SHA/topology binding",
+    "minimum sample count",
+    "worker capability/vCPU drift rejection",
+    "framing and unexpected-worker rejection"
+  ],
+  "lesson": "Resource budgets become readiness evidence only after measurements are bound to the exact code and topology being qualified; until then they remain planning assumptions."
+}
