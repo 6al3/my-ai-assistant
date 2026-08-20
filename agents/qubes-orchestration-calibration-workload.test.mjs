@@ -43,6 +43,40 @@ test('starts and stops the exact per-worker benchmark plan through bounded qrexe
   assert.ok(calls.every(call => call.options.service === 'dig.SyntheticWorkload'));
 });
 
+test('rolls back every worker when a parallel workload start partially fails', async () => {
+  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' });
+  const calls = [];
+  const hooks = createOrchestrationCalibrationHooks(plan, {
+    service: 'dig.SyntheticWorkload',
+    sendCommand: async (worker, command) => {
+      calls.push(`${command.action}:${worker.workerId}`);
+      if (command.action === 'start' && worker.workerId === 'system') throw new Error('system start failed');
+      return { ok: true };
+    }
+  });
+  await assert.rejects(() => hooks.startWorkload({ runId: 'run-rollback', workloadId: 'dag-v1', topology }), /rollback completed/);
+  assert.deepEqual(calls.filter(call => call.startsWith('start:')).sort(), ['start:coord-code-qa', 'start:system']);
+  assert.deepEqual(calls.filter(call => call.startsWith('stop:')).sort(), ['stop:coord-code-qa', 'stop:system']);
+});
+
+test('surfaces cleanup failures together with start failures', async () => {
+  const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology, workloadId: 'dag-v1' });
+  const hooks = createOrchestrationCalibrationHooks(plan, {
+    service: 'dig.SyntheticWorkload',
+    sendCommand: async (worker, command) => {
+      if (command.action === 'start' && worker.workerId === 'system') throw new Error('start failed');
+      if (command.action === 'stop' && worker.workerId === 'coord-code-qa') throw new Error('cleanup failed');
+      return { ok: true };
+    }
+  });
+  await assert.rejects(() => hooks.startWorkload({ runId: 'run-cleanup-fail', workloadId: 'dag-v1', topology }), error => {
+    assert.equal(error instanceof AggregateError, true);
+    assert.match(error.message, /rollback all workers/);
+    assert.equal(error.errors.length, 2);
+    return true;
+  });
+});
+
 test('qrexec workload transport is bounded and rejects malformed responses', async () => {
   const calls = [];
   const response = await sendWorkloadCommandViaQrexec({ workerId: 'w', qube: 'dig-worker-a' }, { action: 'stop' }, {
