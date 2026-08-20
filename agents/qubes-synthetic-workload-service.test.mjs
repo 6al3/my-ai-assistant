@@ -62,20 +62,18 @@ test('duplicate running start fails closed instead of spawning a second executor
   assert.equal(spawns, 1);
 });
 
-test('stop terminates the recorded executor and persists stopped state', async () => {
+test('stop uses state-based cancellation and never signals a possibly recycled PID', async () => {
   const store = memoryStore();
   await handleSyntheticWorkloadCommand(startCommand, { store, spawnExecutor: () => 4242, now: () => 1000 });
-  const killed = [];
   const response = await handleSyntheticWorkloadCommand({ action: 'stop', runId: 'run-1', workloadId: 'synthetic-dag-v1' }, {
     store,
-    killProcess: pid => killed.push(pid),
     now: () => 2000
   });
   assert.equal(response.status, 'stopped');
-  assert.deepEqual(killed, [4242]);
   const state = store.read('run-1', 'synthetic-dag-v1');
   assert.equal(state.status, 'stopped');
   assert.equal(state.stoppedAt, 2000);
+  assert.equal(state.pid, 4242, 'PID is evidence only; stop does not signal it');
 });
 
 test('stop is idempotent when no workload state exists', async () => {
@@ -83,17 +81,10 @@ test('stop is idempotent when no workload state exists', async () => {
   assert.deepEqual(response, { ok: true, action: 'stop', runId: 'missing-run', workloadId: 'synthetic-dag-v1', status: 'not-running' });
 });
 
-test('ESRCH during stop is treated as already exited while other kill errors fail closed', async () => {
+test('repeated stop preserves the original stoppedAt timestamp', async () => {
   const store = memoryStore();
-  await handleSyntheticWorkloadCommand(startCommand, { store, spawnExecutor: () => 4242 });
-  await handleSyntheticWorkloadCommand({ action: 'stop', runId: 'run-1', workloadId: 'synthetic-dag-v1' }, {
-    store,
-    killProcess: () => { const error = new Error('gone'); error.code = 'ESRCH'; throw error; }
-  });
-  const store2 = memoryStore();
-  await handleSyntheticWorkloadCommand(startCommand, { store: store2, spawnExecutor: () => 4242 });
-  await assert.rejects(handleSyntheticWorkloadCommand({ action: 'stop', runId: 'run-1', workloadId: 'synthetic-dag-v1' }, {
-    store: store2,
-    killProcess: () => { const error = new Error('denied'); error.code = 'EPERM'; throw error; }
-  }), /denied/);
+  await handleSyntheticWorkloadCommand(startCommand, { store, spawnExecutor: () => 4242, now: () => 1000 });
+  await handleSyntheticWorkloadCommand({ action: 'stop', runId: 'run-1', workloadId: 'synthetic-dag-v1' }, { store, now: () => 2000 });
+  await handleSyntheticWorkloadCommand({ action: 'stop', runId: 'run-1', workloadId: 'synthetic-dag-v1' }, { store, now: () => 3000 });
+  assert.equal(store.read('run-1', 'synthetic-dag-v1').stoppedAt, 2000);
 });
