@@ -61,13 +61,15 @@ export async function probeWorkerViaQrexec(worker, {
   execFileFn = execFileAsync,
   timeoutMs = 5000
 } = {}) {
+  const workerId = safeName(worker?.id, 'worker.id');
+  const qube = safeName(worker?.qube ?? workerId, `worker ${workerId} qube`);
   const qrexecService = safeName(service, 'qrexec resource service');
   const timeout = positiveInteger(timeoutMs, 'probe timeoutMs', 60000);
   let result;
   try {
-    result = await execFileFn('qrexec-client-vm', [worker.qube, qrexecService], { timeout, maxBuffer: 64 * 1024, encoding: 'utf8' });
+    result = await execFileFn('qrexec-client-vm', [qube, qrexecService], { timeout, maxBuffer: 64 * 1024, encoding: 'utf8' });
   } catch (error) {
-    throw new Error(`resource probe failed for ${worker.id}: ${error.message}`);
+    throw new Error(`resource probe failed for ${workerId}: ${error.message}`);
   }
   return parseResourceProbeResponse(result?.stdout ?? '');
 }
