@@ -17,11 +17,7 @@ export function parseMemInfo(text) {
   const totalKb = values.get('MemTotal');
   const availableKb = values.get('MemAvailable');
   if (!Number.isFinite(totalKb) || !Number.isFinite(availableKb) || availableKb > totalKb) throw new Error('invalid MemTotal/MemAvailable');
-  return {
-    totalMb: totalKb / 1024,
-    availableMb: availableKb / 1024,
-    usedMb: (totalKb - availableKb) / 1024
-  };
+  return { totalMb: totalKb / 1024, availableMb: availableKb / 1024, usedMb: (totalKb - availableKb) / 1024 };
 }
 
 export function parseCpuStat(text) {
@@ -30,8 +26,9 @@ export function parseCpuStat(text) {
   if (!line) throw new Error('aggregate cpu line is required');
   const values = line.trim().split(/\s+/).slice(1).map(Number);
   if (values.length < 4 || values.some(value => !Number.isFinite(value) || value < 0)) throw new Error('invalid aggregate cpu counters');
-  const total = values.reduce((sum, value) => sum + value, 0);
-  const idle = values[3] + (values[4] ?? 0);
+  const accounted = values.slice(0, 8); // user..steal; guest fields are already included in user/nice.
+  const total = accounted.reduce((sum, value) => sum + value, 0);
+  const idle = accounted[3] + (accounted[4] ?? 0);
   return { total, idle };
 }
 
