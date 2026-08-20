@@ -1,0 +1,20 @@
+{
+  "decision": "Bind Qubes resource calibration to the deterministic orchestration benchmark schedule and send bounded per-worker schedules through a dedicated qrexec workload service.",
+  "reviews": {
+    "correctness": "Preferred deriving worker schedules from benchmarkOrchestrationFleet so calibration measures the same DAG/topology used for latency readiness instead of an unrelated idle or generic load.",
+    "security_robustness": "Preferred explicit run/workload/topology binding, safe Qube/service names, bounded qrexec timeouts, and stop-all semantics. The workload remains synthetic and must be policy-restricted; no financial or external side effects are introduced.",
+    "latency_resources_regression": "Preferred an offline plan plus existing qrexec boundaries. It adds no coordinator/MissionQueue mutations and only start/stop control calls around calibration. A telemetry daemon or privileged dom0 sampler would add lifecycle, credential, and regression surface."
+  },
+  "alternatives_rejected": [
+    "Idle-only resource sampling: cheap but systematically underestimates active worker RAM/CPU.",
+    "Generic constant CPU burn: measurable but not representative of the orchestration DAG or topology contention.",
+    "Persistent telemetry/workload daemon: higher fidelity potential but materially larger attack, lifecycle, and resource surface before Qubes qualification is green."
+  ],
+  "qa": [
+    "Plan must be generated from the same constrained fleet benchmark.",
+    "Every mission must map to a capability-compatible worker.",
+    "Start/stop hooks must bind runId, workloadId, topology and use bounded qrexec calls.",
+    "Malformed service responses and topology/workload mismatches fail closed."
+  ],
+  "lesson": "Resource evidence is useful only when the measured load is causally tied to the workload whose topology is being qualified."
+}
