@@ -24,16 +24,22 @@ function percentile(values, p) {
 export function collectQubesResourceCalibration(events = [], {
   expectedGitSha,
   expectedTopologyId,
+  expectedWorkloadId,
+  requireWorkloadEvidence = false,
   minSamplesPerWorker = 3
 } = {}) {
   nonEmpty(expectedGitSha, 'expectedGitSha');
   nonEmpty(expectedTopologyId, 'expectedTopologyId');
+  if (requireWorkloadEvidence) nonEmpty(expectedWorkloadId, 'expectedWorkloadId');
   positiveInteger(minSamplesPerWorker, 'minSamplesPerWorker');
   if (!Array.isArray(events) || events.length === 0) throw new Error('resource calibration events are required');
 
   let started = false;
   let ended = false;
+  let workloadStarted = false;
+  let workloadStopped = false;
   let runId = null;
+  let workloadId = null;
   const samples = new Map();
   const workerProfiles = new Map();
 
@@ -44,13 +50,22 @@ export function collectQubesResourceCalibration(events = [], {
       if (started) throw new Error('duplicate calibration_start');
       started = true;
       runId = nonEmpty(event.runId, 'runId');
+      workloadId = event.workloadId ? nonEmpty(event.workloadId, 'workloadId') : null;
       if (nonEmpty(event.gitSha, 'gitSha') !== expectedGitSha) throw new Error('resource calibration git SHA mismatch');
       if (nonEmpty(event.topologyId, 'topologyId') !== expectedTopologyId) throw new Error('resource calibration topology mismatch');
+      if (requireWorkloadEvidence && workloadId !== expectedWorkloadId) throw new Error('resource calibration workload mismatch');
       continue;
     }
     if (!started) throw new Error('resource calibration event observed before calibration_start');
     if (event.runId !== runId) throw new Error('resource calibration runId mismatch');
+    if (event.type === 'calibration_workload_started') {
+      if (workloadStarted || workloadStopped) throw new Error('invalid calibration workload start');
+      if (nonEmpty(event.workloadId, 'workloadId') !== workloadId) throw new Error('calibration workloadId mismatch');
+      workloadStarted = true;
+      continue;
+    }
     if (event.type === 'worker_resource_sample') {
+      if (requireWorkloadEvidence && (!workloadStarted || workloadStopped)) throw new Error('resource sample observed outside active workload');
       const workerId = nonEmpty(event.workerId, 'workerId');
       const capabilities = [...new Set((event.capabilities ?? []).map(value => nonEmpty(value, 'capability')))].sort();
       if (!capabilities.length) throw new Error('worker capabilities are required');
@@ -65,7 +80,14 @@ export function collectQubesResourceCalibration(events = [], {
       samples.set(workerId, list);
       continue;
     }
+    if (event.type === 'calibration_workload_stopped') {
+      if (!workloadStarted || workloadStopped) throw new Error('invalid calibration workload stop');
+      if (nonEmpty(event.workloadId, 'workloadId') !== workloadId) throw new Error('calibration workloadId mismatch');
+      workloadStopped = true;
+      continue;
+    }
     if (event.type === 'calibration_end') {
+      if (requireWorkloadEvidence && (!workloadStarted || !workloadStopped)) throw new Error('resource calibration workload lifecycle incomplete');
       ended = true;
       continue;
     }
@@ -88,8 +110,8 @@ export function collectQubesResourceCalibration(events = [], {
     });
   }
   if (!workers.length) throw new Error('resource calibration has no worker samples');
-  const digest = createHash('sha256').update(JSON.stringify({ runId, expectedGitSha, expectedTopologyId, workers })).digest('hex');
-  return { schemaVersion: 1, runId, gitSha: expectedGitSha, topologyId: expectedTopologyId, workers, digest };
+  const digest = createHash('sha256').update(JSON.stringify({ runId, expectedGitSha, expectedTopologyId, workloadId, workers })).digest('hex');
+  return { schemaVersion: 2, runId, gitSha: expectedGitSha, topologyId: expectedTopologyId, workloadId, workloadBound: workloadStarted && workloadStopped, workers, digest };
 }
 
 export function applyQubesResourceCalibration(topology, calibration) {
@@ -103,5 +125,5 @@ export function applyQubesResourceCalibration(topology, calibration) {
     return { ...worker, resources: { ramMb: sample.resources.ramMb, vcpus: sample.resources.vcpus, cpuP95Percent: sample.resources.cpuP95Percent } };
   });
   if (workers.length !== measured.size) throw new Error('calibration contains unexpected workers');
-  return { ...topology, workers, calibration: { runId: calibration.runId, gitSha: calibration.gitSha, digest: calibration.digest } };
+  return { ...topology, workers, calibration: { runId: calibration.runId, gitSha: calibration.gitSha, workloadId: calibration.workloadId, digest: calibration.digest } };
 }
