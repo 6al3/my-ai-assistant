@@ -1,78 +1,96 @@
 {
-  "decision": "deterministic-worker-fleet-list-scheduling",
+  "decision": "bounded-trust-aware-worker-fleet-topology-evaluator",
   "status": "selected",
-  "scope": "synthetic orchestration benchmark only; no production worker or mission mutation semantics changed",
-  "problem": "The existing critical-path benchmark assumes independent missions can always run concurrently. That can overstate expected Qubes performance when a finite worker fleet has overlapping capability coverage.",
+  "scope": "synthetic orchestration benchmark and Qubes fleet sizing only; no production worker or mission mutation semantics changed",
+  "problem": "The finite-fleet benchmark could score one topology at a time, but choosing a Qubes layout was still manual. That risks selecting a resource-heavy layout or a fast fused layout that violates capability isolation requirements.",
   "independent_reviews": [
     {
       "review": "correctness",
-      "preferred": "deterministic worker-fleet list scheduling",
-      "reason": "Schedules the actual runtime DAG against explicit worker capability sets, respects dependency completion, and makes worker contention visible instead of inferring it from DAG width alone."
+      "preferred": "bounded deterministic topology evaluation",
+      "reason": "Evaluate the same runtime DAG across explicit candidate layouts, apply the same readiness thresholds to every candidate, and rank only layouts that satisfy the full gate. This turns topology selection into reproducible evidence rather than manual interpretation."
     },
     {
-      "review": "robustness",
-      "preferred": "fail-closed fleet model",
-      "reason": "Rejects duplicate worker identities, empty capability sets, and missions with no capable worker. Deterministic tie-breaking keeps benchmark evidence replayable."
+      "review": "robustness-security",
+      "preferred": "fail-closed trust-boundary constraints before scheduling",
+      "reason": "Reject candidate workers that co-reside forbidden capability pairs before latency can make the layout look attractive. Invalid or capability-incomplete layouts remain in results as ineligible evidence rather than silently disappearing."
     },
     {
       "review": "latency-resources-regression",
-      "preferred": "offline list scheduler",
-      "reason": "Adds no qrexec traffic, daemon, database, worker process, or production state. Runtime cost is local and small for the current mission graphs, while directly exposing queue delay and fleet utilization."
+      "preferred": "offline bounded search over explicit candidates",
+      "reason": "Adds zero qrexec traffic and zero production processes. Ranking prioritizes constrained latency, then fewer workers, then lower queue delay. maxTopologies bounds CPU/memory use and prevents accidental combinatorial search."
     }
   ],
   "approaches": [
     {
-      "name": "unlimited-critical-path-only",
-      "correctness": "good for theoretical DAG latency, weak for finite worker capacity",
-      "robustness": "deterministic but optimistic",
-      "latency": "lowest benchmark computation cost",
-      "resources": "minimal",
-      "regression_risk": "minimal",
-      "result": "rejected as the sole readiness signal"
+      "name": "manual-topology-comparison",
+      "correctness": "can be correct when reviewed carefully but is easy to make inconsistent across runs",
+      "robustness": "weak against omitted layouts or inconsistent thresholds",
+      "latency": "no extra code cost",
+      "resources": "manual analyst time",
+      "regression_risk": "medium because deployment choices are not executable QA",
+      "result": "rejected"
     },
     {
-      "name": "deterministic-worker-fleet-list-scheduling",
-      "correctness": "models dependency readiness, worker availability, capability coverage, queue delay, and constrained latency",
-      "robustness": "fail-closed and deterministic",
-      "latency": "offline computation only; no transport overhead",
-      "resources": "small in-memory maps and arrays",
-      "regression_risk": "low because production semantics are unchanged",
+      "name": "automatic-unbounded-partition-search",
+      "correctness": "can discover more layouts",
+      "robustness": "requires a much richer trust/capability policy model",
+      "latency": "can become combinatorial as capability count grows",
+      "resources": "potentially high CPU/memory",
+      "regression_risk": "higher due to large search/state surface",
+      "result": "deferred"
+    },
+    {
+      "name": "bounded-trust-aware-worker-fleet-topology-evaluator",
+      "correctness": "scores explicit 1/2/3/4-worker candidates against the actual runtime DAG and uniform readiness thresholds",
+      "robustness": "fail-closed on duplicate topology IDs, invalid bounds, impossible capability coverage, and forbidden capability co-residency",
+      "latency": "offline only and bounded by maxTopologies",
+      "resources": "small in-memory maps/arrays; no VM or transport use",
+      "regression_risk": "low because MissionQueue, coordinator, qrexec, and worker runtime semantics are unchanged",
       "result": "selected"
-    },
-    {
-      "name": "benchmark-through-production-worker-scheduler",
-      "correctness": "highest fidelity once a stable Qubes worker environment exists",
-      "robustness": "couples benchmark failures to transport, leases, and VM availability",
-      "latency": "requires real worker execution",
-      "resources": "highest; consumes worker/VM capacity",
-      "regression_risk": "higher before real-worker qualification",
-      "result": "deferred until Qubes execution evidence exists"
     }
   ],
-  "selected_metrics": [
-    "unconstrainedLatencyMs",
-    "constrainedLatencyMs",
-    "latencyPenaltyMs",
-    "latencyPenaltyRatio",
-    "constrainedSpeedup",
-    "totalQueueDelayMs",
-    "maxQueueDelayMs",
-    "peakConcurrentWorkers",
-    "workerUtilization"
+  "ranking_policy": [
+    "readiness must pass",
+    "lowest constrainedLatencyMs",
+    "smallest fleetSize",
+    "lowest maxQueueDelayMs",
+    "lowest totalQueueDelayMs",
+    "stable topology ID tie-break"
   ],
+  "current_fixture_result": {
+    "theoreticalLatencyMs": 210,
+    "serialLatencyMs": 290,
+    "expectedWinner": "two-worker-fused when coder+qa co-residency is allowed",
+    "expectedWinnerMetrics": {
+      "constrainedLatencyMs": 210,
+      "latencyPenaltyMs": 0,
+      "maxQueueDelayMs": 0,
+      "peakConcurrentWorkers": 2,
+      "fleetSize": 2
+    },
+    "controls": {
+      "oneWorker": "290ms-equivalent and fails strict latency readiness",
+      "sharedSpecialistThreeWorker": "290ms-equivalent due to coder/system contention",
+      "isolatedFourWorker": "210ms-equivalent and remains eligible but loses resource tie-break to safe two-worker layout"
+    }
+  },
+  "trust_boundary_rule": "Capability co-residency must be policy-driven. The evaluator accepts forbiddenCapabilityPairs and excludes a fused topology before ranking if a worker contains a forbidden pair.",
   "qa": {
     "required": [
-      "independent specialist workers preserve theoretical fan-out latency",
-      "shared specialist worker exposes contention and fails strict readiness thresholds",
-      "missing capability coverage fails closed",
-      "duplicate worker identities fail closed",
-      "existing critical-path benchmark remains unchanged"
+      "two-worker fused topology preserves 210ms-equivalent critical path when policy permits it",
+      "one-worker control measures 290ms-equivalent and fails strict speedup readiness",
+      "three-worker shared-specialist topology exposes contention",
+      "four-worker independent topology remains a valid zero-penalty fallback",
+      "forbidden coder+qa co-residency rejects the fused topology and selects the isolated layout",
+      "duplicate topology IDs and topology counts over maxTopologies fail closed",
+      "existing graph and single-fleet benchmarks remain unchanged"
     ],
-    "release_note": "Hosted GitHub runner provisioning remains a separate blocker. This benchmark can be exercised by local/Qube QA but does not replace independent hosted CI."
+    "release_note": "Hosted GitHub runner provisioning remains a separate blocker. These tests are part of the existing orchestration benchmark suite but do not replace independent hosted CI or real Qubes qualification."
   },
   "failure_lessons": [
-    "DAG peak concurrency is not equivalent to deployable worker capacity.",
-    "Capability topology must be part of performance evidence before sizing Qubes workers.",
-    "A benchmark that ignores queue delay can report a speedup that disappears when specialists share workers."
+    "The fastest topology is not automatically the safest topology; trust boundaries must be evaluated before latency ranking.",
+    "Four workers are not necessary for this fixture when coordination/coder/QA co-residency is permitted; two workers preserve the same critical path with a smaller Qube/RAM footprint.",
+    "A single shared specialist worker destroys the expected fan-out speedup even when the DAG itself is parallel.",
+    "Keep topology search bounded and explicit until real Qubes measurements justify a more complex optimizer."
   ]
 }
