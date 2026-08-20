@@ -78,34 +78,53 @@ export async function runQubesResourceCalibration({
   gitSha,
   topology,
   runId = randomUUID(),
+  workloadId = 'synthetic-calibration-v1',
   sampleCount = 5,
   intervalMs = 1000,
   sampleWorker,
+  startWorkload,
+  stopWorkload,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 } = {}) {
   const expectedGitSha = nonEmpty(gitSha, 'gitSha');
   const normalizedTopology = validateCalibrationTopology(topology);
   const expectedRunId = safeName(runId, 'runId');
+  const expectedWorkloadId = safeName(workloadId, 'workloadId');
   const samples = positiveInteger(sampleCount, 'sampleCount', 100);
   const interval = nonNegativeInteger(intervalMs, 'intervalMs', 60000);
   if (typeof sampleWorker !== 'function') throw new Error('sampleWorker is required');
+  if ((startWorkload && typeof startWorkload !== 'function') || (stopWorkload && typeof stopWorkload !== 'function')) throw new Error('workload hooks must be functions');
+  if ((startWorkload && !stopWorkload) || (!startWorkload && stopWorkload)) throw new Error('startWorkload and stopWorkload must be configured together');
 
-  const events = [{ type: 'calibration_start', runId: expectedRunId, gitSha: expectedGitSha, topologyId: normalizedTopology.id }];
-  for (let round = 0; round < samples; round += 1) {
-    const roundSamples = await Promise.all(normalizedTopology.workers.map(async worker => ({ worker, sample: await sampleWorker(worker, round) })));
-    for (const { worker, sample } of roundSamples) {
-      const parsed = parseResourceProbeResponse(JSON.stringify(sample));
-      events.push({
-        type: 'worker_resource_sample',
-        runId: expectedRunId,
-        workerId: worker.id,
-        capabilities: worker.capabilities,
-        ramMb: parsed.ramMb,
-        cpuPercent: parsed.cpuPercent,
-        vcpus: parsed.vcpus
-      });
+  const events = [{ type: 'calibration_start', runId: expectedRunId, gitSha: expectedGitSha, topologyId: normalizedTopology.id, workloadId: expectedWorkloadId }];
+  let workloadStarted = false;
+  try {
+    if (startWorkload) {
+      await startWorkload({ runId: expectedRunId, workloadId: expectedWorkloadId, topology: normalizedTopology });
+      workloadStarted = true;
+      events.push({ type: 'calibration_workload_started', runId: expectedRunId, workloadId: expectedWorkloadId });
     }
-    if (round + 1 < samples && interval > 0) await sleep(interval);
+    for (let round = 0; round < samples; round += 1) {
+      const roundSamples = await Promise.all(normalizedTopology.workers.map(async worker => ({ worker, sample: await sampleWorker(worker, round) })));
+      for (const { worker, sample } of roundSamples) {
+        const parsed = parseResourceProbeResponse(JSON.stringify(sample));
+        events.push({
+          type: 'worker_resource_sample',
+          runId: expectedRunId,
+          workerId: worker.id,
+          capabilities: worker.capabilities,
+          ramMb: parsed.ramMb,
+          cpuPercent: parsed.cpuPercent,
+          vcpus: parsed.vcpus
+        });
+      }
+      if (round + 1 < samples && interval > 0) await sleep(interval);
+    }
+  } finally {
+    if (workloadStarted) {
+      await stopWorkload({ runId: expectedRunId, workloadId: expectedWorkloadId, topology: normalizedTopology });
+      events.push({ type: 'calibration_workload_stopped', runId: expectedRunId, workloadId: expectedWorkloadId });
+    }
   }
   events.push({ type: 'calibration_end', runId: expectedRunId });
   return events;
@@ -116,6 +135,7 @@ async function main() {
   const service = safeName(process.env.DIG_QREXEC_RESOURCE_SERVICE, 'DIG_QREXEC_RESOURCE_SERVICE');
   const topology = JSON.parse(nonEmpty(process.env.DIG_CALIBRATION_TOPOLOGY_JSON, 'DIG_CALIBRATION_TOPOLOGY_JSON'));
   const runId = process.env.DIG_CALIBRATION_RUN_ID || randomUUID();
+  const workloadId = process.env.DIG_CALIBRATION_WORKLOAD_ID || 'synthetic-calibration-v1';
   const sampleCount = process.env.DIG_CALIBRATION_SAMPLE_COUNT ? Number(process.env.DIG_CALIBRATION_SAMPLE_COUNT) : 5;
   const intervalMs = process.env.DIG_CALIBRATION_INTERVAL_MS ? Number(process.env.DIG_CALIBRATION_INTERVAL_MS) : 1000;
   const timeoutMs = process.env.DIG_CALIBRATION_PROBE_TIMEOUT_MS ? Number(process.env.DIG_CALIBRATION_PROBE_TIMEOUT_MS) : 5000;
@@ -123,6 +143,7 @@ async function main() {
     gitSha,
     topology,
     runId,
+    workloadId,
     sampleCount,
     intervalMs,
     sampleWorker: worker => probeWorkerViaQrexec(worker, { service, timeoutMs })
