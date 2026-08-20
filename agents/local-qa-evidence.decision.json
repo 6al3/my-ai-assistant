@@ -1,0 +1,58 @@
+{
+  "decision": "Use a deterministic local Node QA evidence runner as a fail-closed fallback while GitHub-hosted runners fail before their first workflow step.",
+  "status": "selected",
+  "context": {
+    "githubHostedRunnerSymptom": "Ubuntu and macOS preflight jobs fail with no workflow steps executed.",
+    "constraint": "Do not weaken GitHub CI or production security controls; local evidence is supplemental until hosted CI returns."
+  },
+  "independentReviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "mirror the five Node QA shards locally and bind evidence to a clean exact git SHA",
+      "reason": "keeps test scope aligned with CI and prevents evidence from dirty or different source trees"
+    },
+    {
+      "agent": "robustness-security-review",
+      "preferred": "fail closed on dirty worktree, SHA mismatch, timeout, spawn errors, or any shard failure",
+      "reason": "avoids treating partial execution or unverifiable source state as readiness evidence"
+    },
+    {
+      "agent": "performance-regression-review",
+      "preferred": "sequential shard execution with bounded timeouts and one JSON report",
+      "reason": "predictable CPU/RAM footprint for a laptop/Qube and minimal new runtime surface"
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "wait for GitHub-hosted runners only",
+      "rejectedBecause": "leaves agents idle and provides no executable QA path during an external runner outage"
+    },
+    {
+      "approach": "replace GitHub CI with local QA",
+      "rejectedBecause": "would weaken independent hosted validation and could hide environment-specific regressions"
+    },
+    {
+      "approach": "add a self-hosted GitHub runner immediately",
+      "rejectedBecause": "adds persistent credentials, runner lifecycle, network exposure, and operational complexity before a simpler offline fallback is exhausted"
+    },
+    {
+      "approach": "run all shards concurrently",
+      "rejectedBecause": "reduces wall-clock latency but increases peak CPU/RAM and makes laptop/Qube fault diagnosis noisier"
+    }
+  ],
+  "comparison": {
+    "correctness": "high: exact same Node shard membership plus clean-SHA binding",
+    "robustness": "high: timeout/error/failure are fail-closed",
+    "latency": "moderate: sequential by design",
+    "resourceUse": "low-to-moderate and bounded",
+    "regressionRisk": "low: QA-only code, no MissionQueue/coordinator mutation semantics changed",
+    "qa": "unit tests cover all-pass, shard failure, dirty tree, SHA mismatch, and timeout"
+  },
+  "limitations": [
+    "Does not replace GitHub-hosted CI.",
+    "Does not provide native Swift/iOS compiler evidence on Linux/Qubes.",
+    "Report digest is integrity metadata, not a cryptographic signature or remote attestation.",
+    "REAL-WORKER readiness still requires real Qubes qualification evidence and restored independent CI."
+  ],
+  "next": "Run npm run qa:local on the exact PR head from a clean laptop/Qube checkout, inspect failing shards if any, restore hosted Node/Swift CI, then execute the real Qubes qualification runner."
+}
