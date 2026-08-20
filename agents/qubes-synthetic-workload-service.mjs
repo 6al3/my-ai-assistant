@@ -22,10 +22,10 @@ function boundedInteger(value, label, { min = 0, max = MAX_DURATION_MS } = {}) {
 export function normalizeSyntheticWorkloadCommand(command) {
   if (!command || typeof command !== 'object' || Array.isArray(command)) throw new Error('workload command must be an object');
   const action = command.action;
-  if (!['start', 'stop'].includes(action)) throw new Error('workload action must be start or stop');
+  if (!['start', 'stop', 'status'].includes(action)) throw new Error('workload action must be start, stop, or status');
   const runId = safeName(command.runId, 'runId');
   const workloadId = safeName(command.workloadId, 'workloadId');
-  if (action === 'stop') return { action, runId, workloadId };
+  if (action === 'stop' || action === 'status') return { action, runId, workloadId };
 
   const durationMs = boundedInteger(command.durationMs, 'durationMs', { min: 1 });
   if (!Array.isArray(command.schedule) || command.schedule.length > MAX_SCHEDULE_ENTRIES) throw new Error(`schedule must contain at most ${MAX_SCHEDULE_ENTRIES} entries`);
@@ -44,9 +44,7 @@ export function normalizeSyntheticWorkloadCommand(command) {
   return { action, runId, workloadId, durationMs, schedule };
 }
 
-function stateKey(command) {
-  return `${command.runId}--${command.workloadId}.json`;
-}
+function stateKey(command) { return `${command.runId}--${command.workloadId}.json`; }
 
 export function createFileWorkloadStore(root) {
   const stateRoot = root?.trim();
@@ -70,24 +68,21 @@ export function createFileWorkloadStore(root) {
 }
 
 function defaultSpawnExecutor(statePath) {
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--execute', statePath], {
-    detached: true,
-    stdio: 'ignore',
-    env: { PATH: process.env.PATH ?? '' }
-  });
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--execute', statePath], { detached: true, stdio: 'ignore', env: { PATH: process.env.PATH ?? '' } });
   child.unref();
   return child.pid;
 }
 
-export async function handleSyntheticWorkloadCommand(commandInput, {
-  store,
-  spawnExecutor = defaultSpawnExecutor,
-  now = () => Date.now()
-} = {}) {
+export async function handleSyntheticWorkloadCommand(commandInput, { store, spawnExecutor = defaultSpawnExecutor, now = () => Date.now() } = {}) {
   if (!store || typeof store.get !== 'function' || typeof store.put !== 'function') throw new Error('workload store is required');
   const command = normalizeSyntheticWorkloadCommand(commandInput);
   const existing = await store.get(command);
 
+  if (command.action === 'status') {
+    const status = existing?.status ?? 'not-running';
+    if (!['starting', 'running', 'stopped', 'completed', 'not-running'].includes(status)) throw new Error(`unsupported workload state: ${status}`);
+    return { ok: true, action: 'status', runId: command.runId, workloadId: command.workloadId, status, startedAt: existing?.startedAt ?? null, stoppedAt: existing?.stoppedAt ?? null, completedAt: existing?.completedAt ?? null };
+  }
   if (command.action === 'stop') {
     if (!existing) return { ok: true, action: 'stop', runId: command.runId, workloadId: command.workloadId, status: 'not-running' };
     await store.put(command, { ...existing, status: 'stopped', stoppedAt: existing.stoppedAt ?? now() });
@@ -138,31 +133,18 @@ async function executeState(statePath) {
 
 async function readSingleJsonLine() {
   let input = '';
-  for await (const chunk of process.stdin) {
-    input += chunk.toString('utf8');
-    if (Buffer.byteLength(input) > 64 * 1024) throw new Error('workload request exceeds 64KiB');
-  }
+  for await (const chunk of process.stdin) { input += chunk.toString('utf8'); if (Buffer.byteLength(input) > 64 * 1024) throw new Error('workload request exceeds 64KiB'); }
   const lines = input.split(/\r?\n/).filter(line => line.trim());
   if (lines.length !== 1) throw new Error('exactly one JSON workload request is required');
   return JSON.parse(lines[0]);
 }
 
 async function main() {
-  if (process.argv[2] === '--execute') {
-    const statePath = process.argv[3];
-    if (!statePath) throw new Error('executor state path is required');
-    await executeState(statePath);
-    return;
-  }
+  if (process.argv[2] === '--execute') { const statePath = process.argv[3]; if (!statePath) throw new Error('executor state path is required'); await executeState(statePath); return; }
   const stateDir = process.env.DIG_SYNTHETIC_WORKLOAD_STATE_DIR?.trim();
   if (!stateDir) throw new Error('DIG_SYNTHETIC_WORKLOAD_STATE_DIR is required');
   const response = await handleSyntheticWorkloadCommand(await readSingleJsonLine(), { store: createFileWorkloadStore(stateDir) });
   process.stdout.write(`${JSON.stringify(response)}\n`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(error => {
-    process.stderr.write(`DIG synthetic workload service failed: ${error.message}\n`);
-    process.exitCode = 1;
-  });
-}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { process.stderr.write(`DIG synthetic workload service failed: ${error.message}\n`); process.exitCode = 1; });
