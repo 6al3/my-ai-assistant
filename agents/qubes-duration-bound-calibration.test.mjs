@@ -30,7 +30,7 @@ function virtualClock(start = 1000) {
   };
 }
 
-test('records per-worker probe envelopes inside the 210ms DAG workload', async () => {
+test('records per-worker probe envelopes and p95 latency inside the 210ms DAG workload', async () => {
   const clock = virtualClock();
   const { events, policy, observedRoundOffsetsMs, probeLatenciesByWorkerMs } = await runDurationBoundQubesCalibration({
     gitSha: SHA, runtime: runtime(), runId: 'duration-bound-1', sampleCount: 5, sleep: clock.sleep, now: clock.now
@@ -47,6 +47,10 @@ test('records per-worker probe envelopes inside the 210ms DAG workload', async (
     expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5, minSamplesPerWorker: 5
   });
   assert.equal(report.workloadBound, true);
+  assert.equal(report.probeLatencyBound, true);
+  assert.equal(report.schemaVersion, 3);
+  assert.equal(report.workers.find(worker => worker.id === 'coord-code-qa').resources.probeLatencyP95Ms, 0);
+  assert.equal(report.workers.find(worker => worker.id === 'system').resources.probeLatencyP95Ms, 0);
 });
 
 test('fails closed when one worker completion leaves the active workload', async () => {
@@ -73,13 +77,19 @@ test('fails closed when probe latency exceeds its budget while still inside work
   }), /probe latency 12ms exceeds budget 10ms/);
 });
 
-test('collector rejects forged or over-budget probe envelope evidence', async () => {
+test('collector rejects forged, missing, or over-budget probe envelope evidence', async () => {
   const clock = virtualClock();
   const { events } = await runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'collector', sampleCount: 5, sleep: clock.sleep, now: clock.now });
   const sampleIndex = events.findIndex(event => event.type === 'worker_resource_sample');
   const forged = events.map(event => ({ ...event }));
   forged[sampleIndex].probeLatencyMs = 9;
   assert.throws(() => collectDurationBoundQubesCalibration(forged, {
+    expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5
+  }), /probe latency evidence mismatch/);
+
+  const missing = events.map(event => ({ ...event }));
+  delete missing[sampleIndex].probeLatencyMs;
+  assert.throws(() => collectDurationBoundQubesCalibration(missing, {
     expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5
   }), /probe latency evidence mismatch/);
 
