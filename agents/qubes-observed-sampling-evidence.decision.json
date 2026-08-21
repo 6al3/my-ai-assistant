@@ -1,0 +1,42 @@
+{
+  "decision": "Record and validate observed sample timing rather than planned offsets",
+  "status": "selected",
+  "reviews": [
+    {
+      "perspective": "correctness",
+      "winner": "observed timing evidence",
+      "reason": "Planned offsets can be inside the workload while scheduler/qrexec delay pushes real sampling outside it. Readiness evidence must describe what actually happened."
+    },
+    {
+      "perspective": "robustness",
+      "winner": "fail closed on observed drift",
+      "reason": "A delayed final sample now rejects calibration instead of silently labeling it with the planned timestamp."
+    },
+    {
+      "perspective": "latency_resources_regression",
+      "winner": "reuse existing monotonic timing hook",
+      "reason": "No additional qrexec calls, workers, storage, or workload duration are introduced; only local timestamps are retained and validated."
+    }
+  ],
+  "rejected": [
+    {
+      "approach": "annotate samples with planned offsets",
+      "reason": "Can manufacture valid-looking temporal provenance when real execution drifts."
+    },
+    {
+      "approach": "extend workload duration to absorb jitter",
+      "reason": "Changes benchmark semantics and resource cost instead of measuring timing truthfully."
+    },
+    {
+      "approach": "add remote timestamp probes",
+      "reason": "Adds qrexec traffic and clock-synchronization complexity before local observed timing is exhausted."
+    }
+  ],
+  "qa": [
+    "210ms workload with five samples records observed offsets 0,52,104,156,208 under a virtual clock",
+    "scheduler drift that pushes the final observed sample past the active window fails closed",
+    "explicit 1000ms interval remains rejected",
+    "collector continues to reject missing, late, or workload-duration-mismatched timing evidence"
+  ],
+  "lesson": "Temporal provenance must record observed execution, not the schedule we intended to execute."
+}
