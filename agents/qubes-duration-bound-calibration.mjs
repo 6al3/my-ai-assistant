@@ -7,6 +7,14 @@ function positiveInteger(value, label) {
   return value;
 }
 
+function timingKey(round, workerId) {
+  return `${round}:${workerId}`;
+}
+
+function buildWorkerOffsetMap(topology) {
+  return new Map(topology.workers.map(worker => [worker.id, []]));
+}
+
 export async function runDurationBoundQubesCalibration({
   gitSha,
   runtime,
@@ -21,13 +29,16 @@ export async function runDurationBoundQubesCalibration({
   const workloadDurationMs = positiveInteger(runtime.plan.durationMs, 'runtime.plan.durationMs');
   const policy = deriveDurationBoundSampling({ workloadDurationMs, sampleCount, requestedIntervalMs, reserveMs });
   const startedAt = now();
-  const offsets = [];
+  const sampleCompletionOffsets = new Map();
+
   const sampleWorker = async (worker, round) => {
+    const sample = await runtime.sampleWorker(worker, round);
     const offsetMs = now() - startedAt;
     if (!Number.isInteger(offsetMs) || offsetMs < 0) throw new Error('observed sample offset must be a non-negative integer');
-    offsets[round] = offsets[round] === undefined ? offsetMs : Math.min(offsets[round], offsetMs);
-    return runtime.sampleWorker(worker, round);
+    sampleCompletionOffsets.set(timingKey(round, worker.id), offsetMs);
+    return sample;
   };
+
   const events = await runQubesResourceCalibration({
     gitSha,
     topology: runtime.topology,
@@ -40,25 +51,42 @@ export async function runDurationBoundQubesCalibration({
     stopWorkload: runtime.stopWorkload,
     sleep
   });
-  validateSampleOffsets(offsets, policy);
+
+  const observedWorkerOffsetsMs = buildWorkerOffsetMap(runtime.topology);
+  let sampleIndex = 0;
+  const workerCount = runtime.topology.workers.length;
   const annotated = events.map(event => {
     if (event.type !== 'worker_resource_sample') return event;
-    const round = annotatedRoundIndex(event, runtime.topology.workers.length, events);
-    const sampleOffsetMs = offsets[round];
-    if (!Number.isInteger(sampleOffsetMs)) throw new Error(`missing observed sample timing for round ${round}`);
+    const round = Math.floor(sampleIndex / workerCount);
+    sampleIndex += 1;
+    const sampleOffsetMs = sampleCompletionOffsets.get(timingKey(round, event.workerId));
+    if (!Number.isInteger(sampleOffsetMs)) throw new Error(`missing observed sample timing for ${event.workerId} round ${round}`);
+    const workerOffsets = observedWorkerOffsetsMs.get(event.workerId);
+    if (!workerOffsets) throw new Error(`unexpected worker timing evidence: ${event.workerId}`);
+    workerOffsets.push(sampleOffsetMs);
     return { ...event, sampleOffsetMs, workloadDurationMs };
   });
-  return { events: annotated, policy, observedRoundOffsetsMs: [...offsets] };
-}
 
-function annotatedRoundIndex(target, workerCount, events) {
-  let sampleIndex = 0;
-  for (const event of events) {
-    if (event.type !== 'worker_resource_sample') continue;
-    if (event === target) return Math.floor(sampleIndex / workerCount);
-    sampleIndex += 1;
+  for (const [workerId, offsets] of observedWorkerOffsetsMs) {
+    try {
+      validateSampleOffsets(offsets, policy);
+    } catch (error) {
+      throw new Error(`worker ${workerId} timing evidence invalid: ${error.message}`);
+    }
   }
-  throw new Error('resource sample not found in event stream');
+
+  const observedRoundOffsetsMs = Array.from({ length: policy.sampleCount }, (_, round) => {
+    const offsets = runtime.topology.workers.map(worker => sampleCompletionOffsets.get(timingKey(round, worker.id)));
+    if (offsets.some(offset => !Number.isInteger(offset))) throw new Error(`missing observed sample timing for round ${round}`);
+    return Math.max(...offsets);
+  });
+
+  return {
+    events: annotated,
+    policy,
+    observedRoundOffsetsMs,
+    observedWorkerOffsetsMs: Object.fromEntries([...observedWorkerOffsetsMs].map(([workerId, offsets]) => [workerId, [...offsets]]))
+  };
 }
 
 export function collectDurationBoundQubesCalibration(events, {
@@ -72,15 +100,24 @@ export function collectDurationBoundQubesCalibration(events, {
   minSamplesPerWorker = 3
 } = {}) {
   const policy = deriveDurationBoundSampling({ workloadDurationMs, sampleCount, requestedIntervalMs, reserveMs });
-  const offsets = [];
+  const offsetsByWorker = new Map();
   for (const event of events ?? []) {
     if (event?.type !== 'worker_resource_sample') continue;
     if (!Number.isInteger(event.sampleOffsetMs) || event.sampleOffsetMs < 0) throw new Error('resource sampleOffsetMs is required');
     if (event.workloadDurationMs !== policy.workloadDurationMs) throw new Error('resource sample workload duration mismatch');
-    if (!offsets.includes(event.sampleOffsetMs)) offsets.push(event.sampleOffsetMs);
+    const workerId = typeof event.workerId === 'string' && event.workerId.trim() ? event.workerId : null;
+    if (!workerId) throw new Error('resource sample workerId is required');
+    if (!offsetsByWorker.has(workerId)) offsetsByWorker.set(workerId, []);
+    offsetsByWorker.get(workerId).push(event.sampleOffsetMs);
   }
-  offsets.sort((a, b) => a - b);
-  validateSampleOffsets(offsets, policy);
+  if (!offsetsByWorker.size) throw new Error('duration-bound resource samples are required');
+  for (const [workerId, offsets] of offsetsByWorker) {
+    try {
+      validateSampleOffsets(offsets, policy);
+    } catch (error) {
+      throw new Error(`worker ${workerId} timing evidence invalid: ${error.message}`);
+    }
+  }
   return collectQubesResourceCalibration(events, {
     expectedGitSha,
     expectedTopologyId,
