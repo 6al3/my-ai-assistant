@@ -156,6 +156,7 @@ export function collectDurationBoundQubesCalibration(events, {
     expectedTopologyId,
     expectedWorkloadId,
     requireWorkloadEvidence: true,
+    requireProbeLatencyEvidence: true,
     minSamplesPerWorker
   });
 }
