@@ -1,0 +1,22 @@
+{
+  "decision": "Measure and validate per-worker probe start/completion envelopes and optional latency budgets.",
+  "winner": "Local observed start+completion timing around each existing ResourceProbe call.",
+  "reviews": {
+    "correctness": "Completion-only evidence cannot prove the whole measurement occurred during the active workload. Start+completion binds the full probe envelope.",
+    "robustness": "Fail closed when completion leaves the workload, timing evidence is inconsistent, or a configured probe-latency budget is exceeded.",
+    "latency_resources": "No additional qrexec calls, VMs, daemons, or storage. Timing uses the existing local clock around existing probes.",
+    "regression": "Calibration/evidence-only change; MissionQueue, coordinator, and worker mutation semantics are untouched."
+  },
+  "rejected": [
+    "Completion offset only: permits long probes whose start is not evidenced.",
+    "Remote timestamp service: stronger clock attribution but adds qrexec/service/key lifecycle complexity before real Qubes calibration.",
+    "Extra ping probes: increases qrexec traffic and perturbs the measurement being calibrated."
+  ],
+  "qa": [
+    "Happy path records sampleStartedOffsetMs, sampleOffsetMs, and probeLatencyMs per worker.",
+    "A worker completing outside the workload fails closed.",
+    "A probe exceeding maxProbeLatencyMs fails even when completion remains inside the workload.",
+    "Collector rejects forged latency evidence."
+  ],
+  "lesson": "Resource evidence must describe the full measurement envelope, not only its completion timestamp."
+}
