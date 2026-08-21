@@ -37,11 +37,25 @@ export async function runQubesCalibrationSelectionCommand({
   const candidateIds = new Set(candidates.map(candidate => nonEmpty(candidate?.id, 'candidate topology id')));
   if (candidateIds.size !== candidates.length) throw new Error('candidate topology ids must be unique');
 
-  const calibrations = [];
-  for (const config of calibrationConfigs) {
-    const topologyId = nonEmpty(config?.topologyId, 'calibration topologyId');
+  // Validate the full candidate/config bijection before starting any expensive Qubes workload.
+  // This avoids partially calibrating the fleet and only discovering duplicate/missing configs later.
+  const configIds = calibrationConfigs.map(config => nonEmpty(config?.topologyId, 'calibration topologyId'));
+  const configIdSet = new Set(configIds);
+  if (configIdSet.size !== configIds.length) throw new Error('calibration topology ids must be unique');
+  for (const topologyId of configIdSet) {
     if (!candidateIds.has(topologyId)) throw new Error(`unexpected calibration topology ${topologyId}`);
-    if (config.gitSha !== expectedGitSha) throw new Error(`calibration ${topologyId} git SHA mismatch`);
+  }
+  for (const topologyId of candidateIds) {
+    if (!configIdSet.has(topologyId)) throw new Error(`missing calibration topology ${topologyId}`);
+  }
+  for (const config of calibrationConfigs) {
+    if (config.gitSha !== expectedGitSha) throw new Error(`calibration ${config.topologyId} git SHA mismatch`);
+  }
+
+  const calibrations = [];
+  // Keep calibration sequential: concurrent synthetic workloads would contaminate RAM/CPU/latency evidence.
+  for (const config of calibrationConfigs) {
+    const topologyId = config.topologyId;
     const result = await runCalibration(config);
     if (!result?.report || result.report.topologyId !== topologyId || result.report.gitSha !== expectedGitSha) {
       throw new Error(`calibration ${topologyId} returned mismatched report provenance`);
