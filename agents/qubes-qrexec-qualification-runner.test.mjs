@@ -38,13 +38,15 @@ test('qualification manifest binds recovery services to the same deployment prob
   assert.throws(() => materializeQualificationManifest('{bad', { env: REQUIRED_ENV }), /must be valid JSON/);
 });
 
-test('qualification runner binds every raw campaign to the calibrated topology and digest', async () => {
+test('qualification runner requires the harness itself to emit calibrated topology provenance', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'dig-qualification-runner-')); const fakeHarness = path.join(dir, 'fake-harness.mjs');
   try {
     await writeFile(fakeHarness, `
       let input = ''; for await (const chunk of process.stdin) input += chunk; const manifest = JSON.parse(input);
       for (const step of manifest.steps ?? []) { if (step.faultService) { if (step.faultService !== 'dig.CoordinatorFault') throw new Error('unexpected fault service'); if (step.recoveryService !== 'dig.Coordinator') throw new Error('unexpected normal service'); } }
-      const runId = process.env.DIG_CAMPAIGN_RUN_ID; const base = { runId, transport: 'qrexec', sourceQube: 'worker', targetQube: 'coordinator', service: 'dig.Coordinator', gitSha: '${'a'.repeat(40)}' };
+      if (process.env.DIG_QUBES_TOPOLOGY_ID !== '${CALIBRATION.topologyId}') throw new Error('missing topology binding at harness source');
+      if (process.env.DIG_CALIBRATION_EVIDENCE_DIGEST !== '${CALIBRATION.calibrationEvidenceDigest}') throw new Error('missing calibration digest at harness source');
+      const runId = process.env.DIG_CAMPAIGN_RUN_ID; const base = { runId, transport: 'qrexec', sourceQube: 'worker', targetQube: 'coordinator', service: 'dig.Coordinator', gitSha: '${'a'.repeat(40)}', topologyId: process.env.DIG_QUBES_TOPOLOGY_ID, calibrationEvidenceDigest: process.env.DIG_CALIBRATION_EVIDENCE_DIGEST };
       console.log(JSON.stringify({ type: 'campaign_start', ...base, startedAt: '2026-08-18T10:00:00.000Z' })); console.log(JSON.stringify({ type: 'campaign_end', runId, finishedAt: '2026-08-18T10:00:01.000Z' }));
     `);
     const campaigns = await runQualificationCampaignSet({ qualificationRunId: 'qual-live', recoveryRuns: 3, harnessPath: fakeHarness, env: { ...process.env, ...REQUIRED_ENV }, calibrationBinding: CALIBRATION });
@@ -54,6 +56,14 @@ test('qualification runner binds every raw campaign to the calibrated topology a
     assert.equal(new Set(starts.map(item => item.runId)).size, 4);
     assert.ok(starts.every(item => item.topologyId === CALIBRATION.topologyId));
     assert.ok(starts.every(item => item.calibrationEvidenceDigest === CALIBRATION.calibrationEvidenceDigest));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('qualification runner rejects harness evidence that omits calibrated provenance', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'dig-qualification-runner-')); const fakeHarness = path.join(dir, 'legacy-harness.mjs');
+  try {
+    await writeFile(fakeHarness, `const runId=process.env.DIG_CAMPAIGN_RUN_ID; console.log(JSON.stringify({type:'campaign_start',runId,transport:'qrexec',sourceQube:'worker',targetQube:'coordinator',service:'dig.Coordinator',gitSha:'${'a'.repeat(40)}',startedAt:'2026-08-18T10:00:00.000Z'})); console.log(JSON.stringify({type:'campaign_end',runId,finishedAt:'2026-08-18T10:00:01.000Z'}));`);
+    await assert.rejects(() => runQualificationCampaignSet({ qualificationRunId: 'qual-legacy', recoveryRuns: 3, harnessPath: fakeHarness, env: { ...process.env, ...REQUIRED_ENV }, calibrationBinding: CALIBRATION }), /topologyId|calibrationEvidenceDigest/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
