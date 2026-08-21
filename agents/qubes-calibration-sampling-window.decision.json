@@ -1,0 +1,44 @@
+{
+  "decision": "Use duration-bound sampling derived from the benchmark workload duration, and reject explicit intervals whose last sample falls outside the active workload window.",
+  "reviews": {
+    "correctness": {
+      "winner": "duration-bound sampling",
+      "reason": "Every planned sample remains inside the known active DAG duration; the previous 1000ms default would place four of five samples after a 210ms workload."
+    },
+    "robustness": {
+      "winner": "fail-closed explicit interval validation plus sample-offset evidence",
+      "reason": "Configuration drift cannot silently turn workload calibration into idle calibration, and timing evidence can be checked independently."
+    },
+    "performance_resources": {
+      "winner": "derive intervals without extending or repeating the workload",
+      "reason": "No extra qrexec calls, no daemon, no longer CPU burn, and no change to workload semantics."
+    },
+    "regression": {
+      "winner": "standalone sampling policy primitive before CLI integration",
+      "reason": "Keeps the rule deterministic and unit-testable while minimizing changes to MissionQueue/coordinator code."
+    }
+  },
+  "rejected": [
+    {
+      "approach": "keep fixed 1000ms sampling",
+      "failure": "For the canonical 210ms workload, most samples occur after work completes and understate active resource demand."
+    },
+    {
+      "approach": "repeat or stretch the DAG until all samples finish",
+      "failure": "Changes workload semantics and increases CPU/runtime cost, making calibration less representative of the benchmark being sized."
+    },
+    {
+      "approach": "accept post-workload samples and filter later",
+      "failure": "Can leave too few active samples for p95 and hides configuration mistakes instead of failing closed."
+    }
+  ],
+  "qa": [
+    "210ms workload with 5 samples derives 52ms interval and last sample at 208ms",
+    "1000ms explicit interval for 5 samples is rejected",
+    "explicit safe interval is accepted",
+    "too-short workload/sample density fails closed",
+    "sample offsets must be monotonic and inside active workload"
+  ],
+  "lesson": "Workload lifecycle framing alone is insufficient; resource samples must also be temporally inside the active workload window.",
+  "next": "Integrate this policy into the real calibration CLI/runtime, emit sampleOffsetMs evidence, and make the collector enforce the timing window before accepting resource samples."
+}
