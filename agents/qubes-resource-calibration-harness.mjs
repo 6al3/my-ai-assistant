@@ -119,12 +119,7 @@ export function buildQubesCalibrationRuntime({
   const probeTimeout = positiveInteger(probeTimeoutMs, 'probe timeoutMs', 60000);
   const workloadTimeout = positiveInteger(workloadTimeoutMs, 'workload timeoutMs', 60000);
   const plan = buildOrchestrationCalibrationPlan({ missions, durationsMs, topology: normalizedTopology, workloadId });
-  const hookOptions = {
-    service: qrexecWorkloadService,
-    timeoutMs: workloadTimeout,
-    reconciliationAttempts,
-    reconciliationDelayMs
-  };
+  const hookOptions = { service: qrexecWorkloadService, timeoutMs: workloadTimeout, reconciliationAttempts, reconciliationDelayMs };
   if (sendWorkloadCommand) hookOptions.sendCommand = sendWorkloadCommand;
   const hooks = createOrchestrationCalibrationHooks(plan, hookOptions);
   return {
@@ -170,15 +165,7 @@ export async function runQubesResourceCalibration({
       const roundSamples = await Promise.all(normalizedTopology.workers.map(async worker => ({ worker, sample: await sampleWorker(worker, round) })));
       for (const { worker, sample } of roundSamples) {
         const parsed = parseResourceProbeResponse(JSON.stringify(sample));
-        events.push({
-          type: 'worker_resource_sample',
-          runId: expectedRunId,
-          workerId: worker.id,
-          capabilities: worker.capabilities,
-          ramMb: parsed.ramMb,
-          cpuPercent: parsed.cpuPercent,
-          vcpus: parsed.vcpus
-        });
+        events.push({ type: 'worker_resource_sample', runId: expectedRunId, workerId: worker.id, capabilities: worker.capabilities, ramMb: parsed.ramMb, cpuPercent: parsed.cpuPercent, vcpus: parsed.vcpus });
       }
       if (round + 1 < samples && interval > 0) await sleep(interval);
     }
@@ -210,25 +197,12 @@ export function calibrationCliConfigFromEnv(env = process.env) {
   return { gitSha, resourceService, workloadService, topology, missions, durationsMs, runId, workloadId, sampleCount, intervalMs, probeTimeoutMs, workloadTimeoutMs, reconciliationAttempts, reconciliationDelayMs };
 }
 
-async function main() {
-  const config = calibrationCliConfigFromEnv();
-  const runtime = buildQubesCalibrationRuntime(config);
-  const events = await runQubesResourceCalibration({
-    gitSha: config.gitSha,
-    topology: runtime.topology,
-    runId: config.runId,
-    workloadId: runtime.plan.workloadId,
-    sampleCount: config.sampleCount,
-    intervalMs: config.intervalMs,
-    sampleWorker: runtime.sampleWorker,
-    startWorkload: runtime.startWorkload,
-    stopWorkload: runtime.stopWorkload
-  });
-  for (const event of events) process.stdout.write(`${JSON.stringify(event)}\n`);
+async function legacyMainDisabled() {
+  throw new Error('legacy calibration CLI disabled; use agents/qubes-duration-bound-calibration-cli.mjs');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch(error => {
+  legacyMainDisabled().catch(error => {
     process.stderr.write(`DIG resource calibration harness failed: ${error.message}\n`);
     process.exitCode = 1;
   });
