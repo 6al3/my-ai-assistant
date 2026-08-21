@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { evaluateAttestedMultiRunQualification, parseAttestedMultiRunJson } from './qubes-attested-multi-run-qualification.mjs';
-import { bindCalibrationCampaignProvenance, validateCalibrationCampaignProvenance } from './qubes-calibration-provenance-binding.mjs';
+import { validateCalibrationCampaignProvenance } from './qubes-calibration-provenance-binding.mjs';
 import { runQualificationPreflightFromEnv, validateQualificationPreflightEnvironment } from './qubes-qrexec-qualification-preflight.mjs';
 
 const HARNESS = new URL('./qubes-qrexec-campaign-harness.mjs', import.meta.url);
@@ -53,9 +53,17 @@ export function materializeQualificationManifest(manifest, { env = process.env }
   return JSON.stringify(replaceDeploymentTokens(parsed, { normalService: config.service, faultService: config.faultService }));
 }
 
-function runHarness({ manifest, runId, harnessPath = fileURLToPath(HARNESS), env = process.env } = {}) {
+function runHarness({ manifest, runId, harnessPath = fileURLToPath(HARNESS), env = process.env, calibrationBinding } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [harnessPath], { env: { ...env, DIG_CAMPAIGN_RUN_ID: runId }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [harnessPath], {
+      env: {
+        ...env,
+        DIG_CAMPAIGN_RUN_ID: runId,
+        DIG_QUBES_TOPOLOGY_ID: calibrationBinding.topologyId,
+        DIG_CALIBRATION_EVIDENCE_DIGEST: calibrationBinding.calibrationEvidenceDigest
+      },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
     let stdout = '', stderr = '';
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
@@ -75,9 +83,9 @@ export async function runQualificationCampaignSet({ qualificationRunId = randomU
   for (const item of plan) {
     const manifestTemplate = await readFile(item.manifestUrl, 'utf8');
     const manifest = materializeQualificationManifest(manifestTemplate, { env });
-    const jsonl = await runHarness({ manifest, runId: item.runId, harnessPath, env });
+    const jsonl = await runHarness({ manifest, runId: item.runId, harnessPath, env, calibrationBinding: binding });
     if (!jsonl) throw new Error(`campaign ${item.runId} produced no evidence`);
-    campaigns.push(bindCalibrationCampaignProvenance(jsonl, binding));
+    campaigns.push(jsonl);
   }
   validateCalibrationCampaignProvenance(campaigns, binding);
   return campaigns;
