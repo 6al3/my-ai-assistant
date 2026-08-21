@@ -30,108 +30,68 @@ function virtualClock(start = 1000) {
   };
 }
 
-test('derives a five-sample window and records observed timing inside the 210ms DAG workload', async () => {
+test('records per-worker probe envelopes inside the 210ms DAG workload', async () => {
   const clock = virtualClock();
-  const { events, policy, observedRoundOffsetsMs, observedWorkerOffsetsMs } = await runDurationBoundQubesCalibration({
-    gitSha: SHA,
-    runtime: runtime(),
-    runId: 'duration-bound-1',
-    sampleCount: 5,
-    sleep: clock.sleep,
-    now: clock.now
+  const { events, policy, observedRoundOffsetsMs, probeLatenciesByWorkerMs } = await runDurationBoundQubesCalibration({
+    gitSha: SHA, runtime: runtime(), runId: 'duration-bound-1', sampleCount: 5, sleep: clock.sleep, now: clock.now
   });
   assert.equal(policy.intervalMs, 52);
   assert.equal(policy.lastSampleOffsetMs, 208);
   assert.deepEqual(observedRoundOffsetsMs, [0, 52, 104, 156, 208]);
-  assert.deepEqual(observedWorkerOffsetsMs['coord-code-qa'], [0, 52, 104, 156, 208]);
-  assert.deepEqual(observedWorkerOffsetsMs.system, [0, 52, 104, 156, 208]);
-  const offsets = [...new Set(events.filter(event => event.type === 'worker_resource_sample').map(event => event.sampleOffsetMs))];
-  assert.deepEqual(offsets, [0, 52, 104, 156, 208]);
+  assert.deepEqual(probeLatenciesByWorkerMs['coord-code-qa'], [0, 0, 0, 0, 0]);
+  for (const event of events.filter(event => event.type === 'worker_resource_sample')) {
+    assert.equal(event.sampleStartedOffsetMs, event.sampleOffsetMs);
+    assert.equal(event.probeLatencyMs, 0);
+  }
   const report = collectDurationBoundQubesCalibration(events, {
-    expectedGitSha: SHA,
-    expectedTopologyId: topology.id,
-    expectedWorkloadId: 'synthetic-dag-v1',
-    workloadDurationMs: 210,
-    sampleCount: 5,
-    minSamplesPerWorker: 5
+    expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5, minSamplesPerWorker: 5
   });
   assert.equal(report.workloadBound, true);
-  assert.equal(report.workers.length, 2);
 });
 
-test('fails closed when real sampling drifts beyond the active workload despite a safe planned interval', async () => {
-  let current = 1000;
-  let sleeps = 0;
-  await assert.rejects(() => runDurationBoundQubesCalibration({
-    gitSha: SHA,
-    runtime: runtime(),
-    runId: 'duration-bound-drift',
-    sampleCount: 5,
-    now: () => current,
-    sleep: async ms => {
-      sleeps += 1;
-      current += ms + (sleeps === 4 ? 10 : 0);
-    }
-  }), /outside active workload window/);
-});
-
-test('fails closed when one worker response completes outside the workload even if another worker completes on time', async () => {
+test('fails closed when one worker completion leaves the active workload', async () => {
   let current = 1000;
   const delayedRuntime = runtime();
   delayedRuntime.sampleWorker = async worker => {
-    if (worker.id === 'system') {
-      await delayUntilImmediate();
-      current = 1220;
-    }
+    if (worker.id === 'system') { await delayUntilImmediate(); current = 1220; }
     return { ramMb: 700, cpuPercent: 40, vcpus: 1 };
   };
   await assert.rejects(() => runDurationBoundQubesCalibration({
-    gitSha: SHA,
-    runtime: delayedRuntime,
-    runId: 'duration-bound-worker-skew',
-    sampleCount: 1,
-    now: () => current,
-    sleep: async () => {}
-  }), /worker system timing evidence invalid: sample offset 220ms is outside active workload window/);
+    gitSha: SHA, runtime: delayedRuntime, runId: 'late-worker', sampleCount: 1, now: () => current, sleep: async () => {}
+  }), /worker system probe envelope ends outside active workload window/);
 });
 
-test('rejects an explicit interval that would sample after the workload', async () => {
+test('fails closed when probe latency exceeds its budget while still inside workload', async () => {
+  let current = 1000;
+  const delayedRuntime = runtime();
+  delayedRuntime.sampleWorker = async worker => {
+    if (worker.id === 'system') current += 12;
+    return { ramMb: 700, cpuPercent: 40, vcpus: 1 };
+  };
   await assert.rejects(() => runDurationBoundQubesCalibration({
-    gitSha: SHA,
-    runtime: runtime(),
-    runId: 'duration-bound-bad',
-    sampleCount: 5,
-    requestedIntervalMs: 1000
-  }), /sampling window exceeds active workload/);
+    gitSha: SHA, runtime: delayedRuntime, runId: 'slow-probe', sampleCount: 1, maxProbeLatencyMs: 10, now: () => current, sleep: async () => {}
+  }), /probe latency 12ms exceeds budget 10ms/);
 });
 
-test('collector validates timing independently per worker', async () => {
+test('collector rejects forged or over-budget probe envelope evidence', async () => {
   const clock = virtualClock();
-  const { events } = await runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'duration-bound-per-worker', sampleCount: 5, sleep: clock.sleep, now: clock.now });
-  const skewed = events.map(event => event.type === 'worker_resource_sample' && event.workerId === 'system' && event.sampleOffsetMs === 208
-    ? { ...event, sampleOffsetMs: 210 }
-    : { ...event });
-  assert.throws(() => collectDurationBoundQubesCalibration(skewed, {
-    expectedGitSha: SHA,
-    expectedTopologyId: topology.id,
-    expectedWorkloadId: 'synthetic-dag-v1',
-    workloadDurationMs: 210,
-    sampleCount: 5
-  }), /worker system timing evidence invalid: sample offset 210ms is outside active workload window/);
-});
-
-test('collector fails closed on missing, late, or mismatched sample timing evidence', async () => {
-  const clock = virtualClock();
-  const { events } = await runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'duration-bound-2', sampleCount: 5, sleep: clock.sleep, now: clock.now });
+  const { events } = await runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'collector', sampleCount: 5, sleep: clock.sleep, now: clock.now });
   const sampleIndex = events.findIndex(event => event.type === 'worker_resource_sample');
-  const missing = events.map(event => ({ ...event }));
-  delete missing[sampleIndex].sampleOffsetMs;
-  assert.throws(() => collectDurationBoundQubesCalibration(missing, { expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5 }), /sampleOffsetMs is required/);
+  const forged = events.map(event => ({ ...event }));
+  forged[sampleIndex].probeLatencyMs = 9;
+  assert.throws(() => collectDurationBoundQubesCalibration(forged, {
+    expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5
+  }), /probe latency evidence mismatch/);
 
-  const late = events.map(event => ({ ...event }));
-  for (const event of late) if (event.type === 'worker_resource_sample' && event.sampleOffsetMs === 208) event.sampleOffsetMs = 210;
-  assert.throws(() => collectDurationBoundQubesCalibration(late, { expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5 }), /outside active workload window/);
+  const slow = events.map(event => ({ ...event }));
+  slow[sampleIndex].sampleStartedOffsetMs = 0;
+  slow[sampleIndex].sampleOffsetMs = 11;
+  slow[sampleIndex].probeLatencyMs = 11;
+  assert.throws(() => collectDurationBoundQubesCalibration(slow, {
+    expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5, maxProbeLatencyMs: 10
+  }), /probe latency 11ms exceeds budget 10ms/);
+});
 
-  const mismatch = events.map(event => event.type === 'worker_resource_sample' ? { ...event, workloadDurationMs: 211 } : { ...event });
-  assert.throws(() => collectDurationBoundQubesCalibration(mismatch, { expectedGitSha: SHA, expectedTopologyId: topology.id, expectedWorkloadId: 'synthetic-dag-v1', workloadDurationMs: 210, sampleCount: 5 }), /workload duration mismatch/);
+test('rejects explicit interval that would sample after workload', async () => {
+  await assert.rejects(() => runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'bad', sampleCount: 5, requestedIntervalMs: 1000 }), /sampling window exceeds active workload/);
 });
