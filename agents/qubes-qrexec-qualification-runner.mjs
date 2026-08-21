@@ -14,6 +14,23 @@ function assertRunId(value, name = 'qualificationRunId') {
   return value;
 }
 
+function nonEmpty(value, name) {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required for qualification`);
+  return value.trim();
+}
+
+export function validateCalibrationSelectionBinding(selection, { expectedGitSha, expectedTopologyId } = {}) {
+  if (!selection || typeof selection !== 'object' || Array.isArray(selection)) throw new Error('calibration selection result is required');
+  if (selection.schemaVersion !== 2) throw new Error('calibration selection schemaVersion must be 2');
+  const gitSha = nonEmpty(selection.gitSha, 'calibration selection gitSha');
+  const topologyId = nonEmpty(selection.winner?.id, 'calibration selection winner.id');
+  const calibrationEvidenceDigest = nonEmpty(selection.calibrationEvidenceDigest, 'calibration selection evidence digest');
+  if (!/^[a-f0-9]{64}$/.test(calibrationEvidenceDigest)) throw new Error('calibration selection evidence digest must be a lowercase SHA-256 hex digest');
+  if (gitSha !== nonEmpty(expectedGitSha, 'expectedGitSha')) throw new Error('calibration selection git SHA mismatch');
+  if (topologyId !== nonEmpty(expectedTopologyId, 'expectedTopologyId')) throw new Error('calibration selection topology mismatch');
+  return { gitSha, topologyId, calibrationEvidenceDigest };
+}
+
 export function buildQualificationRunPlan({ qualificationRunId = randomUUID(), recoveryRuns = 3 } = {}) {
   const prefix = assertRunId(qualificationRunId);
   if (!Number.isInteger(recoveryRuns) || recoveryRuns < 3 || recoveryRuns > 10) throw new Error('recoveryRuns must be an integer between 3 and 10');
@@ -77,11 +94,18 @@ export function evaluateQualificationCampaignSet(campaigns, { env = process.env,
 async function main() {
   const qualificationRunId = process.env.DIG_QUALIFICATION_RUN_ID || randomUUID();
   const recoveryRuns = process.env.DIG_RECOVERY_RUNS ? Number(process.env.DIG_RECOVERY_RUNS) : 3;
+  const expectedGitSha = nonEmpty(process.env.DIG_GIT_SHA, 'DIG_GIT_SHA');
+  const expectedTopologyId = nonEmpty(process.env.DIG_QUBES_TOPOLOGY_ID, 'DIG_QUBES_TOPOLOGY_ID');
+  let selection;
+  try { selection = JSON.parse(nonEmpty(process.env.DIG_CALIBRATION_SELECTION_RESULT, 'DIG_CALIBRATION_SELECTION_RESULT')); }
+  catch (error) { throw new Error(`DIG_CALIBRATION_SELECTION_RESULT must be valid JSON: ${error instanceof Error ? error.message : String(error)}`); }
+  const calibrationBinding = validateCalibrationSelectionBinding(selection, { expectedGitSha, expectedTopologyId });
   const preflight = await runQualificationPreflightFromEnv();
   const campaigns = await runQualificationCampaignSet({ qualificationRunId, recoveryRuns });
   const qualification = evaluateQualificationCampaignSet(campaigns, { preflightVerifiedAttestations: preflight.verifiedAttestations });
-  process.stdout.write(`${JSON.stringify({ qualificationRunId, preflight, qualification, campaigns }, null, 2)}\n`);
-  if (!qualification.ready) process.exitCode = 2;
+  const releaseReady = qualification.ready === true;
+  process.stdout.write(`${JSON.stringify({ qualificationRunId, calibrationBinding, preflight, qualification: { ...qualification, ready: releaseReady }, campaigns }, null, 2)}\n`);
+  if (!releaseReady) process.exitCode = 2;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) main().catch(error => { process.stderr.write(`DIG Qubes qualification runner failed: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
