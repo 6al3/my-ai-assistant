@@ -48,7 +48,7 @@ test('records per-worker probe envelopes and p95 latency inside the 210ms DAG wo
   });
   assert.equal(report.workloadBound, true);
   assert.equal(report.probeLatencyBound, true);
-  assert.equal(report.schemaVersion, 3);
+  assert.equal(report.schemaVersion, 2);
   assert.equal(report.workers.find(worker => worker.id === 'coord-code-qa').resources.probeLatencyP95Ms, 0);
   assert.equal(report.workers.find(worker => worker.id === 'system').resources.probeLatencyP95Ms, 0);
 });
