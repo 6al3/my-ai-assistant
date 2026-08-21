@@ -10,7 +10,7 @@ export const QA_SHARDS = Object.freeze([
   { name: 'syntax-check', command: ['npm', ['run', 'check']] },
   { name: 'queue-core', command: ['node', ['--test', 'box/project-files.test.mjs', 'api/missions-core.test.mjs', 'agents/mission-queue.test.mjs', 'agents/mission-queue-store.test.mjs', 'agents/mission-coordinator.test.mjs']] },
   { name: 'worker-reliability', command: ['node', ['--test', 'agents/worker-runtime.test.mjs', 'agents/worker-transport-envelope.test.mjs', 'agents/durable-request-journal.test.mjs', 'agents/worker-lease-fencing.test.mjs', 'agents/orchestrated-mission-runtime.test.mjs']] },
-  { name: 'distributed-faults', command: ['node', ['--test', 'agents/orchestration-benchmark.test.mjs', 'agents/orchestration-resource-profile.test.mjs', 'agents/qubes-resource-calibration.test.mjs', 'agents/qubes-resource-probe-service.test.mjs', 'agents/qubes-resource-calibration-harness.test.mjs', 'agents/qubes-orchestration-calibration-workload.test.mjs', 'agents/qubes-synthetic-workload-service.test.mjs', 'agents/qubes-resource-calibration-integration.test.mjs', 'agents/orchestration-process-fault.test.mjs', 'agents/orchestration-authenticated-recovery.test.mjs', 'agents/qrexec-response-attestation.test.mjs', 'agents/qubes-qrexec-coordinator-service.test.mjs', 'agents/qrexec-fault-readonly-preflight.test.mjs', 'agents/qubes-qrexec-readiness-gate.test.mjs', 'agents/qubes-qrexec-campaign-collector.test.mjs', 'agents/qubes-qrexec-campaign-harness.test.mjs', 'agents/qubes-qrexec-qa-join-evidence.test.mjs', 'agents/qubes-real-worker-evidence-gate.test.mjs', 'agents/qubes-multi-run-qualification.test.mjs', 'agents/qubes-attested-multi-run-qualification.test.mjs', 'agents/qubes-idempotency-independence.test.mjs', 'agents/qubes-qrexec-qualification-preflight.test.mjs', 'agents/qubes-qrexec-qualification-runner.test.mjs']] },
+  { name: 'distributed-faults', command: ['node', ['--test', 'agents/orchestration-benchmark.test.mjs', 'agents/orchestration-resource-profile.test.mjs', 'agents/qubes-resource-calibration.test.mjs', 'agents/qubes-resource-probe-service.test.mjs', 'agents/qubes-resource-calibration-harness.test.mjs', 'agents/qubes-orchestration-calibration-workload.test.mjs', 'agents/qubes-synthetic-workload-service.test.mjs', 'agents/qubes-resource-calibration-integration.test.mjs', 'agents/qubes-duration-bound-calibration.test.mjs', 'agents/qubes-duration-bound-calibration-cli.test.mjs', 'agents/qubes-calibration-cli-authority.test.mjs', 'agents/orchestration-process-fault.test.mjs', 'agents/orchestration-authenticated-recovery.test.mjs', 'agents/qrexec-response-attestation.test.mjs', 'agents/qubes-qrexec-coordinator-service.test.mjs', 'agents/qrexec-fault-readonly-preflight.test.mjs', 'agents/qubes-qrexec-readiness-gate.test.mjs', 'agents/qubes-qrexec-campaign-collector.test.mjs', 'agents/qubes-qrexec-campaign-harness.test.mjs', 'agents/qubes-qrexec-qa-join-evidence.test.mjs', 'agents/qubes-real-worker-evidence-gate.test.mjs', 'agents/qubes-multi-run-qualification.test.mjs', 'agents/qubes-attested-multi-run-qualification.test.mjs', 'agents/qubes-idempotency-independence.test.mjs', 'agents/qubes-qrexec-qualification-preflight.test.mjs', 'agents/qubes-qrexec-qualification-runner.test.mjs']] },
   { name: 'synthetic-sandboxes', command: ['node', ['--test', 'agents/node-qa-parity.test.mjs', 'agents/benchmark-arena.test.mjs', 'agents/payment-sandbox.test.mjs', 'agents/collaboration-sandbox.test.mjs', 'ios/DIGAssistant/mission-control-plane-contract.test.mjs']] }
 ]);
 
@@ -47,9 +47,7 @@ async function gitEvidence() {
   return { sha: sha.stdout.trim(), clean: status.stdout.trim() === '' };
 }
 
-function sha256(text) {
-  return createHash('sha256').update(text).digest('hex');
-}
+function sha256(text) { return createHash('sha256').update(text).digest('hex'); }
 
 function redactDiagnostic(text) {
   return text
@@ -68,9 +66,7 @@ function outputEvidence(text, { includeTail = false, tailBytes = DEFAULT_DIAGNOS
   return { ...evidence, diagnosticTail: redactDiagnostic(tail), diagnosticTailTruncated: buffer.length > tailBytes };
 }
 
-function digestReport(report) {
-  return sha256(JSON.stringify(report));
-}
+function digestReport(report) { return sha256(JSON.stringify(report)); }
 
 export async function runLocalQaEvidence({ shards = QA_SHARDS, timeoutMs = DEFAULT_TIMEOUT_MS, run = runProcess, git = gitEvidence } = {}) {
   const startedAt = new Date().toISOString();
@@ -78,36 +74,14 @@ export async function runLocalQaEvidence({ shards = QA_SHARDS, timeoutMs = DEFAU
   const expectedSha = process.env.DIG_GIT_SHA?.trim() || repository.sha;
   if (expectedSha !== repository.sha) throw new Error(`DIG_GIT_SHA mismatch: expected ${expectedSha}, got ${repository.sha}`);
   if (!repository.clean) throw new Error('local QA evidence requires a clean git worktree');
-
   const results = [];
   for (const shard of shards) {
     const [file, args] = shard.command;
     const outcome = await run(file, args, { timeoutMs });
     const passed = outcome.exitCode === 0 && !outcome.timedOut;
-    results.push({
-      name: shard.name,
-      exitCode: outcome.exitCode,
-      signal: outcome.signal,
-      timedOut: outcome.timedOut,
-      durationMs: outcome.durationMs,
-      passed,
-      stdout: outputEvidence(outcome.stdout, { includeTail: !passed }),
-      stderr: outputEvidence(outcome.stderr, { includeTail: !passed })
-    });
+    results.push({ name: shard.name, exitCode: outcome.exitCode, signal: outcome.signal, timedOut: outcome.timedOut, durationMs: outcome.durationMs, passed, stdout: outputEvidence(outcome.stdout, { includeTail: !passed }), stderr: outputEvidence(outcome.stderr, { includeTail: !passed }) });
   }
-
-  const report = {
-    schemaVersion: 2,
-    kind: 'dig-local-qa-evidence',
-    gitSha: repository.sha,
-    startedAt,
-    finishedAt: new Date().toISOString(),
-    runtime: { node: process.version, platform: process.platform, arch: process.arch, hostname: os.hostname() },
-    source: 'local-runner',
-    outputPolicy: { fullOutputStored: false, failedDiagnosticTailBytes: DEFAULT_DIAGNOSTIC_TAIL_BYTES, redactionApplied: true },
-    allPassed: results.every(result => result.passed),
-    results
-  };
+  const report = { schemaVersion: 2, kind: 'dig-local-qa-evidence', gitSha: repository.sha, startedAt, finishedAt: new Date().toISOString(), runtime: { node: process.version, platform: process.platform, arch: process.arch, hostname: os.hostname() }, source: 'local-runner', outputPolicy: { fullOutputStored: false, failedDiagnosticTailBytes: DEFAULT_DIAGNOSTIC_TAIL_BYTES, redactionApplied: true }, allPassed: results.every(result => result.passed), results };
   return { ...report, digestSha256: digestReport(report) };
 }
 
@@ -121,8 +95,5 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(error => {
-    console.error(error?.stack ?? error);
-    process.exitCode = 1;
-  });
+  main().catch(error => { console.error(error?.stack ?? error); process.exitCode = 1; });
 }
