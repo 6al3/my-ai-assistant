@@ -24,6 +24,7 @@ export async function runDurationBoundQubesCalibration({
   const offsets = [];
   const sampleWorker = async (worker, round) => {
     const offsetMs = now() - startedAt;
+    if (!Number.isInteger(offsetMs) || offsetMs < 0) throw new Error('observed sample offset must be a non-negative integer');
     offsets[round] = offsets[round] === undefined ? offsetMs : Math.min(offsets[round], offsetMs);
     return runtime.sampleWorker(worker, round);
   };
@@ -39,14 +40,15 @@ export async function runDurationBoundQubesCalibration({
     stopWorkload: runtime.stopWorkload,
     sleep
   });
-  const expectedOffsets = Array.from({ length: policy.sampleCount }, (_, index) => index * policy.intervalMs);
-  validateSampleOffsets(expectedOffsets, policy);
+  validateSampleOffsets(offsets, policy);
   const annotated = events.map(event => {
     if (event.type !== 'worker_resource_sample') return event;
     const round = annotatedRoundIndex(event, runtime.topology.workers.length, events);
-    return { ...event, sampleOffsetMs: expectedOffsets[round], workloadDurationMs };
+    const sampleOffsetMs = offsets[round];
+    if (!Number.isInteger(sampleOffsetMs)) throw new Error(`missing observed sample timing for round ${round}`);
+    return { ...event, sampleOffsetMs, workloadDurationMs };
   });
-  return { events: annotated, policy, observedRoundOffsetsMs: offsets };
+  return { events: annotated, policy, observedRoundOffsetsMs: [...offsets] };
 }
 
 function annotatedRoundIndex(target, workerCount, events) {
