@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { runDurationBoundCalibrationCli } from './qubes-duration-bound-calibration-cli.mjs';
 import { evaluateCalibratedQubesTopologies } from './qubes-calibrated-topology-selection.mjs';
@@ -11,6 +12,22 @@ function positive(value, label) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) throw new Error(`${label} must be positive`);
   return number;
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalize(value[key])]));
+  }
+  return value;
+}
+
+export function digestCalibrationEvidenceSet(reports) {
+  if (!Array.isArray(reports) || reports.length === 0) throw new Error('calibration reports are required');
+  const ordered = [...reports]
+    .map(report => canonicalize(report))
+    .sort((left, right) => String(left.topologyId).localeCompare(String(right.topologyId)));
+  return createHash('sha256').update(JSON.stringify(ordered)).digest('hex');
 }
 
 export async function runQubesCalibrationSelectionCommand({
@@ -37,8 +54,6 @@ export async function runQubesCalibrationSelectionCommand({
   const candidateIds = new Set(candidates.map(candidate => nonEmpty(candidate?.id, 'candidate topology id')));
   if (candidateIds.size !== candidates.length) throw new Error('candidate topology ids must be unique');
 
-  // Validate the full candidate/config bijection before starting any expensive Qubes workload.
-  // This avoids partially calibrating the fleet and only discovering duplicate/missing configs later.
   const configIds = calibrationConfigs.map(config => nonEmpty(config?.topologyId, 'calibration topologyId'));
   const configIdSet = new Set(configIds);
   if (configIdSet.size !== configIds.length) throw new Error('calibration topology ids must be unique');
@@ -53,7 +68,6 @@ export async function runQubesCalibrationSelectionCommand({
   }
 
   const calibrations = [];
-  // Keep calibration sequential: concurrent synthetic workloads would contaminate RAM/CPU/latency evidence.
   for (const config of calibrationConfigs) {
     const topologyId = config.topologyId;
     const result = await runCalibration(config);
@@ -63,6 +77,7 @@ export async function runQubesCalibrationSelectionCommand({
     calibrations.push(result.report);
   }
 
+  const calibrationEvidenceDigest = digestCalibrationEvidenceSet(calibrations);
   const evaluation = evaluate(missions, durationsMs, candidates, calibrations, {
     expectedGitSha,
     readiness,
@@ -73,9 +88,10 @@ export async function runQubesCalibrationSelectionCommand({
   if (!evaluation?.winner) throw new Error('no calibrated Qubes topology satisfied readiness and resource gates');
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     gitSha: expectedGitSha,
     calibrationTopologyIds: calibrations.map(report => report.topologyId).sort(),
+    calibrationEvidenceDigest,
     winner: evaluation.winner,
     evaluation
   };
