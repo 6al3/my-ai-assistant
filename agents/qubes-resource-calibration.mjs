@@ -26,6 +26,7 @@ export function collectQubesResourceCalibration(events = [], {
   expectedTopologyId,
   expectedWorkloadId,
   requireWorkloadEvidence = false,
+  requireProbeLatencyEvidence = false,
   minSamplesPerWorker = 3
 } = {}) {
   nonEmpty(expectedGitSha, 'expectedGitSha');
@@ -72,11 +73,12 @@ export function collectQubesResourceCalibration(events = [], {
       const ramMb = finiteNonNegative(event.ramMb, 'ramMb');
       const cpuPercent = finiteNonNegative(event.cpuPercent, 'cpuPercent');
       const vcpus = positiveInteger(event.vcpus, 'vcpus');
+      const probeLatencyMs = requireProbeLatencyEvidence ? finiteNonNegative(event.probeLatencyMs, 'probeLatencyMs') : null;
       const signature = JSON.stringify({ capabilities, vcpus });
       if (workerProfiles.has(workerId) && workerProfiles.get(workerId) !== signature) throw new Error(`worker ${workerId} profile changed during calibration`);
       workerProfiles.set(workerId, signature);
       const list = samples.get(workerId) ?? [];
-      list.push({ ramMb, cpuPercent, vcpus, capabilities });
+      list.push({ ramMb, cpuPercent, vcpus, capabilities, probeLatencyMs });
       samples.set(workerId, list);
       continue;
     }
@@ -98,20 +100,22 @@ export function collectQubesResourceCalibration(events = [], {
   const workers = [];
   for (const [workerId, list] of [...samples.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (list.length < minSamplesPerWorker) throw new Error(`worker ${workerId} has insufficient resource samples`);
+    const resources = {
+      ramMb: Math.ceil(percentile(list.map(item => item.ramMb), 0.95)),
+      vcpus: list[0].vcpus,
+      cpuP95Percent: percentile(list.map(item => item.cpuPercent), 0.95)
+    };
+    if (requireProbeLatencyEvidence) resources.probeLatencyP95Ms = percentile(list.map(item => item.probeLatencyMs), 0.95);
     workers.push({
       id: workerId,
       capabilities: list[0].capabilities,
-      resources: {
-        ramMb: Math.ceil(percentile(list.map(item => item.ramMb), 0.95)),
-        vcpus: list[0].vcpus,
-        cpuP95Percent: percentile(list.map(item => item.cpuPercent), 0.95)
-      },
+      resources,
       sampleCount: list.length
     });
   }
   if (!workers.length) throw new Error('resource calibration has no worker samples');
   const digest = createHash('sha256').update(JSON.stringify({ runId, expectedGitSha, expectedTopologyId, workloadId, workers })).digest('hex');
-  return { schemaVersion: 2, runId, gitSha: expectedGitSha, topologyId: expectedTopologyId, workloadId, workloadBound: workloadStarted && workloadStopped, workers, digest };
+  return { schemaVersion: 3, runId, gitSha: expectedGitSha, topologyId: expectedTopologyId, workloadId, workloadBound: workloadStarted && workloadStopped, probeLatencyBound: requireProbeLatencyEvidence, workers, digest };
 }
 
 export function applyQubesResourceCalibration(topology, calibration) {
@@ -122,7 +126,9 @@ export function applyQubesResourceCalibration(topology, calibration) {
     if (!sample) throw new Error(`missing calibration for worker ${worker.id}`);
     const expected = [...new Set(worker.capabilities ?? [])].sort();
     if (JSON.stringify(expected) !== JSON.stringify(sample.capabilities)) throw new Error(`capability profile mismatch for worker ${worker.id}`);
-    return { ...worker, resources: { ramMb: sample.resources.ramMb, vcpus: sample.resources.vcpus, cpuP95Percent: sample.resources.cpuP95Percent } };
+    const resources = { ramMb: sample.resources.ramMb, vcpus: sample.resources.vcpus, cpuP95Percent: sample.resources.cpuP95Percent };
+    if (sample.resources.probeLatencyP95Ms != null) resources.probeLatencyP95Ms = finiteNonNegative(sample.resources.probeLatencyP95Ms, `worker ${worker.id} probeLatencyP95Ms`);
+    return { ...worker, resources };
   });
   if (workers.length !== measured.size) throw new Error('calibration contains unexpected workers');
   return { ...topology, workers, calibration: { runId: calibration.runId, gitSha: calibration.gitSha, workloadId: calibration.workloadId, digest: calibration.digest } };
