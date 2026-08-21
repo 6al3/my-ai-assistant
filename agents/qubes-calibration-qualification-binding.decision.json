@@ -1,0 +1,23 @@
+{
+  "decision": "Require the real Qubes qualification runner to consume the schema-v2 calibrated topology selection artifact and bind qualification to its exact Git SHA, winner topology ID, and canonical SHA-256 calibration evidence digest before any preflight or campaign starts.",
+  "reviews": {
+    "correctness": "Preferred an explicit selection-artifact binding because a qualification run that knows only the commit and Qubes endpoints cannot prove which measured resource evidence selected the deployed topology.",
+    "robustness_security": "Preferred fail-before-preflight validation of schema, SHA, topology ID, and lowercase SHA-256 digest. This prevents stale or swapped calibration selection artifacts from reaching qrexec qualification and preserves the existing attestation/fencing gates.",
+    "latency_resources_regression": "Preferred local artifact validation over a new evidence database or attestation service: zero additional qrexec round trips, negligible CPU/memory, and no MissionQueue/coordinator mutation-semantic changes."
+  },
+  "alternatives_rejected": [
+    "Pass only the digest as an environment string: weaker because it does not bind the digest to the selection schema, winner topology, and commit as one artifact.",
+    "Recompute calibration during qualification: stronger freshness but duplicates expensive Qube workloads, increases resource contention, and can select a different topology between phases.",
+    "External evidence database/attestation service: useful later for audit history, but adds credentials, lifecycle, latency, and failure modes before real Qubes qualification is established."
+  ],
+  "qa": [
+    "Accept schema-v2 selection only when Git SHA, winner topology ID, and 64-character lowercase SHA-256 digest match deployment expectations.",
+    "Reject wrong Git SHA before qrexec preflight.",
+    "Reject wrong topology ID before qrexec preflight.",
+    "Reject malformed or legacy calibration evidence digest before qrexec preflight."
+  ],
+  "failure_lessons": [
+    "A content digest returned by calibration selection is not a release gate until the qualification authority consumes and validates it.",
+    "Binding must happen before any Qubes workload or qualification traffic so configuration drift fails without producing partial evidence."
+  ]
+}
