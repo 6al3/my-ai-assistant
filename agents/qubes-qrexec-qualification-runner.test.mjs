@@ -3,13 +3,24 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { buildQualificationRunPlan, evaluateQualificationCampaignSet, materializeQualificationManifest, runQualificationCampaignSet } from './qubes-qrexec-qualification-runner.mjs';
+import { buildQualificationRunPlan, evaluateQualificationCampaignSet, materializeQualificationManifest, runQualificationCampaignSet, validateCalibrationSelectionBinding } from './qubes-qrexec-qualification-runner.mjs';
 
 const REQUIRED_ENV = {
   DIG_QREXEC_TARGET: 'coordinator', DIG_QREXEC_SOURCE: 'worker', DIG_QREXEC_SERVICE: 'dig.Coordinator', DIG_QREXEC_FAULT_SERVICE: 'dig.CoordinatorFault',
   DIG_GIT_SHA: 'a'.repeat(40), DIG_TRANSPORT_SECRET: 'qualification-test-secret-000000000000', DIG_RESPONSE_ATTESTATION_KEY_ID: 'dig-coordinator-key-1', DIG_RESPONSE_ATTESTATION_PUBLIC_KEY: 'test-public-key'
 };
 const verified = service => ({ service, keyId: REQUIRED_ENV.DIG_RESPONSE_ATTESTATION_KEY_ID, gitSha: REQUIRED_ENV.DIG_GIT_SHA });
+
+test('qualification binds to exact calibrated topology selection evidence', () => {
+  const selection = { schemaVersion: 2, gitSha: REQUIRED_ENV.DIG_GIT_SHA, calibrationEvidenceDigest: 'b'.repeat(64), winner: { id: 'two-worker-fused' } };
+  assert.deepEqual(validateCalibrationSelectionBinding(selection, { expectedGitSha: REQUIRED_ENV.DIG_GIT_SHA, expectedTopologyId: 'two-worker-fused' }), {
+    gitSha: REQUIRED_ENV.DIG_GIT_SHA, topologyId: 'two-worker-fused', calibrationEvidenceDigest: 'b'.repeat(64)
+  });
+  assert.throws(() => validateCalibrationSelectionBinding({ ...selection, gitSha: 'c'.repeat(40) }, { expectedGitSha: REQUIRED_ENV.DIG_GIT_SHA, expectedTopologyId: 'two-worker-fused' }), /git SHA mismatch/);
+  assert.throws(() => validateCalibrationSelectionBinding(selection, { expectedGitSha: REQUIRED_ENV.DIG_GIT_SHA, expectedTopologyId: 'four-worker-isolated' }), /topology mismatch/);
+  assert.throws(() => validateCalibrationSelectionBinding({ ...selection, calibrationEvidenceDigest: 'not-a-digest' }, { expectedGitSha: REQUIRED_ENV.DIG_GIT_SHA, expectedTopologyId: 'two-worker-fused' }), /SHA-256/);
+  assert.throws(() => validateCalibrationSelectionBinding({ ...selection, schemaVersion: 1 }, { expectedGitSha: REQUIRED_ENV.DIG_GIT_SHA, expectedTopologyId: 'two-worker-fused' }), /schemaVersion must be 2/);
+});
 
 test('qualification plan uses one lease/QA run plus at least three independent recovery runs', () => {
   const plan = buildQualificationRunPlan({ qualificationRunId: 'qual-1', recoveryRuns: 3 });
