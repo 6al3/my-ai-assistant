@@ -21,18 +21,27 @@ function runtime() {
   };
 }
 
-test('derives a five-sample window that remains inside the 210ms DAG workload', async () => {
-  const sleeps = [];
-  const { events, policy } = await runDurationBoundQubesCalibration({
+function virtualClock(start = 1000) {
+  let current = start;
+  return {
+    now: () => current,
+    sleep: async ms => { current += ms; }
+  };
+}
+
+test('derives a five-sample window and records observed timing inside the 210ms DAG workload', async () => {
+  const clock = virtualClock();
+  const { events, policy, observedRoundOffsetsMs } = await runDurationBoundQubesCalibration({
     gitSha: SHA,
     runtime: runtime(),
     runId: 'duration-bound-1',
     sampleCount: 5,
-    sleep: async ms => sleeps.push(ms)
+    sleep: clock.sleep,
+    now: clock.now
   });
   assert.equal(policy.intervalMs, 52);
   assert.equal(policy.lastSampleOffsetMs, 208);
-  assert.deepEqual(sleeps, [52, 52, 52, 52]);
+  assert.deepEqual(observedRoundOffsetsMs, [0, 52, 104, 156, 208]);
   const offsets = [...new Set(events.filter(event => event.type === 'worker_resource_sample').map(event => event.sampleOffsetMs))];
   assert.deepEqual(offsets, [0, 52, 104, 156, 208]);
   const report = collectDurationBoundQubesCalibration(events, {
@@ -47,6 +56,22 @@ test('derives a five-sample window that remains inside the 210ms DAG workload', 
   assert.equal(report.workers.length, 2);
 });
 
+test('fails closed when real sampling drifts beyond the active workload despite a safe planned interval', async () => {
+  let current = 1000;
+  let sleeps = 0;
+  await assert.rejects(() => runDurationBoundQubesCalibration({
+    gitSha: SHA,
+    runtime: runtime(),
+    runId: 'duration-bound-drift',
+    sampleCount: 5,
+    now: () => current,
+    sleep: async ms => {
+      sleeps += 1;
+      current += ms + (sleeps === 4 ? 10 : 0);
+    }
+  }), /outside active workload window/);
+});
+
 test('rejects an explicit interval that would sample after the workload', async () => {
   await assert.rejects(() => runDurationBoundQubesCalibration({
     gitSha: SHA,
@@ -58,7 +83,8 @@ test('rejects an explicit interval that would sample after the workload', async 
 });
 
 test('collector fails closed on missing, late, or mismatched sample timing evidence', async () => {
-  const { events } = await runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'duration-bound-2', sampleCount: 5, sleep: async () => {} });
+  const clock = virtualClock();
+  const { events } = await runDurationBoundQubesCalibration({ gitSha: SHA, runtime: runtime(), runId: 'duration-bound-2', sampleCount: 5, sleep: clock.sleep, now: clock.now });
   const sampleIndex = events.findIndex(event => event.type === 'worker_resource_sample');
   const missing = events.map(event => ({ ...event }));
   delete missing[sampleIndex].sampleOffsetMs;
