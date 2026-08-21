@@ -1,0 +1,46 @@
+{
+  "decision": "Validate the complete candidate-to-calibration-config bijection and Git SHA binding before starting any Qubes workload, then calibrate candidates sequentially.",
+  "reviews": [
+    {
+      "agent": "correctness",
+      "preferred": "preflight-bijection",
+      "reason": "Length equality alone permits duplicate topology configs that omit a candidate; validation must prove a one-to-one mapping before evidence collection."
+    },
+    {
+      "agent": "robustness-security",
+      "preferred": "fail-before-workload",
+      "reason": "Invalid topology or SHA configuration must not partially execute synthetic workloads or produce partial evidence that could be mistaken for qualification data."
+    },
+    {
+      "agent": "latency-resources-regression",
+      "preferred": "sequential-calibration",
+      "reason": "Parallel candidate calibration is faster wall-clock but contaminates RAM/CPU/probe-latency measurements through shared host contention. Sequential execution costs time but preserves measurement isolation and adds no runtime production surface."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "validate-each-config-lazily",
+      "rejected": "Can start one or more expensive Qubes workloads before discovering a duplicate, missing, unexpected, or wrong-SHA config."
+    },
+    {
+      "name": "parallel-candidate-calibration",
+      "rejected": "Reduces wall-clock latency but creates cross-topology resource contention and weakens benchmark comparability."
+    },
+    {
+      "name": "external-calibration-scheduler",
+      "rejected": "Adds infrastructure and lifecycle complexity without improving correctness for the bounded 1/2/3/4-worker candidate set."
+    }
+  ],
+  "qa": [
+    "duplicate calibration topology IDs fail before runCalibration is called",
+    "unexpected topology IDs fail before runCalibration is called",
+    "wrong Git SHA fails before runCalibration is called",
+    "valid candidate calibrations execute with peak concurrency exactly one",
+    "mismatched returned provenance and no-winner evaluation remain fail-closed"
+  ],
+  "lessons": [
+    "A config-array length check is not a bijection proof.",
+    "Measurement throughput must not be optimized at the expense of resource-calibration isolation.",
+    "Preflight validation is highest value when it occurs before any distributed side effect, even synthetic ones."
+  ]
+}
