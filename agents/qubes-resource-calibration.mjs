@@ -115,7 +115,7 @@ export function collectQubesResourceCalibration(events = [], {
   }
   if (!workers.length) throw new Error('resource calibration has no worker samples');
   const digest = createHash('sha256').update(JSON.stringify({ runId, expectedGitSha, expectedTopologyId, workloadId, workers })).digest('hex');
-  return { schemaVersion: 3, runId, gitSha: expectedGitSha, topologyId: expectedTopologyId, workloadId, workloadBound: workloadStarted && workloadStopped, probeLatencyBound: requireProbeLatencyEvidence, workers, digest };
+  return { schemaVersion: 2, runId, gitSha: expectedGitSha, topologyId: expectedTopologyId, workloadId, workloadBound: workloadStarted && workloadStopped, probeLatencyBound: requireProbeLatencyEvidence, workers, digest };
 }
 
 export function applyQubesResourceCalibration(topology, calibration) {
