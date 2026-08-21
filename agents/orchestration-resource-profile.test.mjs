@@ -69,6 +69,29 @@ test('resource-aware evaluator chooses smallest ready topology inside Qubes budg
   assert.equal(four.resourceGate.checks.qubeBudget, false);
 });
 
+test('probe latency p95 can reject an otherwise resource-ready topology', async t => {
+  const missions = await missionsFixture(t);
+  const measured = topologies().map(topology => ({
+    ...topology,
+    workers: topology.workers.map(worker => ({
+      ...worker,
+      resources: { ...worker.resources, probeLatencyP95Ms: topology.id === 'two-worker-balanced' && worker.id === 'system' ? 18 : 4 }
+    }))
+  }));
+  const evaluation = evaluateResourceAwareFleetTopologies(missions, DURATIONS, measured, {
+    readiness: READINESS,
+    resourceBudget: { maxRamMb: 4096, maxVcpus: 4, maxQubes: 4, maxProbeLatencyP95Ms: 10 }
+  });
+
+  const two = evaluation.results.find(item => item.id === 'two-worker-balanced');
+  assert.equal(two.baseEligible, true);
+  assert.equal(two.resourceGate.checks.probeLatencyBudget, false);
+  assert.equal(two.resources.maxProbeLatencyP95Ms, 18);
+  assert.equal(two.eligible, false);
+  assert.equal(evaluation.winner.id, 'four-worker-isolated');
+  assert.equal(evaluation.winner.resources.maxProbeLatencyP95Ms, 4);
+});
+
 test('trust isolation wins only when resource budget can afford it', async t => {
   const missions = await missionsFixture(t);
   const constrained = evaluateResourceAwareFleetTopologies(missions, DURATIONS, topologies(), {
@@ -103,5 +126,12 @@ test('resource-aware evaluator fails closed on missing or invalid resource profi
       resourceBudget: { maxRamMb: 0, maxVcpus: 4, maxQubes: 4 }
     }),
     /maxRamMb must be a positive finite number/
+  );
+  assert.throws(
+    () => evaluateResourceAwareFleetTopologies(missions, DURATIONS, topologies(), {
+      readiness: READINESS,
+      resourceBudget: { maxRamMb: 4096, maxVcpus: 4, maxQubes: 4, maxProbeLatencyP95Ms: 10 }
+    }),
+    /probeLatencyP95Ms is required/
   );
 });
