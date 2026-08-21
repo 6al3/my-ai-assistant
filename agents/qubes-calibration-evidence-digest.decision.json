@@ -1,0 +1,23 @@
+{
+  "decision": "Bind each calibrated topology selection result to a canonical SHA-256 digest of the exact calibration report set used for evaluation.",
+  "reviews": {
+    "correctness": "Preferred an explicit evidence-set digest because topology IDs and Git SHA alone do not prove which measured RAM/CPU/probe-latency values produced the winner.",
+    "robustness_security": "Preferred canonical offline hashing over mutable filenames or caller-provided labels; report order is normalized and any evidence-field change changes the digest.",
+    "latency_resources_regression": "Preferred local SHA-256 over an external evidence store or signing service: zero qrexec round trips, negligible CPU/memory, and no MissionQueue/coordinator semantic changes."
+  },
+  "alternatives_rejected": [
+    "Topology IDs + Git SHA only: insufficient evidence identity; measured values can be swapped while identifiers remain unchanged.",
+    "Persist reports to filenames and return paths: paths are not content identity and can be replaced.",
+    "External attestation/evidence database: stronger auditability later, but adds service lifecycle, credentials, latency, and failure modes before real Qubes qualification exists."
+  ],
+  "qa": [
+    "Digest is independent of report ordering.",
+    "Changing measured report evidence changes the digest.",
+    "Operational command returns schemaVersion 2 and the digest alongside the winner.",
+    "Candidate/config provenance validation still occurs before any synthetic workload starts."
+  ],
+  "failure_lessons": [
+    "A winner bound only to topology IDs and commit SHA is not bound to the exact measurement set that justified it.",
+    "Canonicalization is required before hashing because object key/report ordering must not create false digest differences."
+  ]
+}
