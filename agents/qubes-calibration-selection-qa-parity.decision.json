@@ -1,0 +1,19 @@
+{
+  "decision": "Gate the operational calibrated-topology selection command in full, hosted distributed-fault, and local QA.",
+  "reviews": {
+    "correctness": "The operational command is the authority that composes duration-bound calibration with measured topology selection; component-only tests can pass while the production handoff regresses.",
+    "robustness": "Hosted/local parity plus the existing parity test fails closed against future coverage drift.",
+    "latency_resources": "One small deterministic Node test adds negligible CI/local cost and no qrexec, VM, worker, or production runtime overhead.",
+    "regression_risk": "QA-only wiring is lower risk than modifying MissionQueue, coordinator, calibration transport, or Qubes services while hosted runner execution remains unstable."
+  },
+  "alternatives_rejected": [
+    "Rely on component calibration and evaluator tests only: misses composition/provenance handoff regressions.",
+    "Run only in full npm test: hosted distributed-fault and local fallback could drift.",
+    "Add live Qubes execution to every CI run: higher resource/latency cost and unavailable before Qubes qualification."
+  ],
+  "lessons": [
+    "Operational authorities require direct QA coverage, not only their component modules.",
+    "Coverage parity is part of reliability when hosted CI and local fallback are both used."
+  ],
+  "safety": "Synthetic/defensive calibration only; no financial transactions and no security controls weakened."
+}
