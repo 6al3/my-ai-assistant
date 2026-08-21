@@ -1,0 +1,53 @@
+{
+  "decision": "Make duration-bound observed-time calibration the only qualification-grade Qubes resource evidence path; first close QA coverage drift, then disable the legacy fixed-interval executable entrypoint.",
+  "status": "in-progress",
+  "reviews": [
+    {
+      "lens": "correctness",
+      "preferred": "duration-bound CLI with observed sample offsets",
+      "reason": "The canonical DAG is 210ms; a fixed 1000ms interval can measure idle/post-workload state and understate resource demand. The duration-bound path derives 52ms for five samples and validates observed offsets."
+    },
+    {
+      "lens": "robustness-security",
+      "preferred": "fail closed on unsafe explicit intervals and preserve the low-level sampler only as a library/test primitive",
+      "reason": "Silent clamping or keeping two qualification-grade executables permits evidence with incompatible temporal guarantees."
+    },
+    {
+      "lens": "latency-resources-regression",
+      "preferred": "thin duration-bound authority over the existing sampler",
+      "reason": "It adds no qrexec calls, no workload extension, no daemon/database, and keeps runtime mutation semantics unchanged."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "legacy fixed 1000ms CLI",
+      "result": "rejected",
+      "failure": "sampling window can exceed a short DAG workload and contaminate calibration with idle measurements"
+    },
+    {
+      "name": "stretch or repeat workload to fit a fixed interval",
+      "result": "rejected",
+      "failure": "changes workload semantics and increases CPU/resource cost"
+    },
+    {
+      "name": "duration-bound CLI authority",
+      "result": "selected",
+      "benefits": "correct temporal evidence, fail-closed explicit interval validation, observed timing, minimal overhead"
+    }
+  ],
+  "qa": {
+    "newly_required_in_distributed_faults": [
+      "agents/qubes-duration-bound-calibration.test.mjs",
+      "agents/qubes-duration-bound-calibration-cli.test.mjs"
+    ],
+    "expected_canonical_result": {
+      "workloadDurationMs": 210,
+      "sampleCount": 5,
+      "derivedIntervalMs": 52,
+      "lastSampleOffsetMs": 208
+    },
+    "legacy_1000ms": "must fail closed for the canonical workload"
+  },
+  "lesson": "A safety/correctness primitive is not a release gate until the executable path and the independent QA shard both exercise it.",
+  "next": "Disable or delegate the legacy direct qubes-resource-calibration-harness executable so no operational path can emit qualification-grade resource evidence without duration-bound observed timing; add hosted/local parity coverage for that migration."
+}
