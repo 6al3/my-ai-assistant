@@ -1,0 +1,54 @@
+{
+  "decision": "Qualify Qubes resource topologies with per-worker p95 ResourceProbe latency measured from duration-bound calibration evidence.",
+  "status": "selected",
+  "selectedApproach": "carry verified probeLatencyMs into the calibration report, compute per-worker p95, preserve it when applying calibration to a topology, and fail resource-aware topology qualification when the worst worker exceeds an explicit p95 budget",
+  "independentReviews": [
+    {
+      "role": "correctness",
+      "preferredApproach": "per-worker p95 latency in the signed/provenance-bound calibration report",
+      "reason": "a topology with acceptable RAM/CPU can still be operationally unstable if qrexec measurement latency is consistently high; using the same validated probe envelopes prevents a separate uncorrelated timing source"
+    },
+    {
+      "role": "robustness-security",
+      "preferredApproach": "fail closed when a p95 budget is configured but any worker lacks latency evidence",
+      "reason": "missing timing evidence must not silently become zero or pass qualification; the duration-bound collector already validates every probe envelope before aggregation"
+    },
+    {
+      "role": "latency-resources-regression",
+      "preferredApproach": "offline aggregation and evaluator gating with no additional qrexec calls",
+      "reason": "p95 is derived from probes already executed for resource calibration, so the selected design adds negligible CPU/memory cost and no extra VM, daemon, network listener, or worker mutation"
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "keep probe latency as diagnostic-only output",
+      "rejectedBecause": "can select a false-ready topology whose memory and CPU fit but whose qrexec measurement path is unstable"
+    },
+    {
+      "approach": "run a second dedicated latency benchmark",
+      "rejectedBecause": "adds qrexec traffic and duplicates timing evidence already available around the real ResourceProbe calls"
+    },
+    {
+      "approach": "gate only on maximum single probe latency",
+      "rejectedBecause": "too sensitive to one scheduling outlier for topology sizing; per-call hard limits remain available while p95 is better for fleet qualification"
+    }
+  ],
+  "expectedImpact": {
+    "correctness": "higher; resource-qualified topologies must also satisfy measured transport/probe stability",
+    "robustness": "higher; missing p95 evidence fails closed when the budget is enabled",
+    "latency": "no additional qrexec round trips; offline percentile computation only",
+    "resourceUse": "negligible Map/array and sort overhead over existing calibration samples",
+    "regressionRisk": "low; changes are confined to calibration reports, topology resource gating, and tests"
+  },
+  "qa": [
+    "duration-bound calibration report exposes probeLatencyP95Ms for every worker",
+    "forged or missing per-sample latency evidence remains rejected before aggregation",
+    "resource-aware evaluator rejects an otherwise ready topology when one worker p95 exceeds budget",
+    "resource-aware evaluator fails closed when p95 budget is configured but worker evidence is missing",
+    "legacy resource evaluation remains unchanged when no probe-latency budget is configured"
+  ],
+  "failuresAndLessons": [
+    "completion-offset validation alone proves probes stayed inside the workload window but does not stop a high-latency Qube from winning fleet selection",
+    "measurement evidence should influence the same qualification decision that consumes RAM/vCPU data rather than remain a detached diagnostic"
+  ]
+}
