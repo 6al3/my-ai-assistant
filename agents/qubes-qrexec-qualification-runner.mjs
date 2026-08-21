@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { evaluateAttestedMultiRunQualification, parseAttestedMultiRunJson } from './qubes-attested-multi-run-qualification.mjs';
+import { bindCalibrationCampaignProvenance, validateCalibrationCampaignProvenance } from './qubes-calibration-provenance-binding.mjs';
 import { runQualificationPreflightFromEnv, validateQualificationPreflightEnvironment } from './qubes-qrexec-qualification-preflight.mjs';
 
 const HARNESS = new URL('./qubes-qrexec-campaign-harness.mjs', import.meta.url);
@@ -64,19 +65,25 @@ function runHarness({ manifest, runId, harnessPath = fileURLToPath(HARNESS), env
   });
 }
 
-export async function runQualificationCampaignSet({ qualificationRunId = randomUUID(), recoveryRuns = 3, harnessPath, env = process.env } = {}) {
+export async function runQualificationCampaignSet({ qualificationRunId = randomUUID(), recoveryRuns = 3, harnessPath, env = process.env, calibrationBinding } = {}) {
+  const binding = {
+    topologyId: nonEmpty(calibrationBinding?.topologyId, 'calibrationBinding.topologyId'),
+    calibrationEvidenceDigest: nonEmpty(calibrationBinding?.calibrationEvidenceDigest, 'calibrationBinding.calibrationEvidenceDigest')
+  };
+  if (!/^[a-f0-9]{64}$/.test(binding.calibrationEvidenceDigest)) throw new Error('calibrationBinding.calibrationEvidenceDigest must be a lowercase SHA-256 hex digest');
   const plan = buildQualificationRunPlan({ qualificationRunId, recoveryRuns }), campaigns = [];
   for (const item of plan) {
     const manifestTemplate = await readFile(item.manifestUrl, 'utf8');
     const manifest = materializeQualificationManifest(manifestTemplate, { env });
     const jsonl = await runHarness({ manifest, runId: item.runId, harnessPath, env });
     if (!jsonl) throw new Error(`campaign ${item.runId} produced no evidence`);
-    campaigns.push(jsonl);
+    campaigns.push(bindCalibrationCampaignProvenance(jsonl, binding));
   }
+  validateCalibrationCampaignProvenance(campaigns, binding);
   return campaigns;
 }
 
-export function evaluateQualificationCampaignSet(campaigns, { env = process.env, nowMs = Date.now(), preflightVerifiedAttestations = [] } = {}) {
+export function evaluateQualificationCampaignSet(campaigns, { env = process.env, nowMs = Date.now(), preflightVerifiedAttestations = [], calibrationBinding } = {}) {
   const expectedGitSha = env.DIG_GIT_SHA;
   const expectedSourceQube = env.DIG_SOURCE_QUBE || env.DIG_QREXEC_SOURCE;
   const expectedTargetQube = env.DIG_TARGET_QUBE || env.DIG_QREXEC_TARGET;
@@ -88,7 +95,13 @@ export function evaluateQualificationCampaignSet(campaigns, { env = process.env,
   }
   if (expectedService === expectedFaultService) throw new Error('expectedService and expectedFaultService must differ');
   const parsed = parseAttestedMultiRunJson(JSON.stringify(campaigns));
-  return evaluateAttestedMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, expectedFaultService, expectedAttestationKeyId, preflightVerifiedAttestations, nowMs });
+  const calibrationProvenance = validateCalibrationCampaignProvenance(parsed, calibrationBinding);
+  const result = evaluateAttestedMultiRunQualification(parsed, { expectedGitSha, expectedSourceQube, expectedTargetQube, expectedService, expectedFaultService, expectedAttestationKeyId, preflightVerifiedAttestations, nowMs });
+  return {
+    ...result,
+    checks: { ...result.checks, calibrationExecutionProvenanceBound: true },
+    metrics: { ...result.metrics, calibrationTopologyId: calibrationProvenance.topologyId, calibrationEvidenceDigest: calibrationProvenance.calibrationEvidenceDigest, calibrationBoundCampaigns: calibrationProvenance.campaignCount }
+  };
 }
 
 async function main() {
@@ -101,8 +114,8 @@ async function main() {
   catch (error) { throw new Error(`DIG_CALIBRATION_SELECTION_RESULT must be valid JSON: ${error instanceof Error ? error.message : String(error)}`); }
   const calibrationBinding = validateCalibrationSelectionBinding(selection, { expectedGitSha, expectedTopologyId });
   const preflight = await runQualificationPreflightFromEnv();
-  const campaigns = await runQualificationCampaignSet({ qualificationRunId, recoveryRuns });
-  const qualification = evaluateQualificationCampaignSet(campaigns, { preflightVerifiedAttestations: preflight.verifiedAttestations });
+  const campaigns = await runQualificationCampaignSet({ qualificationRunId, recoveryRuns, calibrationBinding });
+  const qualification = evaluateQualificationCampaignSet(campaigns, { preflightVerifiedAttestations: preflight.verifiedAttestations, calibrationBinding });
   const releaseReady = qualification.ready === true;
   process.stdout.write(`${JSON.stringify({ qualificationRunId, calibrationBinding, preflight, qualification: { ...qualification, ready: releaseReady }, campaigns }, null, 2)}\n`);
   if (!releaseReady) process.exitCode = 2;
