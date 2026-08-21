@@ -1,0 +1,44 @@
+{
+  "decision": "Use per-worker conservative completion timing for duration-bound Qubes resource samples and validate each worker independently before calibration evidence is accepted.",
+  "reviews": [
+    {
+      "role": "correctness",
+      "preferred": "per-worker completion offsets",
+      "reason": "A round-level minimum offset can hide a worker whose qrexec/resource response completes after the synthetic workload window, creating optimistic resource evidence."
+    },
+    {
+      "role": "robustness-security",
+      "preferred": "fail closed on any late worker rather than accept a fast sibling worker as representative",
+      "reason": "Distributed workers can have asymmetric transport or scheduling delays; evidence must be attributable to the worker whose resources are being qualified."
+    },
+    {
+      "role": "latency-resources-regression",
+      "preferred": "record completion offsets around existing probes without adding transport calls",
+      "reason": "The stronger timing evidence adds no qrexec round-trips, VMs, daemons, or mission mutations; it only records local timing around calls already made."
+    }
+  ],
+  "rejected": [
+    {
+      "approach": "retain one minimum offset per sampling round",
+      "failure": "a fast worker can mask a late worker and falsely qualify post-workload resource data"
+    },
+    {
+      "approach": "use the maximum round offset but copy it to every worker",
+      "failure": "conservative but loses worker attribution and can reject healthy workers without identifying the delayed worker"
+    },
+    {
+      "approach": "add a second remote timestamp or telemetry service",
+      "failure": "higher fidelity but adds qrexec traffic, clock-correlation complexity, and operational surface before real Qubes qualification is available"
+    }
+  ],
+  "qa": {
+    "suite": "agents/qubes-duration-bound-calibration.test.mjs",
+    "requirements": [
+      "each worker retains exactly one observed completion offset per sampling round",
+      "all per-worker offsets are monotonic and inside the active workload window",
+      "one delayed worker fails qualification even if another worker completes on time",
+      "collector validates worker timing independently rather than deduplicating offsets across the fleet"
+    ]
+  },
+  "lesson": "Fleet-level timing summaries are not sufficient qualification evidence when distributed workers can experience asymmetric qrexec and scheduler latency; temporal provenance must remain worker-specific."
+}
