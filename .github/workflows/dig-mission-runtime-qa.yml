@@ -1,0 +1,48 @@
+name: DIG Mission Runtime QA
+
+on:
+  pull_request:
+    paths:
+      - 'agents/mission-queue.mjs'
+      - 'agents/mission-queue.test.mjs'
+      - 'agents/mission-queue-store.mjs'
+      - 'agents/mission-queue-store.test.mjs'
+      - 'agents/mission-coordinator.mjs'
+      - 'agents/mission-coordinator.test.mjs'
+      - 'agents/mission-coordinator-rollback-benchmark.mjs'
+      - 'agents/mission-coordinator-rollback-benchmark.test.mjs'
+      - 'agents/mission-coordinator-failure-path-benchmark.mjs'
+      - 'agents/mission-coordinator-failure-path-benchmark.test.mjs'
+      - 'agents/durable-request-journal.mjs'
+      - 'agents/durable-request-journal.test.mjs'
+      - 'agents/worker-runtime.mjs'
+      - 'agents/worker-runtime.test.mjs'
+      - 'package.json'
+      - '.github/workflows/dig-mission-runtime-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mission-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Syntax check mission runtime
+        run: |
+          node --check agents/mission-queue.mjs
+          node --check agents/mission-queue-store.mjs
+          node --check agents/mission-coordinator.mjs
+          node --check agents/mission-coordinator-rollback-benchmark.mjs
+          node --check agents/mission-coordinator-failure-path-benchmark.mjs
+          node --check agents/durable-request-journal.mjs
+          node --check agents/worker-runtime.mjs
+      - name: Run mission runtime QA
+        run: npm run test:mission-runtime
