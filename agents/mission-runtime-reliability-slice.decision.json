@@ -1,11 +1,12 @@
 {
-  "decision": "Extract the mission/runtime reliability slice first from PR #25 onto the clean reliability base.",
+  "decision": "Extract the mission/runtime reliability slice first from PR #25 onto the clean reliability base, and make coordinator mutations memory-transactional with exact rollback on persistence failure.",
   "scope": {
     "included": [
       "mission queue persistence and idempotency",
       "atomic queue store",
       "serialized fail-closed coordinator",
-      "durable request journal",
+      "exact in-memory rollback when persistence fails",
+      "durable request reconciliation journal",
       "worker session fencing and restart recovery",
       "focused regression tests"
     ],
@@ -19,32 +20,32 @@
   "reviews": [
     {
       "lens": "correctness",
-      "preferred": "dependency-root slice first",
-      "reason": "Queue/store/coordinator/journal/runtime semantics are prerequisites for distributed transport and can be validated without Qubes."
+      "preferred": "snapshot-before-mutation plus exact rollback after save failure",
+      "reason": "A failed durable mutation must not remain visible in coordinator memory after the caller receives an error; otherwise reads can observe state that never committed."
     },
     {
       "lens": "robustness-security",
-      "preferred": "preserve fail-closed persistence, stale-owner rejection and request reconciliation",
-      "reason": "The slice keeps recovery/fencing invariants while avoiding unrelated transport authority."
+      "preferred": "poison coordinator after persistence failure while restoring the last durable in-memory state",
+      "reason": "Fail-closed prevents further mutations, and rollback avoids exposing uncommitted ownership, lease tokens, attempts or idempotency entries through read APIs."
     },
     {
       "lens": "latency-resources-regression",
-      "preferred": "small sequential slice instead of parallel extraction or further feature work",
-      "reason": "No runtime latency is added, CI surface is sharply reduced, and rebase/review blast radius is smaller than the 430-commit integration PR."
+      "preferred": "in-memory snapshot rollback rather than reloading storage or adding a transactional database",
+      "reason": "The extra structured clone is local and bounded by queue size, adds no network or Qubes latency, preserves the existing store format and has lower regression surface than introducing external transactional infrastructure."
     }
   ],
   "alternatives": [
     {
-      "approach": "continue adding features to PR #25",
-      "rejectedBecause": "highest regression and review risk while hosted CI is blocked"
+      "approach": "leave mutated memory in place and only poison later writes",
+      "rejectedBecause": "read APIs can expose a mutation that the durable store rejected"
     },
     {
-      "approach": "extract all four planned slices in parallel",
-      "rejectedBecause": "creates cross-slice rebase ambiguity and duplicates QA uncertainty"
+      "approach": "reload from storage after a failed save",
+      "rejectedBecause": "adds failure-path I/O and creates a second failure mode if the store is unavailable or corrupt at the moment rollback is needed"
     },
     {
-      "approach": "extract Qubes transport first",
-      "rejectedBecause": "transport depends on durable mission/runtime contracts and would invert the dependency order"
+      "approach": "move immediately to an external transactional database",
+      "rejectedBecause": "stronger multi-process atomicity is unnecessary for this dependency-root slice and would add latency, operational resources and migration risk"
     }
   ],
   "qa": {
@@ -53,13 +54,21 @@
       "queue idempotency and restart recovery",
       "atomic store load/save and corruption rejection",
       "serialized coordinator persistence and fail-closed behavior",
+      "failed enqueue leaves no uncommitted mission or idempotency entry in memory",
+      "failed claim restores queued state, attempts and lease ownership exactly",
       "request journal restart and command-substitution rejection",
       "worker session fencing, retry and capability enforcement"
     ]
   },
+  "failuresAndLessons": [
+    "The first fail-closed coordinator design poisoned subsequent writes but did not roll back the mutation that failed persistence.",
+    "Process-restart restore semantics cannot be reused blindly for rollback because running work may be requeued; rollback needs an exact restore mode.",
+    "Reads after a persistence error are only safe if in-memory state matches the last durable snapshot."
+  ],
   "lessons": [
     "Keep transport/Qubes semantics out of the dependency-root slice.",
     "Do not treat a mergeable integration PR as independently release-ready.",
-    "A smaller slice is useful only if its original regression suite is retained rather than replaced."
+    "A smaller slice is useful only if its original regression suite is retained rather than replaced.",
+    "Fail-closed must cover visibility of failed mutations, not only rejection of later writes."
   ]
 }
