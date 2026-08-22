@@ -1,0 +1,65 @@
+{
+  "decision": "Extract the mission/runtime reliability slice first from PR #25 onto the clean reliability base.",
+  "scope": {
+    "included": [
+      "mission queue persistence and idempotency",
+      "atomic queue store",
+      "serialized fail-closed coordinator",
+      "durable request journal",
+      "worker session fencing and restart recovery",
+      "focused regression tests"
+    ],
+    "excluded": [
+      "Qubes/qrexec transport and qualification",
+      "resource calibration/topology selection",
+      "iPhone control plane",
+      "financial side effects"
+    ]
+  },
+  "reviews": [
+    {
+      "lens": "correctness",
+      "preferred": "dependency-root slice first",
+      "reason": "Queue/store/coordinator/journal/runtime semantics are prerequisites for distributed transport and can be validated without Qubes."
+    },
+    {
+      "lens": "robustness-security",
+      "preferred": "preserve fail-closed persistence, stale-owner rejection and request reconciliation",
+      "reason": "The slice keeps recovery/fencing invariants while avoiding unrelated transport authority."
+    },
+    {
+      "lens": "latency-resources-regression",
+      "preferred": "small sequential slice instead of parallel extraction or further feature work",
+      "reason": "No runtime latency is added, CI surface is sharply reduced, and rebase/review blast radius is smaller than the 430-commit integration PR."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "continue adding features to PR #25",
+      "rejectedBecause": "highest regression and review risk while hosted CI is blocked"
+    },
+    {
+      "approach": "extract all four planned slices in parallel",
+      "rejectedBecause": "creates cross-slice rebase ambiguity and duplicates QA uncertainty"
+    },
+    {
+      "approach": "extract Qubes transport first",
+      "rejectedBecause": "transport depends on durable mission/runtime contracts and would invert the dependency order"
+    }
+  ],
+  "qa": {
+    "command": "npm run test:mission-runtime",
+    "gates": [
+      "queue idempotency and restart recovery",
+      "atomic store load/save and corruption rejection",
+      "serialized coordinator persistence and fail-closed behavior",
+      "request journal restart and command-substitution rejection",
+      "worker session fencing, retry and capability enforcement"
+    ]
+  },
+  "lessons": [
+    "Keep transport/Qubes semantics out of the dependency-root slice.",
+    "Do not treat a mergeable integration PR as independently release-ready.",
+    "A smaller slice is useful only if its original regression suite is retained rather than replaced."
+  ]
+}
