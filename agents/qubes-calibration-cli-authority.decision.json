@@ -1,0 +1,44 @@
+{
+  "decision": "Make the duration-bound calibration CLI the only operational resource-evidence entrypoint and fail closed when the legacy harness is executed directly.",
+  "reviews": [
+    {
+      "role": "correctness",
+      "preferred": "single duration-bound authority",
+      "reason": "A second executable path with a 1000ms default can emit post-workload/idle-contaminated evidence even when the duration-bound implementation is correct."
+    },
+    {
+      "role": "robustness-security",
+      "preferred": "disable legacy execution rather than silently redirect inside a cyclic module graph",
+      "reason": "Fail-closed behavior makes accidental use visible and avoids an import cycle between the low-level harness and the duration-bound CLI."
+    },
+    {
+      "role": "latency-resources-regression",
+      "preferred": "retain low-level harness exports for tests/composition, remove only operational authority",
+      "reason": "This adds no qrexec calls, worker CPU, VM memory, or production mission mutations and minimizes regression surface."
+    }
+  ],
+  "rejected": [
+    {
+      "approach": "keep both CLIs",
+      "failure": "allows unsafe fixed-interval evidence to remain operational"
+    },
+    {
+      "approach": "make the harness import the duration-bound CLI",
+      "failure": "creates or risks a circular dependency because the duration-bound CLI imports harness runtime builders"
+    },
+    {
+      "approach": "silently clamp 1000ms to a safe interval",
+      "failure": "hides operator configuration errors instead of failing closed"
+    }
+  ],
+  "qa": {
+    "authorityTest": "agents/qubes-calibration-cli-authority.test.mjs",
+    "requirements": [
+      "direct legacy execution exits non-zero and emits no calibration evidence",
+      "duration-bound CLI remains syntax-valid",
+      "hosted and local distributed-fault shards include the authority test",
+      "full npm check/test include duration-bound and authority suites"
+    ]
+  },
+  "lesson": "A correct replacement path is insufficient while an older executable path can still produce weaker evidence; operational authority must be unique and test-enforced."
+}

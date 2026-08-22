@@ -1,0 +1,32 @@
+{
+  "decision": "Use a thin per-call qrexec campaign harness that signs the existing worker envelope, invokes qrexec-client-vm once per request, emits raw JSONL evidence, and leaves aggregation/readiness decisions to the existing collector and gate.",
+  "selected": "process-per-call qrexec transport plus declarative fault/probe steps",
+  "criteria": {
+    "correctness": "Reuses the production signed-envelope and coordinator response contracts; crash-retry explicitly uses the same requestId across fault and recovery services.",
+    "robustness": "Fails closed on malformed coordinator replies, unexpected fault-service success, unsupported step modes, missing target/service, or transport non-zero exit.",
+    "latency": "Measures the actual qrexec round trip at the process boundary and records recovery latency separately.",
+    "resourceUse": "No daemon, database, telemetry backend, or persistent harness state; one qrexec process per request mirrors the intended Qubes service lifecycle.",
+    "regressionRisk": "Adds an adapter and tests without changing mission queue, durable journal, authentication, or coordinator semantics.",
+    "qa": "Unit tests cover clean evidence, crash/retry service switching, stale-completion detection, QA-before-join detection, and fail-closed fault injection."
+  },
+  "alternatives": [
+    {
+      "name": "Qubes-specific orchestration logic inside the coordinator",
+      "rejectedBecause": "Would duplicate transport concerns inside durable mission semantics and increase regression surface."
+    },
+    {
+      "name": "Long-lived network or qrexec daemon",
+      "rejectedBecause": "Adds lifecycle, listening-surface, memory, and recovery complexity before process-per-call VM-boundary behavior is proven."
+    },
+    {
+      "name": "Manual shell campaign and hand-authored summary counters",
+      "rejectedBecause": "Not replayable in CI and can hide evidence-generation mistakes or omit failures."
+    }
+  ],
+  "lessons": [
+    "Fault injection must use a dedicated fault service and a normal recovery service; a permanently configured crash hook would crash every retry.",
+    "Readiness evidence should be derived from raw responses and transport failures rather than trusted precomputed counters.",
+    "The Qubes harness should remain transport-only so the same mission and reconciliation semantics are exercised across process and VM boundaries."
+  ],
+  "safety": "Synthetic defensive workloads only. No real payment credentials, financial transactions, fraud workflows, or security-control weakening."
+}

@@ -1,0 +1,52 @@
+{
+  "decision": "interleave verified response attestation inside each request lifecycle and require pending -> verified -> resolved before qualification",
+  "scope": "Qubes synthetic qualification evidence",
+  "reviews": {
+    "correctness": {
+      "winner": "causal event ordering plus completed-lifecycle qualification",
+      "reason": "request-id membership proves correlation but not that every attestation used for readiness belongs to a request that reached durable resolution"
+    },
+    "security": {
+      "winner": "collector fail-closed lifecycle validation plus qualification cross-check",
+      "reason": "rejects verified-before-pending, verified-after-resolved, duplicate verification, duplicate pending, resolve-without-pending, and verified requests left unresolved"
+    },
+    "performance": {
+      "winner": "offline ordered evidence",
+      "reason": "adds no qrexec round trips, daemon, database, or production mutation; cost is linear event validation and small request-id sets"
+    },
+    "regressionRisk": {
+      "winner": "explicit resolved-lifecycle check in the existing attested evaluator",
+      "reason": "keeps MissionQueue, coordinator, transport, and durable journal semantics unchanged while making readiness fail closed"
+    }
+  },
+  "rejected": [
+    {
+      "approach": "request-id membership only",
+      "failure": "proves correlation but not causal lifecycle completion"
+    },
+    {
+      "approach": "rely only on aggregate unresolvedPendingRequests=0",
+      "failure": "indirectly implies completion but does not make attestation lifecycle completion an explicit independently auditable readiness condition"
+    },
+    {
+      "approach": "durable attestation journal in coordinator state",
+      "failure": "adds persistence and recovery complexity before offline evidence is exhausted"
+    },
+    {
+      "approach": "external or dom0 evidence daemon",
+      "failure": "stronger trust boundary but adds deployment, key lifecycle, IPC, latency, and regression surface before real Qubes execution is available"
+    }
+  ],
+  "qa": [
+    "verified response must occur after request_pending and before request_resolved",
+    "every campaign attestation used for readiness must be present in both verifiedRequestIds and resolvedRequestIds",
+    "verified-but-unresolved request fails allCampaignAttestationsBoundToCompletedLifecycles",
+    "duplicate request_pending is rejected",
+    "resolve without pending is rejected",
+    "duplicate attestation for one request is rejected",
+    "crash/retry recovery attestation remains inside the original request lifecycle",
+    "lease fencing and QA evidence remain independent correctness gates"
+  ],
+  "lesson": "qualification should encode critical causal invariants directly even when another aggregate counter currently implies the same outcome; explicit gates survive future refactors and are easier to audit",
+  "safety": "synthetic defensive qualification only; no real financial transactions or payment data"
+}

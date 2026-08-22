@@ -1,0 +1,48 @@
+{
+  "decision": "bounded-redacted-diagnostic-evidence",
+  "context": "GitHub-hosted runners currently fail before any workflow step, so DIG relies on local/Qube QA as supplemental evidence. The prior local QA report embedded complete stdout/stderr for every shard, creating unbounded artifact growth and avoidable secret exposure.",
+  "reviews": [
+    {
+      "perspective": "correctness",
+      "preferred": "full-output-hash-plus-bounded-failure-tail",
+      "reason": "Preserves proof that exact output existed while retaining enough diagnostics for failed shards."
+    },
+    {
+      "perspective": "security-robustness",
+      "preferred": "redacted-failure-tail-only",
+      "reason": "Successful shards do not need raw logs in durable evidence; failed diagnostics are redacted for common private keys, GitHub/OpenAI-style tokens, authorization values, passwords and secrets."
+    },
+    {
+      "perspective": "latency-resource-regression",
+      "preferred": "fixed-4KiB-tail-plus-sha256",
+      "reason": "Keeps report size bounded with negligible CPU/memory cost and changes only evidence serialization, not worker/runtime semantics."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "store-complete-output",
+      "rejected": "Unbounded artifact size and highest secret-leak risk."
+    },
+    {
+      "name": "store-output-hashes-only",
+      "rejected": "Best confidentiality but too weak for diagnosing local/Qube failures while hosted CI is unavailable."
+    },
+    {
+      "name": "bounded-redacted-diagnostic-evidence",
+      "selected": true,
+      "tradeoffs": "Heuristic redaction cannot prove every secret format is removed, so failed diagnostic tails remain supplemental and should not contain intentionally sensitive test data."
+    }
+  ],
+  "qa": [
+    "successful shards store byte count and SHA-256 only",
+    "failed shards store byte count, SHA-256 and at most 4096 bytes of redacted tail",
+    "common token/private-key/authorization/password forms are redacted",
+    "large successful output is not embedded",
+    "dirty worktree, SHA mismatch and timeout remain fail-closed"
+  ],
+  "lessons": [
+    "QA evidence is itself a security boundary and must have an explicit output policy.",
+    "Debuggability should be bounded independently from proof-of-execution; hashes preserve integrity evidence without retaining all logs.",
+    "Local QA remains supplemental and does not replace independent hosted CI or real Qubes qualification."
+  ]
+}

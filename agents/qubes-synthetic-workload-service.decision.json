@@ -1,0 +1,51 @@
+{
+  "decision": "Use a bounded process-per-call qrexec controller that launches a detached local synthetic executor with durable per-run state; stop is state-based rather than PID-signal-based.",
+  "winner": "bounded detached executor + durable state cancellation",
+  "reviews": {
+    "correctness": {
+      "preferred": "detached executor + durable run/workload state",
+      "reason": "qrexec services are process-per-call, so start must outlive the request while stop must find the same execution later. The state file preserves that lifecycle without changing coordinator semantics."
+    },
+    "security_robustness": {
+      "preferred": "fixed synthetic CPU loop + state-based cancellation + strict validation",
+      "reason": "Only timing data is accepted. Stop marks the exact run/workload state as stopped and the executor observes that state, avoiding process.kill on a PID that could theoretically have been recycled after an executor crash."
+    },
+    "latency_resources_regression": {
+      "preferred": "one detached executor per active worker calibration",
+      "reason": "No daemon, database, network listener, arbitrary command execution, or coordinator mutation is added. State polling adds only a few milliseconds of local filesystem overhead and no extra qrexec round trip."
+    }
+  },
+  "alternatives": [
+    {
+      "approach": "keep workload in the qrexec service process",
+      "rejectedBecause": "the start call would block for the calibration duration and prevent concurrent resource sampling"
+    },
+    {
+      "approach": "long-lived worker daemon",
+      "rejectedBecause": "adds lifecycle, credential, listening-surface, and resource complexity before real Qubes qualification"
+    },
+    {
+      "approach": "signal the persisted executor PID on stop",
+      "rejectedBecause": "a stale state file plus PID reuse could signal an unrelated process; state cancellation removes that class of failure"
+    },
+    {
+      "approach": "shell or arbitrary command workload",
+      "rejectedBecause": "unnecessary command-execution authority and unacceptable security/regression surface"
+    }
+  ],
+  "qaGates": [
+    "reject unsafe names, overlong workloads, duplicate missions, and schedule entries outside duration",
+    "persist start state before spawning and reject duplicate active starts",
+    "stop is idempotent and state-based; it never signals a PID",
+    "repeated stop preserves the original stop timestamp",
+    "executor remains duration-bounded even if stop is never called",
+    "service test is present in syntax/full/local/hosted distributed-fault QA"
+  ],
+  "failuresLessons": [
+    "A process-per-call qrexec service cannot represent a running workload with in-memory state.",
+    "The first design used PID signalling; independent robustness review rejected it because PID reuse can turn stale state into cross-process impact.",
+    "Resource calibration must not gain arbitrary-code execution just to produce load; the workload language stays timing-only and synthetic.",
+    "The workload executor must remain bounded even if stop is never called, so duration is enforced inside the executor."
+  ],
+  "safety": "Synthetic defensive calibration only. No financial transactions, payment data, external side effects, arbitrary shell commands, or weakened security controls."
+}

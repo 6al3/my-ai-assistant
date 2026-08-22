@@ -1,0 +1,20 @@
+{
+  "decision": "Require selected topology and calibration evidence digest directly in attested multi-run qualification.",
+  "reviews": {
+    "correctness": "Runner-only validation can drift from evaluator semantics. Every collected campaign must carry the selected topologyId and exact SHA-256 calibration evidence digest, and the final evaluator must verify both.",
+    "robustness_security": "Fail closed for missing, legacy, malformed, wrong, or mixed calibration provenance. Do not infer deployment identity from filenames or runner configuration.",
+    "latency_resources_regression": "Offline provenance comparison adds no qrexec round trips, no worker CPU workload, no daemon/database, and does not modify MissionQueue or coordinator mutation semantics."
+  },
+  "alternatives_rejected": [
+    "Trust qualification-runner prevalidation only: weakest because direct evaluator callers could bypass the calibration binding.",
+    "Re-run calibration during qualification: higher Qube/CPU/latency cost and duplicates an already measured workload.",
+    "Add an external evidence database/attestation daemon: stronger infrastructure option later, but unnecessary operational and regression surface for the current lab stage."
+  ],
+  "qa": [
+    "Accept matching topologyId and calibrationEvidenceDigest on every campaign.",
+    "Reject missing/legacy calibration provenance.",
+    "Reject wrong topology or wrong digest.",
+    "Reject mixed provenance across otherwise valid runs."
+  ],
+  "lesson": "A security or readiness binding is only authoritative if the final evaluator enforces it; preflight checks alone are defense in depth, not the release authority."
+}

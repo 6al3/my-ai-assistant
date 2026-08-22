@@ -1,0 +1,50 @@
+{
+  "problem": "The qualification gate required verified fault-service attestation from campaign evidence, but crash-retry intentionally terminates the fault service before a response can be returned. The existing dual-service preflight also did not verify Ed25519 response attestations, so end-to-end fault-service provenance could not be proven.",
+  "reviews": [
+    {
+      "role": "correctness-reconciliation",
+      "preferred": "attested dual-service read-only preflight plus separate campaign attestation evidence",
+      "reason": "The fault endpoint can safely prove identity on stats without weakening crash-after-commit semantics. Campaign responses still prove the normal execution path."
+    },
+    {
+      "role": "security-transport",
+      "preferred": "verify signatures at the transport boundary and pass normalized verified evidence into qualification",
+      "reason": "This keeps the coordinator private key outside the worker and prevents worker-declared service names from becoming authority."
+    },
+    {
+      "role": "performance-regression",
+      "preferred": "reuse the existing normal/fault preflight calls",
+      "reason": "No new qrexec round trips are added beyond the already-required dual preflight, and production mission semantics remain unchanged."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "require fault attestation from crash_retry",
+      "rejected": true,
+      "reason": "Impossible by design when the fault service terminates before writing a response."
+    },
+    {
+      "name": "inject synthetic attestation events into campaign JSONL",
+      "rejected": true,
+      "reason": "Would blur campaign framing and make provenance easier to spoof or misinterpret."
+    },
+    {
+      "name": "add a third attestation daemon/service",
+      "rejected": true,
+      "reason": "Adds lifecycle, policy, resource, and regression surface without improving this stage enough to justify it."
+    }
+  ],
+  "winner": "attested dual-service preflight evidence handoff",
+  "expected_effects": {
+    "correctness": "Qualification can now prove both services without contradicting crash-injection behavior.",
+    "robustness": "Missing or mismatched key, SHA, or service identity fails closed before campaigns.",
+    "latency": "No additional qrexec calls beyond existing dual preflight.",
+    "resources": "Negligible local signature verification and evidence validation overhead.",
+    "regression_risk": "Low; changes are limited to qualification/preflight evidence handling and tests."
+  },
+  "lessons": [
+    "A fault endpoint designed to die cannot be required to produce post-fault response evidence.",
+    "Preflight identity evidence and campaign execution evidence are different evidence classes and should remain explicitly separated.",
+    "Cryptographic primitives do not improve readiness unless the final evaluator consumes their verified output."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "decision": "Bind the real Qubes resource-calibration CLI to the benchmark-derived synthetic DAG workload and require both workload-control and resource-probe qrexec services.",
+  "winner": "workload-bound calibration CLI",
+  "reviews": [
+    {
+      "role": "correctness",
+      "preferred": "Require missions, durations, topology, resource service and workload service; derive the exact per-worker schedule with buildOrchestrationCalibrationPlan; start the workload before sampling and stop/reconcile it afterward.",
+      "why": "Idle-only samples can materially understate RAM/CPU and produce a false resource-readiness result even when the collector itself requires workload evidence."
+    },
+    {
+      "role": "robustness-security",
+      "preferred": "Reuse dig.SyntheticWorkload and its bounded stop/status reconciliation instead of introducing shell workload commands or a new daemon.",
+      "why": "This preserves the existing bounded command schema, avoids arbitrary code execution, and retains positive cleanup confirmation after ambiguous stop responses."
+    },
+    {
+      "role": "latency-resources-regression",
+      "preferred": "Reuse the existing benchmark plan, workload hooks and read-only ResourceProbe in one CLI path.",
+      "why": "No extra Qubes service is added, healthy-path qrexec traffic is only the workload start/stop already required for truthful calibration, and MissionQueue/coordinator semantics are unchanged."
+    }
+  ],
+  "alternativesRejected": [
+    {
+      "approach": "Keep the CLI resource-probe-only and rely on operators to start a workload manually.",
+      "reason": "Not reproducible or fail-closed; an operator mistake silently measures idle Qubes."
+    },
+    {
+      "approach": "Generate a generic CPU burn independent of the orchestration benchmark.",
+      "reason": "Lower fidelity: it does not reproduce the worker assignment, contention or mission timing used by the topology evaluator."
+    },
+    {
+      "approach": "Add a persistent telemetry/workload daemon.",
+      "reason": "Higher operational and attack surface, persistent resource cost, and unnecessary regression risk at the current lab stage."
+    }
+  ],
+  "qa": {
+    "required": [
+      "CLI config rejects missing workload service, missions or durations instead of falling back to idle sampling",
+      "runtime derives the expected 210ms-equivalent two-worker plan from the same DAG benchmark fixture",
+      "both worker Qubes receive workload start and stop commands through dig.SyntheticWorkload",
+      "resource samples use dig.ResourceProbe while the workload lifecycle is active",
+      "existing lost-stop-response reconciliation and cleanup tests remain green"
+    ],
+    "expectedImpact": "No MissionQueue/coordinator behavior change; added CLI validation and Qubes calibration control traffic only."
+  },
+  "failuresLessons": [
+    "The previous implementation had workload-bound primitives and integration tests, but the executable CLI did not wire them together; component completeness did not imply production-path completeness.",
+    "Resource calibration evidence is only meaningful when workload generation is part of the same fail-closed execution path as sampling."
+  ]
+}

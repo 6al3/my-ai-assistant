@@ -1,0 +1,34 @@
+{
+  "decision": "Use a checked-in canonical stateful Qubes lease-fencing campaign manifest",
+  "winner": "stateful-canonical-manifest",
+  "criteria": {
+    "correctness": "Uses coordinator-issued mission IDs and lease tokens via captures; exercises expiry, same-worker reclaim, stale-token rejection, and current-token completion.",
+    "robustness": "Deterministic request IDs and idempotency key make reruns diagnosable while the harness remains fail-closed on missing captures or unexpected responses.",
+    "latency": "Adds one intentional 31s lease-expiry wait; wait metadata is excluded from transport p95 so readiness latency is not distorted.",
+    "resourceUse": "No daemon, database, or additional service; one qrexec process per request as in the production-shaped harness.",
+    "regressionRisk": "No production semantics changed; the manifest composes existing submit/claim/complete and fencing contracts.",
+    "qa": "Existing harness and collector tests cover capture resolution, wait validation, stale-probe semantics, and zero duplicate/unresolved counters. CI must be green on the manifest commit before a real Qubes run is accepted."
+  },
+  "alternatives": [
+    {
+      "name": "manual-shell-sequence",
+      "result": "rejected",
+      "reason": "Human copy/paste of mission IDs and lease tokens is error-prone, hard to replay, and weak evidence for readiness."
+    },
+    {
+      "name": "hard-coded-mission-and-token-fixture",
+      "result": "rejected",
+      "reason": "Would not prove that the real coordinator-issued fencing token survives qrexec process boundaries and reclaim."
+    },
+    {
+      "name": "test-only-short-lease-production-hook",
+      "result": "rejected-for-now",
+      "reason": "Faster, but changes the production-shaped service contract and risks certifying behavior that differs from the real 30s lease lifecycle."
+    }
+  ],
+  "failureLessons": [
+    "A QA-barrier probe is not a post-join completion check: if QA is claimable, that probe intentionally records a blocker. Keep lease-fencing evidence focused and run the existing QA-before-join probe separately.",
+    "Intentional lease waits are campaign-control evidence, not qrexec round-trip latency samples.",
+    "REAL-WORKER readiness still requires a real Qube-to-Qube run with matching provenance/topology/commit and all readiness counters passing."
+  ]
+}

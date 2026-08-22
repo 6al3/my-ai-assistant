@@ -1,0 +1,51 @@
+{
+  "decision": "read-only qrexec resource probe plus bounded concurrent calibration harness",
+  "status": "selected",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "measure worker-Qube RAM and CPU from /proc and bind samples to git SHA, topology, run and capability profile",
+      "reason": "planning constants cannot prove deployability; collector-compatible measured evidence can"
+    },
+    {
+      "agent": "security-robustness-review",
+      "preferred": "dedicated read-only qrexec probe with strict JSON schema, explicit service name and bounded timeouts",
+      "reason": "avoids shell-command injection, mutation authority and a long-lived telemetry daemon"
+    },
+    {
+      "agent": "performance-regression-review",
+      "preferred": "concurrent per-round probes with bounded sample count and interval",
+      "reason": "keeps samples temporally comparable while adding only read-only qrexec calls and no production worker state changes"
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "keep synthetic RAM/vCPU constants",
+      "result": "rejected",
+      "lesson": "lowest cost but cannot validate real Qubes resource pressure"
+    },
+    {
+      "approach": "continuous telemetry daemon/database",
+      "result": "deferred",
+      "lesson": "higher fidelity at scale but adds lifecycle, credentials, storage, attack surface and background resource cost"
+    },
+    {
+      "approach": "dom0 shell scraping",
+      "result": "rejected for this stage",
+      "lesson": "would increase privileged integration surface and couples qualification to dom0 command execution"
+    }
+  ],
+  "winner": {
+    "correctness": "real measured worker-Qube memory/CPU/vCPU evidence",
+    "robustness": "fail-closed parsing, bounded probes, provenance-bound collector contract",
+    "latency": "one read-only qrexec probe per worker per round; workers sampled concurrently",
+    "resourceUse": "no daemon/database; short CPU sampling window and bounded rounds",
+    "regressionRisk": "new calibration-only files; no MissionQueue/coordinator mutation semantics changed",
+    "qa": "unit tests cover /proc parsing, guest CPU accounting, concurrency/order, qrexec invocation, collector compatibility and malformed inputs"
+  },
+  "failuresAndLessons": [
+    "Initial CPU accounting summed guest/guest_nice although Linux already includes them in user/nice; corrected to user..steal fields before adoption.",
+    "Measured calibration is evidence only after samples are collected in real Qubes; fixtures must not be called real resource qualification.",
+    "Hosted CI remains a separate release gate and local/model review does not replace it."
+  ]
+}

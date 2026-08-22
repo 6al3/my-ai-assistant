@@ -1,0 +1,52 @@
+{
+  "decision": "Bind every Qubes qualification campaign to the exact calibrated topology and calibration evidence digest, then validate the binding before attested multi-run qualification.",
+  "status": "selected",
+  "date": "2026-08-21",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "raw campaign provenance binding",
+      "reason": "A selection artifact checked only before execution does not prove that later lease/recovery evidence came from the selected calibrated topology. Every campaign must carry the same topologyId and calibrationEvidenceDigest."
+    },
+    {
+      "agent": "security-robustness-review",
+      "preferred": "fail-closed per-run binding validation",
+      "reason": "Reject missing, malformed, legacy, wrong, or mixed topology/digest evidence before readiness evaluation. Never overwrite conflicting provenance silently."
+    },
+    {
+      "agent": "latency-resource-regression-review",
+      "preferred": "offline provenance enrichment and validation",
+      "reason": "Adds zero qrexec round-trips, no daemon/database, negligible CPU/RAM, and does not modify MissionQueue, coordinator mutation semantics, or worker side effects."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "trust runner configuration only",
+      "rejected": "Does not bind raw execution evidence to the calibration set that selected the topology; stale or mixed campaign evidence can cross the handoff boundary."
+    },
+    {
+      "approach": "repeat resource calibration during qualification",
+      "rejected": "Higher latency and Qube resource use, duplicates already measured work, and broadens the failure surface without improving identity binding as efficiently."
+    },
+    {
+      "approach": "external provenance database or attestation daemon",
+      "rejected": "Adds operational state, credentials, IPC/network lifecycle, and regression surface before real Qubes execution evidence warrants that complexity."
+    }
+  ],
+  "qa": {
+    "positive": [
+      "all campaign_start events carry the selected topologyId",
+      "all campaign_start events carry the exact calibrationEvidenceDigest",
+      "multiple independent recovery runs retain identical calibration binding"
+    ],
+    "negative": [
+      "legacy campaign missing binding fails closed",
+      "wrong topology fails closed",
+      "wrong or malformed digest fails closed",
+      "mixed bindings across runs fail closed",
+      "pre-existing conflicting provenance cannot be overwritten silently"
+    ],
+    "coverage": ["npm test", "hosted distributed-faults", "qa:local distributed-faults"]
+  },
+  "lesson": "Selection-time provenance is not execution-time provenance. Qualification evidence must carry the calibration identity across the handoff boundary and preserve it per run."
+}

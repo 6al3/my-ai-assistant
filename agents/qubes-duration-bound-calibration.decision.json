@@ -1,0 +1,21 @@
+{
+  "decision": "Use a duration-bound calibration gate that derives the sampling interval from the benchmark workload duration and carries sampleOffsetMs/workloadDurationMs evidence into collection.",
+  "reviews": {
+    "correctness": "Preferred explicit timing evidence and fail-closed collection because workload lifecycle framing alone does not prove samples were taken while the DAG remained active.",
+    "robustness": "Preferred rejecting explicit intervals that exceed the active window over silently clamping them; silent clamping could hide operator/configuration errors.",
+    "performance_resources": "Preferred interval derivation over repeating or extending the workload. It adds no qrexec calls and no extra CPU burn; five samples over a 210ms workload use a 52ms interval with a 1ms reserve.",
+    "regression_risk": "Implemented as a composable gate over the existing harness/collector first, avoiding MissionQueue, coordinator, and worker mutation semantics."
+  },
+  "alternatives_rejected": [
+    "Keep the 1000ms default: four of five samples can occur after a 210ms workload.",
+    "Repeat the DAG until sampling completes: changes workload semantics and increases CPU/lifecycle complexity.",
+    "Trust workload start/stop framing only: does not prove per-sample temporal validity."
+  ],
+  "qa": [
+    "210ms workload with five samples derives 52ms interval and last offset 208ms.",
+    "1000ms explicit interval fails closed.",
+    "Missing, late, or workload-duration-mismatched sample evidence fails closed."
+  ],
+  "lesson": "Resource calibration needs temporal provenance, not only workload lifecycle provenance.",
+  "next": "Make this gate the real calibration CLI authority and add its test to hosted/local distributed-fault QA parity before collecting Qubes measurements."
+}

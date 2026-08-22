@@ -1,0 +1,43 @@
+{
+  "scope": "synthetic Qubes multi-run worker qualification",
+  "problem": "Distinct campaign run IDs and request IDs do not prove independent durable mutations if the same mutation/idempotency identity is reused across runs.",
+  "reviews": {
+    "correctness": {
+      "winner": "reject cross-run reuse of committed mutation identities",
+      "reason": "Prevents durable state from an earlier run being mistaken for a fresh independent mutation in a later qualification run."
+    },
+    "security_robustness": {
+      "winner": "derive independence from raw mutation_committed evidence",
+      "reason": "Fail-closed evidence validation avoids trusting run labels alone and preserves persistent state between campaigns."
+    },
+    "performance_regression": {
+      "winner": "offline Map/Set ownership validation",
+      "reason": "O(number of committed mutation events), no qrexec calls, no daemon/database, and no MissionQueue/coordinator production semantic changes."
+    }
+  },
+  "alternatives": [
+    {
+      "approach": "runId and requestId independence only",
+      "rejected": "Does not prevent internal mutation/idempotency aliasing across runs."
+    },
+    {
+      "approach": "wipe durable stores between runs",
+      "rejected": "Destroys the persistence/reconciliation state that qualification is intended to exercise and can hide restart bugs."
+    },
+    {
+      "approach": "namespace all production persistence by campaign run",
+      "rejected": "Changes production semantics and increases migration/regression surface before evidence-only validation is exhausted."
+    }
+  ],
+  "selected": "The attested multi-run evaluator owns each mutation_committed.mutationKey by campaign index and fails readiness if an identity appears in more than one run.",
+  "qa": [
+    "distinct request IDs plus shared mutation identity must fail mutationIdentitiesIndependentAcrossRuns",
+    "distinct request and mutation identities must pass both independence checks",
+    "existing attestation, lifecycle, topology, latency, fencing, QA-join and reconciliation gates remain authoritative"
+  ],
+  "lessons": [
+    "Independent transport requests are necessary but not sufficient evidence of independent durable work.",
+    "Qualification should preserve durable state and prove identity separation rather than resetting state between runs."
+  ],
+  "safety": "Synthetic/defensive qualification only; no real financial transactions or payment data."
+}

@@ -138,6 +138,21 @@ struct ContentView: View {
                 }
             }
             .font(.caption.bold())
+
+            if let missionURL = URL(string: boxURL), missionURL.scheme?.lowercased() == "https" {
+                NavigationLink {
+                    MissionDashboardView(baseURL: missionURL)
+                } label: {
+                    Label("حالة المهام — قراءة فقط", systemImage: "list.bullet.rectangle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption.bold())
+            } else if !boxURL.isEmpty {
+                Text("حالة المهام تحتاج عنوان HTTPS.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(10)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))

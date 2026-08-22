@@ -1,0 +1,79 @@
+{
+  "decision": "stateful campaign captures plus bounded lease-expiry waits with explicit fencing evidence",
+  "problem": "The Qubes campaign harness can now exercise same-worker stale-token fencing, but the readiness report previously only counted accepted stale completions. A report with staleCompletions=0 could therefore pass without proving that a stale-token completion was actually attempted or that the replacement lease completed successfully.",
+  "approaches": [
+    {
+      "name": "infer fencing success from staleCompletions=0",
+      "correctness": "low",
+      "robustness": "low",
+      "latency": "lowest",
+      "resources": "lowest",
+      "regressionRisk": "high",
+      "result": "rejected",
+      "lesson": "Absence of a stale acceptance is not evidence that the stale-token path was exercised."
+    },
+    {
+      "name": "explicit stale-probe rejection plus current-lease completion evidence",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "no additional qrexec calls beyond the canonical fencing sequence",
+      "resources": "negligible event/report counters",
+      "regressionRisk": "low",
+      "result": "selected",
+      "lesson": "Readiness should prove both halves of fencing: the old token loses authority and the new token retains authority."
+    },
+    {
+      "name": "external attestation service for every fencing transition",
+      "correctness": "very high",
+      "robustness": "high",
+      "latency": "higher due to extra service/attestation calls",
+      "resources": "higher key/service lifecycle cost",
+      "regressionRisk": "medium-high",
+      "result": "deferred",
+      "lesson": "Cryptographic attestation may be justified later, but it adds infrastructure before the real Qubes boundary has passed the simpler deterministic evidence gate."
+    }
+  ],
+  "implementation": {
+    "harness": [
+      "every stale_probe emits stale_completion_probe with rejected=true/false",
+      "accepted stale probes continue to emit stale_completion as a blocker",
+      "the canonical reclaimed-token completion is marked fencingCurrentCompletion and emits current_lease_completion only after a successful coordinator response"
+    ],
+    "collector": [
+      "counts staleCompletionProbes",
+      "counts staleCompletionRejections",
+      "counts currentLeaseCompletions",
+      "validates stale-probe rejected as boolean"
+    ],
+    "readinessGate": [
+      "requires at least one stale-token probe",
+      "requires every stale-token probe to be rejected",
+      "requires at least one successful current-lease completion",
+      "retains existing zero staleCompletions, duplicate mutation, unresolved request and QA-before-join gates"
+    ]
+  },
+  "priorIntegrationFailure": {
+    "observed": "DIG Node QA #169 failed only in qubes-qrexec-campaign-harness.test.mjs because the harness emitted a bounded wait event that the collector rejected as unsupported.",
+    "rootCause": "The campaign-control event contract was extended in the harness without extending the collector schema.",
+    "lesson": "Any harness event-contract extension must update collector and readiness tests in the same change set."
+  },
+  "qa": {
+    "added": [
+      "rejected stale probe increments probe and rejection evidence",
+      "accepted stale probe increments probe evidence but not rejection evidence and remains a blocker",
+      "current reclaimed lease completion emits explicit success evidence",
+      "readiness fails when the stale path was never probed",
+      "readiness fails when any stale probe was accepted",
+      "readiness fails when no current lease completion succeeded",
+      "malformed fencing evidence fails closed"
+    ],
+    "expectedRealQubesSequence": [
+      "claim mission and capture old lease token",
+      "wait beyond 30 second lease",
+      "reclaim with the same workerId and capture a new lease token",
+      "attempt completion with old token and require explicit rejection evidence",
+      "complete with new token and require explicit success evidence"
+    ]
+  },
+  "safety": "Synthetic and defensive worker reliability testing only; no real financial operations or external side effects."
+}

@@ -1,0 +1,58 @@
+{
+  "decision": "Require worker-side verification of coordinator Ed25519 response attestations before Qubes campaign responses are accepted.",
+  "status": "selected-and-enforced-in-harness",
+  "scope": "Qubes synthetic qualification evidence; no real financial operations",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "approach": "Verify every successful qrexec response at the transport boundary",
+      "assessment": {
+        "correctness": "strong: unverified response data never reaches campaign state/captures",
+        "robustness": "strong: signature, key identity, git SHA, and selected service are checked together",
+        "latency": "low: one local Ed25519 verification per returned response",
+        "resourceUse": "low: public-key verification only; no extra process or network hop",
+        "regressionRisk": "medium-low: scripted unit transports remain unchanged while real CLI qualification becomes fail-closed",
+        "qa": "covers valid verification, missing attestation, service mismatch, response tampering, and coordinator integration"
+      }
+    },
+    {
+      "agent": "security-review",
+      "approach": "Record attestation presence without cryptographic verification",
+      "assessment": {
+        "correctness": "weak: worker could fabricate presence metadata",
+        "robustness": "weak against worker-side evidence manipulation",
+        "latency": "lowest",
+        "resourceUse": "lowest",
+        "regressionRisk": "low",
+        "qa": "cannot establish coordinator origin"
+      },
+      "result": "rejected"
+    },
+    {
+      "agent": "performance-review",
+      "approach": "External attestation/telemetry authority",
+      "assessment": {
+        "correctness": "strong",
+        "robustness": "strong with independently managed keys",
+        "latency": "highest because of an additional IPC/network path",
+        "resourceUse": "highest due to service lifecycle and storage",
+        "regressionRisk": "high for the current lab stage",
+        "qa": "adds distributed availability and key-lifecycle failure modes"
+      },
+      "result": "deferred"
+    }
+  ],
+  "whyWinnerWon": [
+    "The worker possesses only the public key, so it can verify but cannot mint coordinator evidence.",
+    "Verification occurs before responses enter campaign captures or correctness evidence.",
+    "The signature is bound to the exact selected qrexec service and expected git SHA, preventing cross-service or stale-build substitution.",
+    "No additional qrexec round trip, daemon, database, or worker authority is introduced."
+  ],
+  "failuresAndLessons": [
+    "Optional coordinator signing alone was insufficient because qualification could still consume unsigned responses.",
+    "Service-name events are routing evidence, not cryptographic origin evidence.",
+    "A shared HMAC remains appropriate for command authentication but not independent response provenance.",
+    "The next qualification layer should aggregate explicit verified-attestation coverage for both normal and fault services rather than infer it indirectly."
+  ],
+  "nextGate": "Emit explicit attestation_verified events from verified qrexec calls and require complete normal/fault attestation coverage in multi-run qualification, then obtain green Node/Swift CI on the same SHA before real Qubes execution."
+}

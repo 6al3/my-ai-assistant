@@ -1,0 +1,48 @@
+{
+  "decision": "Bind coordinator Ed25519 response attestations to the selected Qubes topology and exact calibration evidence digest when calibration context is configured.",
+  "status": "selected",
+  "reviews": {
+    "correctness": {
+      "preferred": "Extend the existing Ed25519 signing context with topologyId and calibrationEvidenceDigest.",
+      "reason": "The final readiness evaluator already checks these values in campaign provenance, but coordinator-origin cryptographic evidence did not. Signing them closes the worker-origin trust gap without creating a second authority."
+    },
+    "security_robustness": {
+      "preferred": "Fail closed when only one calibration-binding field is configured, require a lowercase SHA-256 digest, and allow qualification callers to require exact topology/digest matches.",
+      "reason": "Partial or malformed deployment binding must not silently degrade to a weaker attestation. Legacy attestations remain verifiable only when the caller does not request calibration binding."
+    },
+    "latency_resources_regression": {
+      "preferred": "Reuse the existing Ed25519 signature and canonical payload.",
+      "reason": "Adds no qrexec round trip, daemon, database, VM, or MissionQueue mutation. CPU and payload growth are negligible compared with a separate attestation service."
+    }
+  },
+  "alternatives": [
+    {
+      "approach": "Trust campaign_start topology/digest only",
+      "rejectedBecause": "Those fields originate on the worker side and do not prove coordinator agreement with the calibrated deployment identity."
+    },
+    {
+      "approach": "Add a separate dom0 or remote attestation service",
+      "rejectedBecause": "Potentially stronger later, but currently adds key lifecycle, IPC, operational failure modes, resource use, and attack surface before real Qubes qualification exists."
+    },
+    {
+      "approach": "Store calibration identity in MissionQueue persistence",
+      "rejectedBecause": "Couples deployment evidence to mission mutation state and creates migration/recovery regression risk without improving the signature primitive itself."
+    }
+  ],
+  "qa": {
+    "required": [
+      "matching topology and calibration digest verifies",
+      "wrong topology is rejected",
+      "wrong calibration digest is rejected",
+      "legacy attestation is rejected when calibration binding is required",
+      "topology/digest configuration is all-or-none",
+      "malformed digest is rejected"
+    ],
+    "current": "Dedicated regression test added to Full QA; hosted execution evidence is still required."
+  },
+  "failureLessons": [
+    "A final evaluator can be correctly bound to calibration provenance while the cryptographic response evidence remains weaker; trust properties must be checked at every handoff.",
+    "Deployment binding should be added to the existing canonical signature context rather than layered as unsigned metadata."
+  ],
+  "next": "Require the campaign/preflight verifier to pass expectedTopologyId and expectedCalibrationEvidenceDigest and emit those verified values in attestation evidence, then enforce them in attested multi-run qualification."
+}

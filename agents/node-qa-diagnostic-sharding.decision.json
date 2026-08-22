@@ -1,0 +1,78 @@
+{
+  "decision": "diagnostic sharding for DIG Node QA",
+  "scope": "CI observability and regression isolation for orchestration, queue, worker, Qubes, and synthetic sandbox tests",
+  "winner": "four semantic test shards plus targeted per-file diagnostics inside distributed-faults",
+  "comparison": [
+    {
+      "approach": "single monolithic npm test job",
+      "correctness": "high when green but weak diagnostic value when red",
+      "robustness": "low during failures because one exit code hides the failing subsystem when logs are unavailable",
+      "latency": "lowest runner overhead but serial critical path",
+      "resourceUse": "lowest concurrent runner use",
+      "regressionRisk": "high operational debugging risk because unrelated suites are coupled into one opaque result",
+      "qa": "DIG Node QA #133 failed with only an aggregate exit code visible to connected tooling",
+      "result": "rejected"
+    },
+    {
+      "approach": "one GitHub Actions job per test file",
+      "correctness": "highest fault localization",
+      "robustness": "high",
+      "latency": "low wall-clock if runners are immediately available",
+      "resourceUse": "highest; excessive runner fan-out for the current project size",
+      "regressionRisk": "moderate due to workflow maintenance and duplicated setup overhead",
+      "qa": "would identify every failing file directly",
+      "result": "rejected for current scale"
+    },
+    {
+      "approach": "four semantic shards only",
+      "correctness": "high; every prior npm-test file remains covered",
+      "robustness": "high at subsystem isolation",
+      "latency": "lower critical path through bounded parallelism",
+      "resourceUse": "moderate and bounded to five jobs",
+      "regressionRisk": "low",
+      "qa": "DIG Node QA #137 isolated the regression to distributed-faults while syntax-check, queue-core, worker-reliability, and synthetic-sandboxes all passed",
+      "result": "useful but insufficient for exact root-cause isolation"
+    },
+    {
+      "approach": "four semantic shards plus targeted per-file diagnostics inside distributed-faults",
+      "correctness": "high; coverage is unchanged and every distributed fault test is still executed",
+      "robustness": "highest practical option with current tooling because the failing file is emitted explicitly and job logs preserve the exact assertion",
+      "latency": "distributed-fault files run sequentially during diagnosis, modestly increasing that shard latency but not runner count",
+      "resourceUse": "bounded to the same five jobs; no extra runners",
+      "regressionRisk": "very low; only CI execution/reporting changes and production code is untouched",
+      "qa": "DIG Node QA #141 identified exactly two failing files while all other distributed-fault files passed",
+      "result": "selected"
+    },
+    {
+      "approach": "change production semantics to satisfy the two failing tests",
+      "correctness": "low because the failures were fixture/expectation regressions, not production invariant failures",
+      "robustness": "low; risks weakening tested crash/provenance semantics",
+      "latency": "no meaningful benefit",
+      "resourceUse": "no meaningful benefit",
+      "regressionRisk": "high because working runtime behavior would be changed to fit stale tests",
+      "qa": "rejected after logs showed ReferenceError and an expected-object mismatch only",
+      "result": "rejected"
+    },
+    {
+      "approach": "repair only the stale test fixtures/contracts",
+      "correctness": "highest for the observed failures: fixes the misspelled crash variable and aligns expected collector shape with provenance:null",
+      "robustness": "high because authenticated crash/retry and provenance behavior remain unchanged",
+      "latency": "none in production; negligible CI-only effect",
+      "resourceUse": "none in production",
+      "regressionRisk": "lowest; production files are untouched",
+      "qa": "requires all five Node gates green on the new head",
+      "result": "selected for root-cause repair"
+    }
+  ],
+  "whyItWon": "Semantic sharding plus per-file diagnostics converted an opaque red suite into two precise test regressions without changing runtime behavior. DIG Node QA #141 showed orchestration-authenticated-recovery.test.mjs failing from a misspelled crash variable and qubes-qrexec-campaign-harness.test.mjs failing because its expected object predated the collector provenance field. Fixing only those tests preserves the stronger lease-fencing and provenance contracts while minimizing regression risk and production cost.",
+  "failuresAndLessons": [
+    "DIG Node QA #141 passed syntax-check, queue-core, worker-reliability, synthetic-sandboxes, orchestration benchmark, process fault, qrexec service, readiness gate, and campaign collector; failures were limited to authenticated-recovery and campaign-harness tests.",
+    "orchestration-authenticated-recovery.test.mjs used crashAfterRequestId as an undefined shorthand instead of mapping crashAfterRequestId: crashRequestId; the test failed before exercising the runtime.",
+    "qubes-qrexec-campaign-harness.test.mjs expected the pre-provenance collector shape; collectQrexecCampaign now deliberately returns provenance:null for unframed synthetic unit events.",
+    "When a security/reliability feature strengthens a returned contract, dependent tests must be updated explicitly rather than deleting or hiding the new field.",
+    "Production semantics should not be modified to repair fixture-only regressions when logs prove the runtime paths are otherwise passing.",
+    "Per-file diagnostics are worth retaining because they provide precise failure evidence with bounded runner use."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "require syntax-check, queue-core, worker-reliability, distributed-faults, and synthetic-sandboxes all green on the repaired head; then extend the Qubes campaign with same-workerId stale lease-token reclaim evidence before any real Qubes worker readiness decision"
+}

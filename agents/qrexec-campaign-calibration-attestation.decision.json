@@ -1,0 +1,21 @@
+{
+  "decision": "Bind every verified normal campaign response to requestId, keyId, gitSha, qrexec service, selected topologyId, and calibrationEvidenceDigest in the existing Ed25519 response attestation.",
+  "reviews": {
+    "correctness": "Preferred verifier enforcement at the qrexec transport boundary so mismatched calibration identity is rejected before response data enters captures or qualification evidence.",
+    "robustness_security": "Preferred fail-closed topology/digest requirements and explicit verified evidence fields. This blocks replay of a valid coordinator response from another calibrated topology and rejects legacy unbound responses.",
+    "latency_resources_regression": "Preferred extending the existing signature context. It adds no qrexec round trips, no daemon/database/VM, negligible signature payload/CPU, and no MissionQueue mutation changes."
+  },
+  "alternatives_rejected": [
+    "Trust campaign_start provenance only: worker-origin evidence cannot prove coordinator agreement with the selected calibration identity.",
+    "Check topology/digest only in the final evaluator: too late because an unbound response could already influence captures and campaign state.",
+    "Add a separate attestation service: stronger isolation is possible later, but adds key lifecycle, IPC, operational latency, and attack surface before real Qubes evidence exists."
+  ],
+  "qa": [
+    "matching topology/digest produces attestation_verified evidence carrying both fields",
+    "missing topology binding fails closed",
+    "malformed calibration digest fails closed",
+    "transport verifier receives the request/service/SHA/topology/digest binding before returning response data"
+  ],
+  "lesson": "Security provenance must be enforced at the earliest boundary that consumes the response, then preserved in evidence; final-gate validation alone is not sufficient.",
+  "safety": "Synthetic/defensive worker qualification only; no real financial operations or weakened security controls."
+}

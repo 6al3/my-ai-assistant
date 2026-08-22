@@ -1,0 +1,34 @@
+{
+  "decision": "Use explicit blocked-before-join and started-after-join events in the real Qubes campaign evidence.",
+  "problem": "The prior qa_started event could satisfy coverage without proving that QA was actually blocked while dependencies were pending and then became claimable after the join.",
+  "independent_reviews": [
+    {
+      "track": "correctness",
+      "candidate": "Infer join safety from qaBeforeJoin == 0",
+      "result": "rejected",
+      "reason": "Zero violations can mean the barrier was never exercised; absence of failure is not causal evidence."
+    },
+    {
+      "track": "reliability",
+      "candidate": "Explicit qa_barrier_probe(blocked) plus qa_post_join_start",
+      "result": "selected",
+      "reason": "Proves both sides of the dependency transition with fail-closed semantics and reuses the real coordinator claim path."
+    },
+    {
+      "track": "operations",
+      "candidate": "External tracing/attestation service for every DAG transition",
+      "result": "deferred",
+      "reason": "Stronger provenance is possible later, but it adds service lifecycle, keys, latency, and a larger regression surface before Qubes execution evidence exists."
+    }
+  ],
+  "comparison": {
+    "correctness": "selected approach is strongest without new infrastructure",
+    "robustness": "fails if QA is available early or remains unavailable after join",
+    "latency": "two ordinary qrexec claim probes; no daemon or extra network service",
+    "resource_use": "negligible event and JSON processing overhead",
+    "regression_risk": "low because production orchestration semantics are unchanged",
+    "qa": "focused regression tests cover blocked-before, early availability, and missing post-join availability"
+  },
+  "lesson": "Readiness evidence must prove the safety property was exercised, not merely report zero observed violations.",
+  "remaining_gap": "The canonical manifest still needs a repeatable multi-run recovery strategy because the readiness gate expects multiple recovery latency samples while one fault service is normally bound to one crash request ID."
+}

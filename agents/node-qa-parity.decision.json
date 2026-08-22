@@ -1,0 +1,41 @@
+{
+  "decision": "enforce hosted/local Node QA parity with an executable guard",
+  "problem": "The local QA shard list included agents/qubes-idempotency-independence.test.mjs while .github/workflows/node-qa.yml omitted it, so a future hosted green run could be weaker than local qualification evidence.",
+  "reviews": [
+    {
+      "lens": "correctness",
+      "preferred": "shared parity guard plus explicit hosted coverage",
+      "reason": "A green hosted run must cover every semantic test file represented by the local evidence runner."
+    },
+    {
+      "lens": "robustness",
+      "preferred": "fail closed when workflow/local shard definitions drift",
+      "reason": "Silent coverage drift is more dangerous than an explicit QA failure, especially for Qubes readiness gates."
+    },
+    {
+      "lens": "latency_resources_regression",
+      "preferred": "static text parity test",
+      "reason": "It adds no runtime worker traffic, no external dependency, negligible CPU/IO, and does not modify production orchestration semantics."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "manual review of workflow changes",
+      "rejectedBecause": "not repeatable and already allowed drift"
+    },
+    {
+      "approach": "generate GitHub Actions YAML dynamically",
+      "rejectedBecause": "adds build tooling and workflow-generation complexity for little benefit"
+    },
+    {
+      "approach": "trust npm test only",
+      "rejectedBecause": "hosted sharding intentionally does not invoke the monolithic npm test command"
+    }
+  ],
+  "winner": "explicit hosted coverage plus agents/node-qa-parity.test.mjs",
+  "lessons": [
+    "Fallback QA and hosted QA can diverge unless parity is executable.",
+    "A CI green result is only meaningful if coverage is itself guarded.",
+    "Keep this fix qualification-only; do not change MissionQueue or qrexec production semantics while hosted runners are failing before first step."
+  ]
+}

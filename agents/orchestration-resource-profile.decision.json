@@ -1,0 +1,62 @@
+{
+  "decision": "resource-aware bounded Qubes fleet evaluation",
+  "status": "selected for lab qualification",
+  "problem": "Latency- and trust-aware topology selection can still choose a fleet that exceeds the RAM, vCPU, or Qube budget available on the target machine.",
+  "independentReviews": [
+    {
+      "lens": "correctness",
+      "preferredApproach": "fail-closed resource budgets evaluated after trust/readiness gates",
+      "reason": "A topology is not deployable merely because its DAG timing is correct; resource feasibility must be an explicit qualification invariant."
+    },
+    {
+      "lens": "robustness-security",
+      "preferredApproach": "retain forbidden capability co-residency constraints before resource ranking",
+      "reason": "A cheaper topology must never win by violating an isolation boundary. Security constraints remain authoritative over resource savings."
+    },
+    {
+      "lens": "latency-resources-regression",
+      "preferredApproach": "offline deterministic resource accounting",
+      "reason": "It adds no qrexec calls, workers, daemons, or production state while exposing the Qube/RAM/vCPU tradeoff before VM deployment."
+    }
+  ],
+  "approachesCompared": [
+    {
+      "name": "latency-and-trust-only topology ranking",
+      "result": "rejected",
+      "failure": "Can select a correct fast layout that the host cannot afford in RAM/vCPU/Qube count."
+    },
+    {
+      "name": "measure resources only in live Qubes",
+      "result": "deferred",
+      "failure": "Higher fidelity but too late and environment-dependent for first-pass topology elimination."
+    },
+    {
+      "name": "deterministic worker resource profiles plus hard budgets",
+      "result": "selected",
+      "whyItWon": "Preserves correctness and trust gates, adds explicit RAM/vCPU/Qube feasibility, costs only local linear validation, and does not change MissionQueue/coordinator semantics."
+    }
+  ],
+  "rankingPolicy": [
+    "eligible trust and readiness gates",
+    "within hard RAM/vCPU/Qube budgets",
+    "fewer Qubes",
+    "lower RAM",
+    "lower vCPU",
+    "lower constrained latency",
+    "lower queue delay"
+  ],
+  "qa": [
+    "two-worker balanced topology wins under a 3-Qube/3072MB/4-vCPU budget while preserving 210ms-equivalent critical path",
+    "one-worker topology remains resource-cheap but fails latency readiness",
+    "four-worker isolated topology remains timing-correct but fails the tighter resource budget",
+    "forbidden coder+QA co-residency rejects the fused two-worker topology before resource ranking",
+    "expanded budget permits the isolated four-worker topology to win when the trust boundary requires it",
+    "missing or invalid resource profiles fail closed"
+  ],
+  "lessons": [
+    "Worker-count minimization alone is not a sufficient proxy for memory or CPU pressure.",
+    "Resource optimization must remain subordinate to trust-boundary and correctness gates.",
+    "Synthetic resource profiles are planning evidence, not a substitute for measured Qubes RSS/CPU during real qualification."
+  ],
+  "nextGate": "Calibrate worker RAM/vCPU profiles from synthetic Qubes measurements, then feed the measured profile into the same evaluator before real-worker qualification."
+}

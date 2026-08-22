@@ -1,0 +1,45 @@
+{
+  "decision": "Require request identities observed in attested Qubes qualification evidence to be unique across independent campaign runs.",
+  "problem": "Unique run IDs do not prove independent executions if two runs reuse the same durable requestId. Reuse can cause journal reconciliation or cached responses from one run to satisfy another and overstate multi-run reliability evidence.",
+  "reviews": [
+    {
+      "agent": "correctness",
+      "preferred": "cross-run request identity uniqueness",
+      "reason": "Qualification claims independent executions, so durable request identities must not overlap across run boundaries."
+    },
+    {
+      "agent": "security-robustness",
+      "preferred": "fail closed on any cross-run requestId reuse",
+      "reason": "Prevents stale or replayed durable request state from being counted as fresh qualification evidence."
+    },
+    {
+      "agent": "performance-regression",
+      "preferred": "offline Set/Map validation",
+      "reason": "Adds no qrexec calls and only linear memory/time in observed request IDs; avoids changing coordinator persistence or transport semantics."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "Trust unique campaign runId only",
+      "rejected": "runId is evidence metadata and does not namespace durable request journal identities."
+    },
+    {
+      "approach": "Clear durable stores between runs",
+      "rejected": "Destroys the persistence/recovery conditions the qualification is intended to exercise and increases operational risk."
+    },
+    {
+      "approach": "Namespace request IDs inside coordinator persistence",
+      "rejected": "Stronger structural isolation but changes production persistence semantics and has higher regression risk; the harness already supports run-scoped identities."
+    }
+  ],
+  "winner": {
+    "approach": "attested evaluator cross-run request uniqueness check",
+    "correctness": "strong",
+    "robustness": "strong",
+    "latency": "no network or qrexec overhead",
+    "resources": "O(number of observed request IDs) local memory/time",
+    "regressionRisk": "low; qualification-only",
+    "qa": "negative test reuses one requestId across distinct runIds; positive test uses separate request IDs"
+  },
+  "lesson": "Independent campaign labels are insufficient when durable idempotency/reconciliation keys can still alias across runs. Qualification independence must include durable identity independence."
+}

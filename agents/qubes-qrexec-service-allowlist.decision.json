@@ -1,0 +1,62 @@
+{
+  "decision": "fail closed when qualification evidence contains any qrexec service outside the explicitly expected normal and fault services",
+  "scope": "Qubes synthetic real-worker qualification evidence",
+  "winner": "exact observed-service allowlist over multi-run evidence",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "exact observed-service allowlist",
+      "reason": "Seeing both expected services is insufficient if an additional service was also invoked; readiness must prove the campaign stayed inside the intended service set."
+    },
+    {
+      "agent": "security-review",
+      "preferred": "exact observed-service allowlist",
+      "reason": "Unexpected qrexec service use expands the authority surface and could route part of qualification through a differently configured endpoint. Fail closed on any unbound service."
+    },
+    {
+      "agent": "performance-regression-review",
+      "preferred": "offline allowlist validation",
+      "reason": "The check reuses already collected service-call evidence, adds no qrexec round trips, has negligible CPU/memory cost, and does not change worker or coordinator runtime semantics."
+    }
+  ],
+  "comparison": [
+    {
+      "approach": "require expected normal and fault services to appear, but tolerate extras",
+      "correctness": "insufficient: extra service calls can coexist with expected calls",
+      "robustness": "low against manifest or routing drift",
+      "latency": "none",
+      "resourceUse": "minimal",
+      "regressionRisk": "low",
+      "qa": "previous behavior",
+      "result": "rejected"
+    },
+    {
+      "approach": "exact observed-service allowlist",
+      "correctness": "high: every recorded qrexec service must be one of the two deployment-bound services",
+      "robustness": "high against accidental or malicious third-service routing in qualification evidence",
+      "latency": "none; offline set membership only",
+      "resourceUse": "negligible",
+      "regressionRisk": "low: qualification-only check, no production worker mutation path changes",
+      "qa": "positive expected-service case plus explicit unexpected-service regression test",
+      "result": "selected"
+    },
+    {
+      "approach": "cryptographic per-call service attestation",
+      "correctness": "potentially highest",
+      "robustness": "highest if keys are coordinator-only and lifecycle is trusted",
+      "latency": "small signing/verification overhead",
+      "resourceUse": "higher key-management and provisioning cost",
+      "regressionRisk": "moderate because response protocol and deployment secrets would change",
+      "qa": "would require key lifecycle, response-signature and rotation tests",
+      "result": "deferred until real Qubes execution is available"
+    }
+  ],
+  "failureFound": "The prior multi-run qualification only checked that expected normal and fault services were present. Evidence containing those two plus an unexpected third qrexec service could still pass that service-provenance check.",
+  "fix": "Add onlyExpectedQrexecServicesObserved and fail readiness whenever any recorded qrexec_service_call is outside expectedService/expectedFaultService.",
+  "lessons": [
+    "Presence checks are not allowlist checks.",
+    "Readiness evidence should prove both required coverage and absence of unbound authority paths.",
+    "Prefer offline validation when the evidence already contains the necessary signal; it strengthens correctness without increasing worker latency."
+  ],
+  "safety": "Synthetic/defensive qualification only. No real financial transactions, payment data, or weakened security controls."
+}

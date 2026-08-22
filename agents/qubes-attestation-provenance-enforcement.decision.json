@@ -1,0 +1,30 @@
+{
+  "decision": "Enforce topologyId and calibrationEvidenceDigest at both campaign collection and final attested qualification boundaries.",
+  "reviews": {
+    "correctness": {
+      "preferred": "Per-response attestation binding must equal the campaign_start binding for the same run and the selected calibration identity used by qualification.",
+      "reason": "Worker-side campaign provenance alone cannot prove that each accepted coordinator response was signed for the same calibrated topology."
+    },
+    "robustness_security": {
+      "preferred": "Fail closed on missing, malformed, legacy, wrong, mixed, or replayed topology/calibration bindings.",
+      "reason": "This prevents a valid signed response from another calibrated topology from entering evidence or readiness decisions."
+    },
+    "latency_resources_regression": {
+      "preferred": "Offline field validation on evidence already produced by the existing Ed25519 verification path.",
+      "reason": "Adds zero qrexec round trips, no daemon/database/VM, negligible CPU and memory cost, and does not modify MissionQueue or mutation semantics."
+    }
+  },
+  "alternatives_rejected": [
+    "Trust campaign_start topology/digest without per-response matching: weakest trust boundary and permits response replay across calibrated deployments.",
+    "Runner-only post-validation: direct evaluator callers could bypass it and evidence could be transformed after execution.",
+    "External or dom0 attestation service: stronger future option but adds key lifecycle, IPC, resource use, and operational failure modes before real Qubes execution exists."
+  ],
+  "qa": [
+    "Accept response attestation only when topologyId and calibrationEvidenceDigest equal campaign_start provenance.",
+    "Reject missing topology/digest in attestation_verified.",
+    "Reject wrong topology or digest even when keyId, Git SHA, service, and requestId are valid.",
+    "Reject mixed response bindings across runs at final attested qualification.",
+    "Keep preflight and campaign attestations bound to the same selected topology and calibration digest."
+  ],
+  "lesson": "Cryptographic origin is insufficient when deployment/calibration identity is checked only outside the signed-response evidence path; the final readiness authority must validate the exact signed deployment binding it relies on."
+}

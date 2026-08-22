@@ -1,0 +1,64 @@
+{
+  "problem": "Ed25519 response attestation proved coordinator origin, git SHA, service, and key identity, but a valid signed response was not explicitly bound end-to-end to the worker requestId. The primitive supported requestId, while the qrexec coordinator service and worker harness still omitted it.",
+  "reviews": [
+    {
+      "role": "correctness-reconciliation",
+      "preferred": "bind the authenticated envelope requestId at the qrexec process boundary and require the same requestId during worker verification",
+      "reason": "The response becomes cryptographically correlated to the exact durable request while same-request retries remain valid."
+    },
+    {
+      "role": "security-transport",
+      "preferred": "fail closed on absent or mismatched request binding before a response can enter campaign state or attestation evidence",
+      "reason": "A valid coordinator response from request A must not be reusable as evidence for request B."
+    },
+    {
+      "role": "performance-regression",
+      "preferred": "reuse the existing per-call qrexec process and Ed25519 signature rather than add a second signature, daemon, or network attestation service",
+      "reason": "No extra qrexec round trip, negligible payload/CPU growth, and a small integration surface."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "correlate responses only by service/SHA/key binding",
+      "rejected": true,
+      "reason": "Authenticates origin but still permits cross-request replay of otherwise valid signed responses."
+    },
+    {
+      "name": "track request IDs only in worker-side state without signing them",
+      "rejected": true,
+      "reason": "Local bookkeeping cannot prove that the coordinator signed the response for that request."
+    },
+    {
+      "name": "modify the durable journal or mission coordinator to embed attestation state",
+      "rejected": true,
+      "reason": "Attestation is a transport-boundary concern; mixing it into persistence would expand regression surface and couple unrelated semantics."
+    },
+    {
+      "name": "external attestation daemon",
+      "rejected": true,
+      "reason": "Adds lifecycle, policy, latency, and resource cost without improving this specific request-response correlation property."
+    }
+  ],
+  "winner": "single-request qrexec boundary capture + requestId-bound Ed25519 response attestation + worker expectedRequestId verification",
+  "expected_effects": {
+    "correctness": "Every successful qrexec response consumed by the worker is matched cryptographically to the exact logical request envelope.",
+    "robustness": "Missing legacy request binding and cross-request replay fail closed; same-request durable retry remains valid.",
+    "latency": "No new qrexec calls; only requestId bytes are added to the signed payload.",
+    "resources": "Negligible CPU and memory change relative to existing Ed25519 signing and verification.",
+    "regression_risk": "Low-to-medium because qrexec service input is now explicitly one envelope per process, matching the deployed process-per-call contract."
+  },
+  "qa": {
+    "added": [
+      "worker verifier requires expectedRequestId",
+      "coordinator service emits attestation.requestId from the incoming authenticated envelope",
+      "same-request retry verifies and returns the same durable response",
+      "response from request A is rejected when verified as request B"
+    ],
+    "remaining": "Run full Node/Swift CI on the new head, then exercise the same request-bound verification across an actual Qube-to-Qube qrexec qualification campaign."
+  },
+  "failures_and_lessons": [
+    "Having requestId support only in the attestation primitive was insufficient because the service wrapper signed output without request context.",
+    "The correct place to bind request identity is the qrexec process boundary, where one request envelope maps to one service process and one response stream.",
+    "Durable retry semantics are compatible with request-bound attestation because retries intentionally reuse the same requestId."
+  ]
+}

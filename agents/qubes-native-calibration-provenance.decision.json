@@ -1,0 +1,56 @@
+{
+  "decision": "Emit calibrated topology identity at the qrexec campaign source and consume it without runner-side post-processing.",
+  "status": "selected",
+  "scope": "synthetic/defensive Qubes qualification only",
+  "problem": "The qualification runner previously injected topologyId and calibrationEvidenceDigest into campaign_start after the harness completed. That proved runner configuration, but not that raw execution evidence originated with the calibrated selection identity.",
+  "independent_reviews": [
+    {
+      "review": "correctness",
+      "preferred": "source-native campaign provenance",
+      "reason": "The campaign harness must emit topologyId and calibrationEvidenceDigest in campaign_start itself; otherwise raw evidence can be detached from the calibration selection that justified the worker topology.",
+      "rejected": [
+        "runner-side JSONL post-processing because it can strengthen evidence after execution",
+        "re-running calibration during qualification because it changes the measured evidence set and adds unnecessary work"
+      ]
+    },
+    {
+      "review": "security_and_robustness",
+      "preferred": "fail-closed environment binding at harness startup",
+      "reason": "Missing topology or malformed calibration digest now prevents the campaign from starting. Collector validation preserves the fields and qualification rejects legacy/mixed evidence.",
+      "rejected": [
+        "optional source fields because legacy evidence could still enter the qualification path",
+        "external evidence database because it adds credentials, service lifecycle, and a larger attack surface"
+      ]
+    },
+    {
+      "review": "latency_resources_regression",
+      "preferred": "local provenance fields only",
+      "reason": "Adds zero qrexec round trips, negligible CPU/RAM, no new daemon/database, and no MissionQueue/coordinator mutation changes.",
+      "rejected": [
+        "extra remote attestation call because existing Ed25519 response attestation already covers coordinator-origin responses",
+        "new persistence layer because calibration identity is execution provenance, not worker state"
+      ]
+    }
+  ],
+  "qa": {
+    "positive": [
+      "qualification runner passes topology/digest to every harness process",
+      "harness campaign_start emits both fields",
+      "collector preserves valid native fields",
+      "all lease/recovery runs share the exact calibrated identity"
+    ],
+    "negative": [
+      "missing source topology/digest is rejected",
+      "malformed digest is rejected",
+      "wrong topology is rejected",
+      "wrong or mixed digest across runs is rejected",
+      "legacy harness evidence without native binding is rejected"
+    ]
+  },
+  "failures_and_lessons": [
+    "Post-processing can make evidence look stronger than what the execution source actually emitted.",
+    "Calibration identity belongs at campaign_start, before any qrexec execution evidence is interpreted.",
+    "Qualification should validate source evidence, not repair it."
+  ],
+  "release_gate": "Keep LAB READY until Node/Swift QA execute green on the same head and real Qube-to-Qube qualification returns qualification.ready=true."
+}

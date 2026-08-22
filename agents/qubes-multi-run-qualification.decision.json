@@ -1,0 +1,70 @@
+{
+  "decision": "Use deterministic offline Qubes readiness/qualification gates that require explicit deployment binding (expected git SHA, source Qube, target Qube, qrexec service), strict campaign framing, bounded future clock skew, and multi-run provenance consistency before REAL-WORKER READY can be emitted.",
+  "problem": "Numerically clean qrexec evidence is insufficient if the gate is not explicitly bound to the exact deployment being qualified. A self-consistent report from another commit/topology, or a future-dated report accepted as age zero, could otherwise satisfy readiness checks without proving the intended environment.",
+  "reviewers": [
+    {
+      "role": "correctness/reconciliation reviewer",
+      "preferred": "require explicit expected SHA/topology/service binding in addition to correctness counters and scenario coverage",
+      "reason": "prevents a valid-looking but unrelated campaign from qualifying the intended worker deployment"
+    },
+    {
+      "role": "transport/security reviewer",
+      "preferred": "fail closed when expected deployment binding is absent and reject provenance beyond a bounded future clock skew",
+      "reason": "removes two trust ambiguities: unbound provenance and clock-manipulated freshness"
+    },
+    {
+      "role": "performance/regression reviewer",
+      "preferred": "keep validation offline inside the existing readiness gate",
+      "reason": "adds no qrexec round trips, daemon, database, or worker-side state and has negligible CPU/memory cost"
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "optional expected binding",
+      "correctness": "weaker because provenance can self-assert its own SHA/topology",
+      "robustness": "poor against accidental invocation with missing environment variables",
+      "latency": "lowest",
+      "resources": "negligible",
+      "regressionRisk": "high false-readiness risk",
+      "verdict": "rejected"
+    },
+    {
+      "name": "external attestation/telemetry service",
+      "correctness": "potentially stronger with trusted signing and independent clocks",
+      "robustness": "strong once operated correctly",
+      "latency": "adds service and network dependencies",
+      "resources": "highest",
+      "regressionRisk": "higher operational and key-lifecycle surface before real Qubes evidence exists",
+      "verdict": "deferred"
+    },
+    {
+      "name": "explicit offline deployment binding plus bounded clock-skew validation",
+      "correctness": "strong for the current lab-to-Qubes qualification boundary",
+      "robustness": "fails closed on missing expected SHA/Qubes/service, mismatches, stale reports, or future-dated reports beyond skew",
+      "latency": "no additional qrexec calls; constant-time metadata comparisons",
+      "resources": "negligible",
+      "regressionRisk": "low because production worker/coordinator semantics are untouched",
+      "verdict": "selected"
+    }
+  ],
+  "qa": {
+    "tests": [
+      "a fresh matching qrexec report with complete fencing evidence can qualify",
+      "missing all expected deployment bindings remains LAB READY",
+      "omitting any one of expected SHA/source/target/service remains LAB READY",
+      "wrong SHA or topology remains blocked",
+      "future-dated provenance beyond five-minute skew fails freshness",
+      "bounded clock skew is tolerated",
+      "multi-run qualification still enforces unique run IDs, same SHA/topology, freshness, scenario coverage, and latency sample minimums",
+      "GitHub Node QA and Swift QA must both be green on the exact new head"
+    ],
+    "ciRequirement": "Do not accept Qubes qualification evidence until Node QA and Swift QA are green on the exact head containing this gate hardening."
+  },
+  "failuresAndLessons": [
+    "Zero correctness counters do not prove the intended deployment was tested.",
+    "A provenance field is not a trust anchor when the expected value is optional; REAL-WORKER readiness must be explicitly bound to deployment intent.",
+    "Clamping negative report age to zero can accept future-dated evidence; bounded future clock skew must be checked before freshness passes.",
+    "Offline validation is currently the strongest low-regression choice, but it is not cryptographic/dom0 attestation and must not be described as such.",
+    "Real Qube-to-Qube qrexec execution evidence remains mandatory; no simulator or self-declared provenance can replace it."
+  ]
+}

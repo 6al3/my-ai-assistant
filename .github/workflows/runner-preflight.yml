@@ -1,0 +1,49 @@
+name: DIG Hosted Runner Preflight
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runner-preflight.yml'
+  push:
+    branches:
+      - 'dig/mission-queue-durable-state'
+    paths:
+      - '.github/workflows/runner-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dig-runner-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-runner:
+    name: ubuntu-runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Prove hosted runner execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DIG_RUNNER_PREFLIGHT=ok"
+          echo "os=$RUNNER_OS"
+          echo "arch=$RUNNER_ARCH"
+          uname -a
+
+  macos-runner:
+    name: macos-runner
+    runs-on: macos-latest
+    timeout-minutes: 3
+    steps:
+      - name: Prove hosted runner execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DIG_RUNNER_PREFLIGHT=ok"
+          echo "os=$RUNNER_OS"
+          echo "arch=$RUNNER_ARCH"
+          uname -a
+          swift --version

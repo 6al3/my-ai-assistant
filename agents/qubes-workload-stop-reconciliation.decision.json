@@ -1,0 +1,35 @@
+{
+  "decision": "bounded read-only status reconciliation after ambiguous synthetic workload stop",
+  "status": "selected",
+  "reviews": {
+    "correctness": "A stop transport failure is ambiguous: the worker may already have persisted stopped state. Re-sending start is unsafe; status must prove a terminal state. The end-to-end calibration gate must distinguish a lost response after durable stop from a stop that never committed.",
+    "robustness_security": "Use only the existing bounded qrexec service with a read-only status action. Never signal recorded PIDs and never weaken duration bounds. Fail closed if terminal state cannot be proven after bounded probes.",
+    "latency_resources_regression": "Fast path adds zero calls when stop returns stopped/not-running/completed. Failure path adds at most 3 read-only probes with bounded delay; no daemon, database, listener, MissionQueue change, or extra call on successful cleanup."
+  },
+  "alternatives": [
+    { "name": "trust stop attempt", "rejected": "cannot prove remote cleanup after timeout or lost response" },
+    { "name": "repeat stop only", "rejected": "idempotent but still cannot distinguish repeated transport loss from confirmed cleanup" },
+    { "name": "persistent workload-control daemon", "rejected": "adds lifecycle, memory, credential and attack-surface cost before Qubes qualification" }
+  ],
+  "qa": [
+    "status is read-only and reports running/stopped/not-running",
+    "acknowledged terminal stop uses no extra probe",
+    "end-to-end calibration simulates stop committed remotely but response lost, then requires status confirmation and a stopped worker state",
+    "end-to-end calibration also simulates stop failing before commit and requires three bounded status probes followed by fail-closed rejection",
+    "partial start rollback reports both start failure and unresolved cleanup",
+    "collector still accepts reconciled calibration evidence only when provenance and workload bindings are valid"
+  ],
+  "comparison_result": {
+    "winner": "positive terminal-state reconciliation through read-only status",
+    "correctness": "distinguishes committed cleanup with lost response from cleanup that never committed",
+    "robustness": "keeps failure ambiguous until terminal state is positively observed",
+    "latency": "zero overhead on normal stops; bounded retry latency only on ambiguous stops",
+    "resource_use": "constant small probe overhead and no persistent service",
+    "regression_risk": "test/evidence expansion only in this step; production stop semantics remain unchanged"
+  },
+  "failure_lessons": [
+    "A transport exception is not proof that the remote stop failed.",
+    "An attempted stop is not equivalent to confirmed remote cleanup.",
+    "Integration QA must model both sides of the ambiguity: response lost after commit and failure before commit."
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "decision": "Bind every campaign attestation evidence record to a requestId observed in the same campaign.",
+  "reviews": {
+    "correctness": "Preferred explicit request correlation; service/SHA/key binding alone proves origin but not which campaign request produced the response.",
+    "security": "Rejected worker-declared service evidence and uncorrelated signed responses because replaying a valid signed response into another request's evidence would remain ambiguous.",
+    "performance": "Preferred offline correlation over durable attestation state or an external attestation service; no extra qrexec round trips and only set-membership validation."
+  },
+  "alternatives": [
+    { "approach": "Trust requestId only during transport verification", "rejected": "The fact is lost when raw evidence is collected, so qualification cannot independently audit correlation." },
+    { "approach": "Persist attestation records in coordinator storage", "rejected": "Adds I/O, schema, lifecycle, and regression surface without improving the current single-run evidence requirement." },
+    { "approach": "External/dom0 attestation service", "rejected": "Potentially stronger future trust anchor, but adds deployment/key lifecycle and IPC before real Qubes execution is available." }
+  ],
+  "winner": {
+    "approach": "requestId in attestation_verified plus same-campaign observed-request validation",
+    "correctness": "Strongest available offline correlation between signed response and exercised request.",
+    "robustness": "Fail-closed on missing requestId or an attested request not observed in that campaign.",
+    "latency": "No additional qrexec calls; local O(n) collection and membership checks.",
+    "resources": "Small in-memory request-id set only.",
+    "regressionRisk": "Qualification/evidence only; no MissionQueue or coordinator mutation semantics changed."
+  },
+  "failureLessons": [
+    "Cryptographic verification at transport time is necessary but insufficient if qualification evidence drops the request correlation afterward.",
+    "Evidence schemas must evolve with security primitives; tests should fail closed when a newly required binding is absent."
+  ],
+  "safety": "Synthetic/defensive qualification only; no real financial transactions or payment data."
+}

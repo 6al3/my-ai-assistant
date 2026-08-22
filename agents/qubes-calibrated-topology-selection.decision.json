@@ -1,0 +1,33 @@
+{
+  "decision": "Use provenance-bound measured Qubes calibrations as the only resource inputs to fleet topology selection.",
+  "reviews": {
+    "correctness": "Prefer an end-to-end gate that applies each topology's measured RAM/vCPU/probe-latency profile before eligibility and ranking. This prevents synthetic planning values from winning after real calibration disagrees.",
+    "robustness_security": "Fail closed on missing, duplicate, unexpected, or wrong-SHA calibration. Keep trust/co-residency constraints upstream of resource ranking and never let a cheaper topology bypass them.",
+    "latency_resources_regression": "Reuse existing calibration reports and resource evaluator offline. This adds no qrexec round trips, workers, daemons, or production mutation paths; cost is linear in candidate workers/topologies."
+  },
+  "alternatives": [
+    {
+      "approach": "Choose topology from static resource profiles, then inspect calibration manually",
+      "rejectedBecause": "Manual reconciliation can miss a probe-latency or RAM regression and allows stale planning assumptions to remain authoritative."
+    },
+    {
+      "approach": "Run a second live Qubes benchmark solely for topology ranking",
+      "rejectedBecause": "Higher fidelity but adds VM/qrexec traffic, runtime variance, and operational complexity before the existing measured evidence has been consumed correctly."
+    },
+    {
+      "approach": "Measured calibration -> calibrated topology -> existing resource-aware evaluator",
+      "selected": true,
+      "why": "Strongest correctness/resource tradeoff with no production semantic change and deterministic QA."
+    }
+  ],
+  "qa": [
+    "A RAM/CPU-ready topology with probeLatencyP95Ms above budget must be rejected.",
+    "A stable alternative within the same trust/correctness gates must win.",
+    "Missing, duplicate, unexpected, or wrong-SHA calibration must fail closed."
+  ],
+  "lessons": [
+    "Collecting probe latency is insufficient unless the final topology authority consumes it.",
+    "Resource evidence must remain bound to the exact Git SHA and topology it calibrated.",
+    "Do not add live Qubes traffic when an offline deterministic gate can consume already-collected evidence."
+  ]
+}

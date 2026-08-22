@@ -1,0 +1,46 @@
+{
+  "decision": "owner-authenticated read-only mission telemetry snapshot",
+  "scope": "iPhone control-plane integration without worker mutation authority",
+  "winner": "sanitized HTTPS GET snapshot backed by the durable mission store",
+  "comparison": [
+    {
+      "approach": "sanitized read-only HTTPS snapshot",
+      "correctness": "high: one deterministic contract derived from durable mission state",
+      "robustness": "high: fail-closed on missing auth, missing store configuration, malformed state, or unsupported records",
+      "latency": "low for current lab-scale snapshots; one local file read and SHA-256 revision per refresh",
+      "resourceUse": "low: no persistent connection or second state service",
+      "regressionRisk": "low: no mutation methods and no changes to MissionQueue semantics",
+      "qa": "field allowlist, secret-leak regression, deterministic revision, malformed-state rejection, missing/corrupt store coverage",
+      "result": "selected"
+    },
+    {
+      "approach": "bidirectional iPhone mission command API",
+      "correctness": "potentially high with a separate command protocol",
+      "robustness": "medium until phone identity, command fencing, replay protection, and audit semantics are proven",
+      "latency": "low",
+      "resourceUse": "low-medium",
+      "regressionRisk": "high: expands authority surface before Qubes worker readiness is proven",
+      "qa": "would require mutation authorization, idempotency, replay, and abuse-resistance suites",
+      "result": "rejected for this stage"
+    },
+    {
+      "approach": "persistent WebSocket telemetry stream",
+      "correctness": "medium-high",
+      "robustness": "medium: reconnect/order/backpressure semantics add state",
+      "latency": "best for live updates",
+      "resourceUse": "higher: long-lived connections and server lifecycle complexity",
+      "regressionRisk": "medium-high",
+      "qa": "requires reconnect, ordering, duplicate delivery, and lifecycle testing",
+      "result": "deferred until polling latency is shown to be inadequate"
+    }
+  ],
+  "whyItWon": "The phone needs visibility, not worker authority. A strict field allowlist prevents task, result, worker identity, errors, and arbitrary metadata from crossing the control-plane boundary while deterministic revisions support cheap refresh semantics.",
+  "failuresAndLessons": [
+    "The mission queue stores updatedAt as epoch milliseconds while the Swift client expects a String; the API deliberately normalizes it to ISO-8601 rather than leaking storage representation into the client.",
+    "The durable store does not persist a per-mission maxAttempts field today, so telemetry currently reports the queue default of 3 unless a persisted record explicitly contains maxAttempts. A future non-default queue policy should persist that policy explicitly before the phone treats this field as authoritative.",
+    "A missing store file is equivalent to an empty queue in MissionQueueStore semantics; malformed or unsupported store contents remain fail-closed.",
+    "Read-only telemetry is not evidence of real Qubes worker readiness and must not change that readiness gate."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "run Node contract tests green on this head, then connect the Swift view model to the endpoint and validate an iOS build; real-worker readiness remains gated on an actual Qube-to-Qube qrexec campaign"
+}

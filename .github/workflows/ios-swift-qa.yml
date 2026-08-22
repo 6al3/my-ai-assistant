@@ -1,0 +1,62 @@
+name: DIG iPhone Swift QA
+
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-swift-qa.yml'
+  push:
+    branches:
+      - 'dig/mission-queue-durable-state'
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-swift-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dig-ios-swift-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-typecheck:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Swift toolchain
+        run: swift --version
+
+      - name: Type-check iPhone control plane
+        run: |
+          set -euo pipefail
+          swift_source_count="$(find ios/DIGAssistant -type f -name '*.swift' -print | wc -l | tr -d ' ')"
+          if [ "$swift_source_count" -eq 0 ]; then
+            echo 'No Swift sources found' >&2
+            exit 1
+          fi
+
+          ios_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          host_arch="$(uname -m)"
+          case "$host_arch" in
+            arm64|x86_64) ;;
+            *)
+              echo "Unsupported macOS runner architecture: $host_arch" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "Type-checking $swift_source_count Swift sources against iPhone Simulator SDK ($host_arch)"
+          find ios/DIGAssistant -type f -name '*.swift' -print0 \
+            | sort -z \
+            | xargs -0 xcrun swiftc \
+                -sdk "$ios_sdk" \
+                -target "${host_arch}-apple-ios17.0-simulator" \
+                -typecheck
+
+      - name: Run iPhone contract tests
+        run: node --test ios/DIGAssistant/mission-control-plane-contract.test.mjs

@@ -1,0 +1,63 @@
+{
+  "decision": "Probe both the normal and fault-only qrexec coordinator services with authenticated read-only stats requests before launching the multi-run qualification campaign, and bind recovery manifests to those same deployment service names.",
+  "problem": "The qualification runner previously probed only the normal coordinator service. A missing or mis-routed fault-only qrexec service could therefore remain undetected until committed-response-loss campaigns had started. In addition, recovery manifests hard-coded dig.CoordinatorFault, so a custom fault service could pass preflight but the campaign could still invoke a different service.",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "dual-service authenticated preflight plus manifest binding",
+      "reason": "It proves both services used by qualification are reachable and authenticated, and guarantees the recovery campaign consumes the same normal/fault service configuration that was probed."
+    },
+    {
+      "agent": "security-review",
+      "preferred": "read-only stats probes through existing signed envelopes",
+      "reason": "The probes preserve the existing HMAC and qrexec policy boundaries, do not mutate mission state, and keep the fault-only service separate from the normal service."
+    },
+    {
+      "agent": "performance-review",
+      "preferred": "two bounded preflight round trips before long-running campaigns",
+      "reason": "The extra fault-service stats round trip is materially cheaper than entering a campaign with a 31 second lease-expiry wait or multiple recovery runs when the fault service is unavailable."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "Probe only the normal coordinator",
+      "correctness": "medium",
+      "robustness": "medium-low",
+      "latency": "one qrexec round trip",
+      "resources": "very low",
+      "regressionRisk": "low",
+      "rejectedBecause": "Does not validate the separate fault-only service required by recovery qualification."
+    },
+    {
+      "approach": "Probe normal and fault services and bind campaign manifests to the same deployment configuration",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "two qrexec round trips",
+      "resources": "very low",
+      "regressionRisk": "low",
+      "selected": true
+    },
+    {
+      "approach": "Dedicated health/attestation daemon for both services",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "low",
+      "resources": "higher",
+      "regressionRisk": "higher",
+      "rejectedBecause": "Adds a new long-lived service, policy surface and lifecycle before the existing qrexec protocol requires it."
+    }
+  ],
+  "qa": [
+    "Reject missing or malformed deployment bindings and transport secrets.",
+    "Require source and target Qubes to differ and normal/fault qrexec service names to differ.",
+    "Require successful authenticated stats responses with valid timing evidence from both normal and fault-only services.",
+    "Fail closed when either service rejects authentication, returns malformed stats, or cannot produce valid timing evidence.",
+    "Materialize recovery campaign normal/fault service fields from the same validated deployment configuration used by preflight.",
+    "Run preflight and qualification-runner tests inside the distributed-faults CI shard and npm test."
+  ],
+  "lessons": [
+    "A preflight is only useful if it exercises every service the qualification sequence will actually invoke.",
+    "Hard-coded service names can silently break the equivalence between what preflight validates and what the campaign executes.",
+    "Failing early with two read-only qrexec probes is cheaper and diagnostically cleaner than discovering policy or service mistakes during fault injection."
+  ]
+}

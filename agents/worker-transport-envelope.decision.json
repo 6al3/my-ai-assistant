@@ -1,0 +1,48 @@
+{
+  "decision": "authenticated replay-resistant envelope before Qubes transport binding",
+  "scope": "synthetic distributed worker control plane only",
+  "winner": "HMAC envelope + bounded replay cache + timestamp window",
+  "comparison": [
+    {
+      "approach": "HMAC envelope + replay cache + timestamp window",
+      "correctness": "high for message authenticity and duplicate rejection inside one coordinator lifetime",
+      "robustness": "high against tampering, stale messages, and immediate replay; secret stays outside payload",
+      "latency": "very low: one SHA-256 HMAC and map lookup per message",
+      "resourceUse": "low and bounded by maxSeen",
+      "regressionRisk": "low because mission queue semantics and qrexec transport remain unchanged",
+      "qa": "valid request, deterministic tampering, replay, clock skew, failed-auth retry, and bounded-memory tests",
+      "result": "selected"
+    },
+    {
+      "approach": "trust qrexec policy alone and send unsigned JSON commands",
+      "correctness": "medium because VM routing policy authenticates an endpoint but does not give the application a replay/idempotency message contract",
+      "robustness": "medium-low for duplicate or stale message delivery",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "medium because transport behavior leaks directly into mission mutation semantics",
+      "qa": "would depend on Qubes-only integration tests",
+      "result": "rejected"
+    },
+    {
+      "approach": "public-key signatures per message",
+      "correctness": "high",
+      "robustness": "high and better for many independently provisioned workers",
+      "latency": "higher than HMAC",
+      "resourceUse": "higher key-management and provisioning cost",
+      "regressionRisk": "medium before worker identity provisioning is stable",
+      "qa": "requires key lifecycle, rotation, and revocation coverage",
+      "result": "deferred until multi-Qube identity management is required"
+    }
+  ],
+  "whyItWon": "It separates application-level authenticity/replay fencing from the transport with minimal cost, so the same verified command contract can be carried over stdio in lab tests and qrexec later without rewriting queue behavior.",
+  "failuresAndLessons": [
+    "The first test draft relied on an implicit crypto global for randomUUID; explicit import was added before CI.",
+    "A later tamper test attempted to force the first MAC nibble to a fixed value. When the valid HMAC already began with that nibble, the envelope was not changed and the assertion failed nondeterministically. Tamper fixtures now deterministically flip the first nibble and assert that the fixture really changed before verification.",
+    "The same fixed-nibble bug existed in the failed-auth retry fixture, so both MAC-corruption paths now share the deterministic helper.",
+    "The replay cache is process-local, so coordinator restart can forget seen request IDs; durable request-result reconciliation remains the next reliability gate.",
+    "HMAC does not replace qrexec policy or VM isolation; it is an application-layer defense in depth contract.",
+    "Shared symmetric secrets are acceptable for the current lab but should be revisited if workers require independent revocation or compromise containment."
+  ],
+  "readiness": "LAB READY",
+  "nextGate": "keep Node/Swift CI green, then execute the checked-in stateful lease-fencing campaign across a real worker-Qube to coordinator-Qube qrexec boundary and pass provenance, fencing, correctness-counter, and latency gates"
+}

@@ -1,0 +1,20 @@
+{
+  "decision": "Use one fail-closed operational command that runs duration-bound calibration for every candidate topology and immediately feeds the resulting measured reports into the existing calibrated topology evaluator.",
+  "reviews": {
+    "correctness": "Preferred one authority because manual handoff can mix stale or wrong-SHA calibration reports with candidate definitions. Require one report per candidate and exact topology/SHA provenance before evaluation.",
+    "robustness_security": "Preferred fail-closed provenance and no-winner behavior. The command does not weaken qrexec, attestation, workload cleanup, or resource gates and performs no financial or external side effects.",
+    "latency_resources_regression": "Preferred composition of existing duration-bound calibration and evaluator modules. It adds no calibration probes beyond those already required and only adds local validation/evaluation overhead. A new daemon/database or a second benchmark pass was rejected as higher resource and regression cost."
+  },
+  "alternatives_rejected": [
+    "Manual calibration then manual topology evaluation: vulnerable to stale/mismatched evidence and operator drift.",
+    "New telemetry daemon/database: unnecessary lifecycle, credentials, resource use, and attack surface.",
+    "Second Qubes benchmark solely for selection: extra qrexec/CPU cost without improving the already measured resource/probe-latency evidence."
+  ],
+  "qa": [
+    "Run calibration once per candidate topology.",
+    "Reject wrong SHA, unexpected topology, mismatched returned report provenance, and missing candidate calibration.",
+    "Reject qualification when no candidate satisfies the evaluator gates.",
+    "Preserve duration-bound observed timing as the calibration authority."
+  ],
+  "lesson": "Measured evidence is only useful when the operational path consumes it without a manual provenance gap."
+}

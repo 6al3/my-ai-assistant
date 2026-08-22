@@ -1,0 +1,49 @@
+{
+  "decision": "Crash-after-commit fault injection applies only to authenticated mutating worker operations; authenticated read-only probes such as stats/get remain available.",
+  "problem": "Dual-service qualification preflight probes the fault qrexec service with stats. With DIG_CRASH_AFTER_COMMIT=1 applied to every authenticated operation, the fault service exited after stats and could never pass preflight even when policy, authentication, topology, and storage were healthy.",
+  "reviewedApproaches": [
+    {
+      "name": "Skip fault-service preflight",
+      "correctness": "low",
+      "robustness": "low",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "medium",
+      "result": "rejected",
+      "reason": "Would defer discovery of a broken fault qrexec policy/service until a recovery campaign is already running."
+    },
+    {
+      "name": "Create a separate health-only qrexec service",
+      "correctness": "medium",
+      "robustness": "medium",
+      "latency": "low",
+      "resourceUse": "higher",
+      "regressionRisk": "higher",
+      "result": "rejected",
+      "reason": "The health service would not prove that the actual fault service can authenticate and access the configured durable state, and it adds another policy/service surface."
+    },
+    {
+      "name": "Scope crash injection to mutating operations",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "unchanged",
+      "resourceUse": "unchanged",
+      "regressionRisk": "low",
+      "result": "selected",
+      "reason": "The synthetic fault hook models committed-response loss, which only has meaning after a state-changing operation. Read-only stats/get remain probeable while submit/claim/heartbeat/complete/fail still exercise the crash path."
+    }
+  ],
+  "qa": {
+    "added": [
+      "fault-only qrexec service answers authenticated stats without exit 86",
+      "fault-only qrexec service still exits 86 after authenticated submit"
+    ],
+    "status": "awaiting GitHub-hosted runner execution"
+  },
+  "failuresAndLessons": [
+    "Fault injection controls must model the failure window precisely; broad hooks can invalidate health/readiness probes and create false blockers.",
+    "A preflight should exercise the exact service that later runs the campaign, not a substitute health endpoint.",
+    "Read-only control-plane probes must remain non-mutating and should not trigger committed-response-loss simulation."
+  ],
+  "safety": "Synthetic defensive orchestration only; no real financial transactions or external side effects."
+}

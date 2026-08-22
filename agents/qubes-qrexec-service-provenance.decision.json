@@ -1,0 +1,47 @@
+{
+  "decision": "Record every qrexec service selected by the campaign harness and require qualification evidence to observe both the configured normal and fault services.",
+  "problem": "Qualification provenance previously bound the campaign to the default qrexec service name only. Recovery steps can override the service and use the fault service, so successful numeric readiness evidence did not prove that the configured fault service actually participated in the qualified runs.",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "preferred": "per-call service evidence",
+      "reason": "The evidence must distinguish the normal coordinator path from the intentional crash path and prove both were exercised. Static manifest inspection cannot prove which service the transport actually invoked."
+    },
+    {
+      "agent": "security-review",
+      "preferred": "fail-closed expected-service binding",
+      "reason": "Qualification should fail if the observed service set omits either configured service, preventing a topology-correct report from silently qualifying a recovery campaign that never used the fault endpoint."
+    },
+    {
+      "agent": "performance-regression-review",
+      "preferred": "local evidence events instead of extra probes",
+      "reason": "Recording the selected service adds no qrexec round trips, no daemon, and negligible memory/CPU overhead. It does not alter coordinator or MissionQueue semantics."
+    }
+  ],
+  "alternatives": [
+    {
+      "approach": "Trust the recovery manifest service names",
+      "rejectedBecause": "Configuration intent is not execution evidence; a harness or token-replacement regression could route differently."
+    },
+    {
+      "approach": "Add another dedicated qrexec health/attestation service",
+      "rejectedBecause": "It adds policy surface, lifecycle complexity, latency, and resources without proving the actual recovery calls used the same service."
+    },
+    {
+      "approach": "Per-call qrexec service evidence plus qualification binding",
+      "selected": true,
+      "whyItWon": "Best correctness and robustness for effectively zero transport latency/resource cost and low regression risk."
+    }
+  ],
+  "qa": {
+    "collector": "Accepts qrexec_service_call only with a non-empty service name while leaving readiness counters and latency samples unchanged.",
+    "qualification": "Requires both expectedService and expectedFaultService to appear in observed qrexec service-call evidence when both bindings are supplied.",
+    "runner": "Requires explicit normal and fault service bindings and rejects identical service names."
+  },
+  "failuresAndLessons": [
+    "Campaign-level service provenance is insufficient when individual steps can override the service.",
+    "Readiness evidence should describe what transport calls actually selected, not only what configuration intended.",
+    "Instrumentation that does not add network calls is preferable before introducing a separate attestation service."
+  ],
+  "safety": "Synthetic defensive Qubes qualification only. No real financial transactions, stolen payment data, fraud workflows, or weakened security controls."
+}

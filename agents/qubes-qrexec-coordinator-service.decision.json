@@ -1,0 +1,34 @@
+{
+  "decision": "Use a minimal qrexec service wrapper around the already-authenticated durable process coordinator, with one OS process per qrexec-style call in the contract test.",
+  "winner": "thin-qrexec-wrapper",
+  "criteria": {
+    "correctness": "Preserves the signed-envelope and durable-journal semantics already covered by recovery tests; no second protocol/state machine.",
+    "robustness": "Fails closed unless store, journal, and >=32-byte transport secret are all present; process-per-call testing exercises restart boundaries naturally.",
+    "latency": "Only adds process/qrexec launch overhead; no extra network service or database round trip.",
+    "resourceUse": "Small transient Node process, no daemon or external infrastructure.",
+    "regressionRisk": "Low because orchestration and reconciliation logic remain in runProcessCoordinator.",
+    "qa": "Synthetic contract test verifies fail-closed configuration, cross-process retry equality, durable state visibility, and tamper rejection. Real Qubes/qrexec execution remains a separate gate."
+  },
+  "alternatives": [
+    {
+      "name": "new-qrexec-specific-protocol",
+      "rejectedBecause": "Duplicates authentication/replay/reconciliation logic and increases semantic drift/regression risk."
+    },
+    {
+      "name": "long-running-network-daemon-between-qubes",
+      "rejectedBecause": "Adds listening surface, lifecycle complexity, memory use, and unnecessary transport exposure versus native qrexec stdin/stdout."
+    },
+    {
+      "name": "external-transactional-database-before-qrexec",
+      "rejectedBecause": "Potentially stronger multi-host atomicity later, but higher operational latency and resource cost before the VM-boundary transport is proven."
+    }
+  ],
+  "lessons": [
+    "Transport adaptation should not own mission semantics.",
+    "A qrexec service should fail closed when durability or authentication configuration is missing.",
+    "Process-per-call retries are a useful local approximation of qrexec lifecycle behavior, but they do not prove Qubes policy, VM identity, or real qrexec latency.",
+    "CI run 42 failed twice because the new qrexec fixture searched for a non-contract mission.agent field. The runtime contract identifies agents through metadata.agentId and requiredCapabilities. Fix the fixture rather than adding a redundant production field solely to satisfy a test.",
+    "When an integration test crosses subsystem boundaries, assertions should target documented persisted/runtime fields, not convenience shapes invented by the fixture."
+  ],
+  "safety": "Synthetic/defensive orchestration only; no real financial operations or payment data."
+}

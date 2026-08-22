@@ -1,0 +1,42 @@
+{
+  "decision": "session-scoped worker runtime over durable MissionCoordinator",
+  "status": "selected for lab",
+  "problem": "worker ownership used only workerId, so a restarted worker reusing the same logical id could make stale-result identity ambiguous",
+  "candidates": [
+    {
+      "name": "queue-level claim token",
+      "correctness": "strongest end-state; cryptographically/uniquely scopes every claim attempt",
+      "robustness": "high",
+      "latency": "negligible",
+      "resourceUse": "negligible",
+      "regressionRisk": "medium-high because it changes heartbeat/complete/fail signatures and all callers/tests",
+      "qa": "not selected in this increment"
+    },
+    {
+      "name": "workerId-only ownership",
+      "correctness": "insufficient across restart when logical ids are reused",
+      "robustness": "low",
+      "latency": "best",
+      "resourceUse": "best",
+      "regressionRisk": "none but leaves stale-result ambiguity",
+      "qa": "rejected by restart threat analysis"
+    },
+    {
+      "name": "boot-session worker identity wrapper",
+      "correctness": "strong for single-coordinator restart path; stale prior-session completion is rejected",
+      "robustness": "high for lab worker process lifecycle",
+      "latency": "negligible",
+      "resourceUse": "one UUID/session plus wrapper calls",
+      "regressionRisk": "low because MissionQueue and MissionCoordinator contracts remain intact",
+      "qa": "tests cover durable completion, same-logical-worker restart, stale-result rejection, retry after execution failure, and capability filtering"
+    }
+  ],
+  "winner": "boot-session worker identity wrapper",
+  "whyWinner": "best correctness/regression-risk tradeoff for the current single-coordinator lab stage; provides a concrete worker entry layer without destabilizing the queue API",
+  "knownLimits": [
+    "does not solve two live coordinators writing the same snapshot store",
+    "queue-level per-claim token remains preferable before true multi-coordinator/multi-host operation",
+    "full repository tests still require an executable CI/local Node runner"
+  ],
+  "safety": "synthetic/lab orchestration only; no real financial operations"
+}
