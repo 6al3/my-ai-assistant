@@ -27,14 +27,14 @@ export class MissionQueue {
 
   snapshot() { return { version: 1, missions: [...this.missions.values()].map(m => structuredClone(m)) }; }
 
-  restore(snapshot) {
+  restore(snapshot, { recoverRunning = true } = {}) {
     if (snapshot?.version !== 1 || !Array.isArray(snapshot.missions)) throw new Error('unsupported mission queue snapshot');
     this.missions.clear(); this.idempotency.clear();
     for (const raw of snapshot.missions) {
       const mission = structuredClone(raw);
       if (!mission.id || !mission.task || !['queued','running','completed','failed','cancelled'].includes(mission.status)) throw new Error('invalid mission queue snapshot');
       if (!Object.hasOwn(mission, 'leaseToken')) mission.leaseToken = null;
-      if (mission.status === 'running') {
+      if (recoverRunning && mission.status === 'running') {
         const hasLiveDurableLease = this.preserveRunningLeasesOnRestore
           && typeof mission.workerId === 'string'
           && typeof mission.leaseToken === 'string'
@@ -56,7 +56,7 @@ export class MissionQueue {
         this.idempotency.set(mission.idempotencyKey, mission.id);
       }
     }
-    this.#propagateDependencyFailures();
+    if (recoverRunning) this.#propagateDependencyFailures();
   }
 
   claim(worker) {
