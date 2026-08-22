@@ -19,11 +19,15 @@ test('coordinator failure-path benchmark supports bounded 5000-mission scaling e
   assert.deepEqual(results.map(result => result.queueSize), [1000, 5000]);
   const evaluation = evaluateCoordinatorFailurePathBudget(results, {
     maxP95MsByQueueSize: { 1000: 10000, 5000: 50000 },
-    maxGrowthRatio1000To5000: 100
+    maxGrowthRatio1000To5000: 100,
+    maxNormalizedGrowth1000To5000: 100
   });
   assert.ok(evaluation.growth);
+  assert.equal(evaluation.growth.queueGrowth, 5);
   assert.ok(evaluation.growth.enqueueRatio >= 0);
   assert.ok(evaluation.growth.claimRatio >= 0);
+  assert.ok(evaluation.growth.enqueueNormalized >= 0);
+  assert.ok(evaluation.growth.claimNormalized >= 0);
 });
 
 test('coordinator failure-path budget fails closed on slow, missing, or superlinear growth measurements', () => {
@@ -39,10 +43,27 @@ test('coordinator failure-path budget fails closed on slow, missing, or superlin
   const growth = evaluateCoordinatorFailurePathBudget([
     { queueSize: 1000, failedEnqueue: { p95Ms: 10 }, failedClaim: { p95Ms: 10 } },
     { queueSize: 5000, failedEnqueue: { p95Ms: 70 }, failedClaim: { p95Ms: 50 } }
-  ], { maxP95MsByQueueSize: { 1000: 100, 5000: 100 }, maxGrowthRatio1000To5000: 6 });
+  ], { maxP95MsByQueueSize: { 1000: 100, 5000: 100 }, maxGrowthRatio1000To5000: 6, maxNormalizedGrowth1000To5000: 1.2 });
   assert.equal(growth.ready, false);
   assert.equal(growth.growth.pass, false);
   assert.throws(() => evaluateCoordinatorFailurePathBudget([
     { queueSize: 1000, failedEnqueue: { p95Ms: 10 }, failedClaim: { p95Ms: 10 } }
   ], { maxP95MsByQueueSize: { 1000: 100 } }), /1000 and 5000 mission measurements/);
+});
+
+test('normalized growth gate distinguishes linear scaling from per-mission regression', () => {
+  const linear = evaluateCoordinatorFailurePathBudget([
+    { queueSize: 1000, failedEnqueue: { p95Ms: 10 }, failedClaim: { p95Ms: 12 } },
+    { queueSize: 5000, failedEnqueue: { p95Ms: 50 }, failedClaim: { p95Ms: 60 } }
+  ], { maxP95MsByQueueSize: { 1000: 100, 5000: 500 }, maxGrowthRatio1000To5000: 6, maxNormalizedGrowth1000To5000: 1.2 });
+  assert.equal(linear.ready, true);
+  assert.equal(linear.growth.enqueueNormalized, 1);
+  assert.equal(linear.growth.claimNormalized, 1);
+
+  const regressed = evaluateCoordinatorFailurePathBudget([
+    { queueSize: 1000, failedEnqueue: { p95Ms: 10 }, failedClaim: { p95Ms: 10 } },
+    { queueSize: 5000, failedEnqueue: { p95Ms: 59 }, failedClaim: { p95Ms: 61 } }
+  ], { maxP95MsByQueueSize: { 1000: 100, 5000: 500 }, maxGrowthRatio1000To5000: 7, maxNormalizedGrowth1000To5000: 1.2 });
+  assert.equal(regressed.ready, false);
+  assert.equal(regressed.growth.claimNormalized > 1.2, true);
 });
