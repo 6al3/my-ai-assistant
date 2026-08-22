@@ -1,0 +1,29 @@
+name: DIG Mission Runtime Runner Preflight
+
+on:
+  pull_request:
+    branches:
+      - dig/mission-queue-reliability-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Runner started
+        run: |
+          echo "runner=ubuntu"
+          echo "sha=${GITHUB_SHA}"
+
+  macos-runner:
+    runs-on: macos-latest
+    timeout-minutes: 2
+    steps:
+      - name: Runner started
+        run: |
+          echo "runner=macos"
+          echo "sha=${GITHUB_SHA}"
