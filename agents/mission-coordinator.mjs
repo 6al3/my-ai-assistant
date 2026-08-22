@@ -17,6 +17,22 @@ export class MissionCoordinator {
   async requeueExpired(){return this.#mutate(()=>{this.queue.requeueExpired();return this.queue.stats();});}
   get(id){return this.queue.get(id);} list(options={}){return this.queue.list(options);} stats(){return this.queue.stats();} snapshot(){return this.queue.snapshot();}
   async flush(){await this.tail;this.#assertHealthy();return this.store.save(this.queue.snapshot().missions);}
-  async #mutate(operation){const run=this.tail.then(async()=>{this.#assertHealthy();const result=operation();try{await this.store.save(this.queue.snapshot().missions);}catch(error){this.persistenceError=error instanceof Error?error:new Error(String(error));throw new Error(`mission persistence failed: ${this.persistenceError.message}`,{cause:this.persistenceError});}return result;});this.tail=run.catch(()=>{});return run;}
+  async #mutate(operation){
+    const run=this.tail.then(async()=>{
+      this.#assertHealthy();
+      const before=this.queue.snapshot();
+      const result=operation();
+      try{
+        await this.store.save(this.queue.snapshot().missions);
+      }catch(error){
+        this.queue.restore(before,{recoverRunning:false});
+        this.persistenceError=error instanceof Error?error:new Error(String(error));
+        throw new Error(`mission persistence failed: ${this.persistenceError.message}`,{cause:this.persistenceError});
+      }
+      return result;
+    });
+    this.tail=run.catch(()=>{});
+    return run;
+  }
   #assertHealthy(){if(this.persistenceError)throw new Error(`mission coordinator is fail-closed after persistence error: ${this.persistenceError.message}`,{cause:this.persistenceError});}
 }
