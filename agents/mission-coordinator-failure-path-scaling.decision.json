@@ -1,9 +1,9 @@
 {
-  "decision": "retain exact snapshot rollback while measuring bounded coordinator failure-path scaling through 5000 missions",
+  "decision": "retain exact snapshot rollback while measuring bounded coordinator failure-path scaling through 5000 missions with both absolute and queue-normalized growth gates",
   "reviews": {
-    "correctness": "Use the real MissionCoordinator failure path and preserve exact rollback invariants; do not replace rollback representation before a measured need exists.",
-    "robustness": "Require both 1000- and 5000-mission measurements for growth evaluation and fail closed if either is missing, while retaining ghost-state and fail-closed poisoning assertions.",
-    "latency_resources_regression": "Report p95 microseconds per mission and a 1000-to-5000 growth ratio. Accept approximately linear growth with bounded headroom; avoid mutation-delta complexity until the measured failure path exceeds the lab budget."
+    "correctness": "Use the real MissionCoordinator failure path and preserve exact rollback invariants. Compare 1000-to-5000 growth both as wall-clock p95 ratio and normalized by the 5x queue-size increase so per-mission regressions cannot hide under a loose absolute ratio.",
+    "robustness": "Require both 1000- and 5000-mission measurements for growth evaluation and fail closed if either is missing. Keep ghost-state, ownership leakage, and fail-closed poisoning assertions alongside scaling checks.",
+    "latency_resources_regression": "Report p95 microseconds per mission, raw growth ratio, and normalized growth. Default normalized headroom is 1.2x over linear scaling, while the raw 6x cap remains as a coarse absolute guard. Avoid mutation-delta complexity until measured failure-path evidence misses these gates."
   },
   "alternatives": [
     {
@@ -11,14 +11,14 @@
       "rejected": "larger correctness and regression surface without evidence that exact snapshot rollback is the limiting bottleneck"
     },
     {
-      "approach": "benchmark only 10/100/1000 missions",
-      "rejected": "insufficient evidence about scaling as the queue approaches a more substantial lab workload"
+      "approach": "use only the raw 1000-to-5000 p95 ratio",
+      "rejected": "a 6x raw cap over a 5x queue increase permits roughly 20 percent per-mission regression without making that allowance explicit"
     },
     {
       "approach": "unbounded stress benchmark",
       "rejected": "poor CI predictability and unnecessary CPU/memory consumption"
     }
   ],
-  "qa": "Measure failed enqueue and failed claim at 10/100/1000/5000 missions, record p50/p95/max and p95 microseconds per mission, and fail if the 1000-to-5000 p95 growth ratio exceeds the explicit bound.",
-  "lesson": "Optimize rollback representation only when the same seeded failure path demonstrates materially worse-than-linear scaling or misses an explicit target budget."
+  "qa": "Measure failed enqueue and failed claim at 10/100/1000/5000 missions, record p50/p95/max and p95 microseconds per mission, and fail if either the raw 1000-to-5000 p95 growth ratio exceeds 6x or queue-normalized growth exceeds 1.2x.",
+  "lesson": "Scaling gates should express both total-cost growth and per-unit growth. Optimize rollback representation only when the same seeded failure path demonstrates materially worse-than-linear scaling or misses an explicit target budget."
 }
