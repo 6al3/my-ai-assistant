@@ -54,7 +54,7 @@ test('concurrent mutations are serialized and persisted without lost missions', 
   assert.equal(restarted.stats().total, 20);
 });
 
-test('persistence failure poisons coordinator and later mutations fail closed', async () => {
+test('persistence failure rolls back uncommitted enqueue and poisons coordinator', async () => {
   let saves = 0;
   const store = {
     load: async () => ({ version: 1, missions: [] }),
@@ -64,9 +64,33 @@ test('persistence failure poisons coordinator and later mutations fail closed', 
     }
   };
   const coordinator = await MissionCoordinator.open({ store });
-  await coordinator.enqueue({ task: 'first durable mutation' });
-  await assert.rejects(() => coordinator.enqueue({ task: 'second mutation' }), /mission persistence failed: disk unavailable/);
+  const first = await coordinator.enqueue({ task: 'first durable mutation', idempotencyKey: 'first' });
+  await assert.rejects(() => coordinator.enqueue({ task: 'second mutation', idempotencyKey: 'second' }), /mission persistence failed: disk unavailable/);
   assert.equal(coordinator.healthy, false);
+  assert.equal(coordinator.stats().total, 1);
+  assert.equal(coordinator.get(first.id).status, 'queued');
+  assert.equal(coordinator.list().some(mission => mission.idempotencyKey === 'second'), false);
   await assert.rejects(() => coordinator.enqueue({ task: 'must not continue' }), /fail-closed after persistence error/);
   assert.equal(saves, 2);
+});
+
+test('persistence failure rolls back claim ownership exactly', async () => {
+  let saves = 0;
+  const store = {
+    load: async () => ({ version: 1, missions: [] }),
+    save: async () => {
+      saves += 1;
+      if (saves >= 2) throw new Error('disk unavailable');
+    }
+  };
+  const coordinator = await MissionCoordinator.open({ store, queueOptions: { requireLeaseToken: true } });
+  const mission = await coordinator.enqueue({ task: 'claim must rollback' });
+  await assert.rejects(() => coordinator.claim({ id: 'worker-a' }), /mission persistence failed: disk unavailable/);
+
+  const after = coordinator.get(mission.id);
+  assert.equal(after.status, 'queued');
+  assert.equal(after.workerId, null);
+  assert.equal(after.leaseToken, null);
+  assert.equal(after.leaseUntil, null);
+  assert.equal(after.attempts, 0);
 });
