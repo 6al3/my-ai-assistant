@@ -1,0 +1,24 @@
+{
+  "decision": "add a slice-local independent GitHub Actions gate for Mission/runtime reliability",
+  "reviews": {
+    "correctness": "Run the exact test:mission-runtime contract plus syntax checks on every pull request change to the slice so rollback, durability, journal, and fencing regressions cannot merge unexecuted.",
+    "robustness_security": "Use read-only contents permission, a bounded 10 minute job, Node 22, and no secrets, Qubes, network services, financial data, or privileged runners.",
+    "latency_resources_regression": "One Ubuntu job is cheaper and easier to diagnose than restoring the large integration workflow. It adds no production latency or worker resource cost and keeps the slice review surface small."
+  },
+  "alternatives": [
+    {
+      "approach": "wait for the large integration CI to return",
+      "rejected": "PR #29 had zero workflow runs, leaving the dependency-root slice without independent executable evidence"
+    },
+    {
+      "approach": "self-hosted runner",
+      "rejected": "adds credential, lifecycle, and attack-surface cost before hosted-runner provisioning is understood"
+    },
+    {
+      "approach": "local QA only",
+      "rejected": "useful as lab evidence but not an independent release gate"
+    }
+  ],
+  "qa": "DIG Mission Runtime QA must execute syntax checks and npm run test:mission-runtime on the PR head. Keep the PR draft until this gate is green.",
+  "lesson": "A decomposed reliability slice needs its own executable gate; otherwise decomposition improves review size without improving release evidence."
+}
