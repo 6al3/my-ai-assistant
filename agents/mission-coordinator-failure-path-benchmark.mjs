@@ -7,8 +7,9 @@ function percentile(values, p) {
   return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
 }
 
-function summarize(values) {
-  return { p50Ms: percentile(values, 50), p95Ms: percentile(values, 95), maxMs: Math.max(...values) };
+function summarize(values, queueSize) {
+  const summary = { p50Ms: percentile(values, 50), p95Ms: percentile(values, 95), maxMs: Math.max(...values) };
+  return { ...summary, p95UsPerMission: (summary.p95Ms * 1000) / queueSize };
 }
 
 function seedSnapshot(queueSize) {
@@ -27,7 +28,7 @@ async function failingCoordinator(snapshot) {
   });
 }
 
-export async function benchmarkCoordinatorFailurePath({ queueSizes = [10, 100, 1000], samples = 15 } = {}) {
+export async function benchmarkCoordinatorFailurePath({ queueSizes = [10, 100, 1000, 5000], samples = 15 } = {}) {
   if (!Array.isArray(queueSizes) || queueSizes.length === 0 || queueSizes.some(n => !Number.isInteger(n) || n < 1)) throw new Error('queueSizes must contain positive integers');
   if (!Number.isInteger(samples) || samples < 3 || samples > 200) throw new Error('samples must be an integer between 3 and 200');
 
@@ -59,12 +60,15 @@ export async function benchmarkCoordinatorFailurePath({ queueSizes = [10, 100, 1
       if (first.status !== 'queued' || first.workerId !== null || first.leaseToken !== null || first.attempts !== 0) throw new Error('failed claim leaked ownership state');
       if (claimCoordinator.healthy) throw new Error('coordinator did not fail closed after claim persistence failure');
     }
-    results.push({ queueSize, samples, failedEnqueue: summarize(enqueueMs), failedClaim: summarize(claimMs) });
+    results.push({ queueSize, samples, failedEnqueue: summarize(enqueueMs, queueSize), failedClaim: summarize(claimMs, queueSize) });
   }
   return results;
 }
 
-export function evaluateCoordinatorFailurePathBudget(results, { maxP95MsByQueueSize = { 10: 5, 100: 10, 1000: 50 } } = {}) {
+export function evaluateCoordinatorFailurePathBudget(results, {
+  maxP95MsByQueueSize = { 10: 5, 100: 10, 1000: 50, 5000: 250 },
+  maxGrowthRatio1000To5000 = 6
+} = {}) {
   if (!Array.isArray(results) || results.length === 0) throw new Error('benchmark results are required');
   const checks = results.map(result => {
     const budgetMs = maxP95MsByQueueSize[result.queueSize];
@@ -74,5 +78,17 @@ export function evaluateCoordinatorFailurePathBudget(results, { maxP95MsByQueueS
     if (![enqueueP95Ms, claimP95Ms].every(value => Number.isFinite(value) && value >= 0)) throw new Error(`invalid coordinator failure-path measurement for queue size ${result.queueSize}`);
     return { queueSize: result.queueSize, budgetMs, enqueueP95Ms, claimP95Ms, pass: Math.max(enqueueP95Ms, claimP95Ms) <= budgetMs };
   });
-  return { ready: checks.every(check => check.pass), checks };
+
+  let growth = null;
+  const at1000 = results.find(result => result.queueSize === 1000);
+  const at5000 = results.find(result => result.queueSize === 5000);
+  if (at1000 || at5000) {
+    if (!at1000 || !at5000) throw new Error('1000 and 5000 mission measurements are both required for growth evaluation');
+    if (!Number.isFinite(maxGrowthRatio1000To5000) || maxGrowthRatio1000To5000 <= 0) throw new Error('maxGrowthRatio1000To5000 must be positive');
+    const enqueueRatio = at5000.failedEnqueue.p95Ms / Math.max(at1000.failedEnqueue.p95Ms, Number.EPSILON);
+    const claimRatio = at5000.failedClaim.p95Ms / Math.max(at1000.failedClaim.p95Ms, Number.EPSILON);
+    growth = { enqueueRatio, claimRatio, maxAllowedRatio: maxGrowthRatio1000To5000, pass: Math.max(enqueueRatio, claimRatio) <= maxGrowthRatio1000To5000 };
+  }
+
+  return { ready: checks.every(check => check.pass) && (growth?.pass ?? true), checks, growth };
 }
