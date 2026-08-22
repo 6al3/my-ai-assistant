@@ -1,0 +1,24 @@
+{
+  "decision": "retain exact snapshot rollback while measuring bounded coordinator failure-path scaling through 5000 missions",
+  "reviews": {
+    "correctness": "Use the real MissionCoordinator failure path and preserve exact rollback invariants; do not replace rollback representation before a measured need exists.",
+    "robustness": "Require both 1000- and 5000-mission measurements for growth evaluation and fail closed if either is missing, while retaining ghost-state and fail-closed poisoning assertions.",
+    "latency_resources_regression": "Report p95 microseconds per mission and a 1000-to-5000 growth ratio. Accept approximately linear growth with bounded headroom; avoid mutation-delta complexity until the measured failure path exceeds the lab budget."
+  },
+  "alternatives": [
+    {
+      "approach": "switch immediately to mutation-delta rollback",
+      "rejected": "larger correctness and regression surface without evidence that exact snapshot rollback is the limiting bottleneck"
+    },
+    {
+      "approach": "benchmark only 10/100/1000 missions",
+      "rejected": "insufficient evidence about scaling as the queue approaches a more substantial lab workload"
+    },
+    {
+      "approach": "unbounded stress benchmark",
+      "rejected": "poor CI predictability and unnecessary CPU/memory consumption"
+    }
+  ],
+  "qa": "Measure failed enqueue and failed claim at 10/100/1000/5000 missions, record p50/p95/max and p95 microseconds per mission, and fail if the 1000-to-5000 p95 growth ratio exceeds the explicit bound.",
+  "lesson": "Optimize rollback representation only when the same seeded failure path demonstrates materially worse-than-linear scaling or misses an explicit target budget."
+}
