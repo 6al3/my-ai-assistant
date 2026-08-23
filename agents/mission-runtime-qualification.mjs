@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import { promisify } from 'node:util';
@@ -68,11 +68,19 @@ export async function qualifyMissionRuntime({
   maxRelativeP95Spread = 0.25,
   runner = run,
   benchmark = benchmarkCoordinatorFailurePath,
-  runtimeFingerprint = defaultRuntimeFingerprint
+  runtimeFingerprint = defaultRuntimeFingerprint,
+  executionIdFactory = randomUUID,
+  now = () => Date.now()
 } = {}) {
   if (!Number.isInteger(benchmarkRuns) || benchmarkRuns < 2 || benchmarkRuns > 10) {
     throw new Error('benchmarkRuns must be an integer between 2 and 10');
   }
+  const qualificationRunId = executionIdFactory();
+  if (typeof qualificationRunId !== 'string' || !/^[0-9a-f-]{36}$/i.test(qualificationRunId)) {
+    throw new Error('qualificationRunId must be a UUID-shaped identifier');
+  }
+  const generatedAtMs = now();
+  if (!Number.isFinite(generatedAtMs) || generatedAtMs <= 0) throw new Error('qualification timestamp is invalid');
 
   const sha = (await runner('git', ['rev-parse', 'HEAD'], { cwd })).stdout.trim();
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('unable to resolve exact git SHA');
@@ -84,11 +92,11 @@ export async function qualifyMissionRuntime({
   const runtime = runtimeFingerprint();
   validateRuntimeFingerprint(runtime);
 
-  const testStartedAt = Date.now();
+  const testStartedAt = now();
   await runner('npm', ['run', 'test:mission-runtime'], { cwd, timeoutMs: 15 * 60 * 1000 });
-  const testDurationMs = Date.now() - testStartedAt;
+  const testDurationMs = Math.max(0, now() - testStartedAt);
 
-  const benchmarkStartedAt = Date.now();
+  const benchmarkStartedAt = now();
   const runs = [];
   const evaluations = [];
   for (let runIndex = 0; runIndex < benchmarkRuns; runIndex += 1) {
@@ -96,13 +104,15 @@ export async function qualifyMissionRuntime({
     runs.push(results);
     evaluations.push(evaluateCoordinatorFailurePathBudget(results));
   }
-  const benchmarkDurationMs = Date.now() - benchmarkStartedAt;
+  const benchmarkDurationMs = Math.max(0, now() - benchmarkStartedAt);
   const stability = evaluateMissionRuntimeBenchmarkStability(runs, { maxRelativeP95Spread });
   const budgetsReady = evaluations.every(evaluation => evaluation.ready);
   const ready = budgetsReady && stability.ready;
 
   const evidence = {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    qualificationRunId,
+    generatedAt: new Date(generatedAtMs).toISOString(),
     gitSha: sha,
     cleanWorktree: true,
     runtime,
