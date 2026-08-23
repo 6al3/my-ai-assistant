@@ -38,11 +38,26 @@ function relativeSpread(values) {
   return (max - min) / max;
 }
 
+function validateExecutionIdentity(report, index, nowMs, maxReportAgeMs, maxFutureSkewMs) {
+  if (report.schemaVersion !== 5) throw new Error(`report ${index} schemaVersion must be 5`);
+  if (typeof report.qualificationRunId !== 'string' || !/^[0-9a-f-]{36}$/i.test(report.qualificationRunId)) {
+    throw new Error(`report ${index} qualificationRunId is invalid`);
+  }
+  const generatedAtMs = Date.parse(report.generatedAt ?? '');
+  if (!Number.isFinite(generatedAtMs)) throw new Error(`report ${index} generatedAt is invalid`);
+  if (generatedAtMs > nowMs + maxFutureSkewMs) throw new Error(`report ${index} is future-dated`);
+  if (nowMs - generatedAtMs > maxReportAgeMs) throw new Error(`report ${index} is too old`);
+  return generatedAtMs;
+}
+
 export function compareMissionRuntimeEvidence(reports, {
   expectedSha = null,
   requireSameRuntime = true,
   maxCrossReportRelativeP95Spread = 0.25,
-  requireLabReady = true
+  requireLabReady = true,
+  maxReportAgeMs = 24 * 60 * 60 * 1000,
+  maxFutureSkewMs = 5 * 60 * 1000,
+  now = () => Date.now()
 } = {}) {
   if (!Array.isArray(reports) || reports.length < 2) {
     throw new Error('at least two mission runtime evidence reports are required');
@@ -50,15 +65,26 @@ export function compareMissionRuntimeEvidence(reports, {
   if (!Number.isFinite(maxCrossReportRelativeP95Spread) || maxCrossReportRelativeP95Spread < 0 || maxCrossReportRelativeP95Spread > 1) {
     throw new Error('maxCrossReportRelativeP95Spread must be between 0 and 1');
   }
+  if (!Number.isFinite(maxReportAgeMs) || maxReportAgeMs <= 0) throw new Error('maxReportAgeMs must be positive');
+  if (!Number.isFinite(maxFutureSkewMs) || maxFutureSkewMs < 0) throw new Error('maxFutureSkewMs must be non-negative');
+  const nowMs = now();
+  if (!Number.isFinite(nowMs) || nowMs <= 0) throw new Error('comparison clock is invalid');
 
+  const generatedAt = [];
   reports.forEach((report, index) => {
     assertObject(report, `report ${index} must be an object`);
     if (!verifyMissionRuntimeEvidenceDigest(report)) throw new Error(`report ${index} evidence digest is invalid`);
+    generatedAt.push(validateExecutionIdentity(report, index, nowMs, maxReportAgeMs, maxFutureSkewMs));
     if (!/^[0-9a-f]{40}$/.test(report.gitSha ?? '')) throw new Error(`report ${index} gitSha is invalid`);
     if (expectedSha && report.gitSha !== expectedSha) throw new Error(`report ${index} git SHA mismatch`);
     if (report.cleanWorktree !== true) throw new Error(`report ${index} was not produced from a clean worktree`);
     if (requireLabReady && report.readiness !== 'LAB READY') throw new Error(`report ${index} is not LAB READY`);
   });
+
+  const runIds = reports.map(report => report.qualificationRunId);
+  if (new Set(runIds).size !== reports.length) throw new Error('mission runtime evidence reports must come from unique qualification runs');
+  const digests = reports.map(report => report.evidenceDigest);
+  if (new Set(digests).size !== reports.length) throw new Error('duplicate mission runtime evidence report detected');
 
   const gitShas = new Set(reports.map(report => report.gitSha));
   if (gitShas.size !== 1) throw new Error('mission runtime evidence reports must use the same git SHA');
@@ -92,11 +118,14 @@ export function compareMissionRuntimeEvidence(reports, {
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     gitSha: reports[0].gitSha,
     reportCount: reports.length,
+    qualificationRunIds: runIds,
+    generatedAt,
     runtimeComparable: new Set(runtimeKeys).size === 1,
     maxCrossReportRelativeP95Spread,
+    maxReportAgeMs,
     comparisons,
     ready,
     readiness: ready ? 'LAB READY' : 'NOT READY'
