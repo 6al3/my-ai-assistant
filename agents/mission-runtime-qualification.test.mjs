@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { computeMissionRuntimeEvidenceDigest, qualifyMissionRuntime, verifyMissionRuntimeEvidenceDigest } from './mission-runtime-qualification.mjs';
 
 const SHA = 'a'.repeat(40);
-const RUNTIME = { nodeVersion: 'v22.0.0', platform: 'linux', arch: 'x64' };
+const RUNTIME = {
+  nodeVersion: 'v22.0.0',
+  platform: 'linux',
+  arch: 'x64',
+  cpuModel: 'Synthetic CPU',
+  logicalCpus: 4,
+  totalMemoryMiB: 8192
+};
 
 function fakeRunner({ status = '', failTest = false } = {}) {
   return async (command, args) => {
@@ -38,7 +45,7 @@ test('qualifies clean exact-SHA mission runtime evidence only after stable repea
     ]),
     runtimeFingerprint: () => RUNTIME
   });
-  assert.equal(report.schemaVersion, 3);
+  assert.equal(report.schemaVersion, 4);
   assert.equal(report.gitSha, SHA);
   assert.equal(report.cleanWorktree, true);
   assert.deepEqual(report.runtime, RUNTIME);
@@ -63,12 +70,41 @@ test('evidence digest is canonical across object key ordering and detects tamper
   assert.equal(verifyMissionRuntimeEvidenceDigest(report), false);
 });
 
+test('runtime fingerprint is part of evidence integrity', async () => {
+  const report = await qualifyMissionRuntime({
+    runner: fakeRunner(),
+    runtimeFingerprint: () => RUNTIME,
+    benchmark: benchmarkSequence([stableRun(), stableRun(), stableRun()])
+  });
+  assert.equal(verifyMissionRuntimeEvidenceDigest(report), true);
+  report.runtime.cpuModel = 'Different CPU';
+  assert.equal(verifyMissionRuntimeEvidenceDigest(report), false);
+});
+
 test('fails closed on invalid runtime fingerprint', async () => {
   await assert.rejects(() => qualifyMissionRuntime({
     runner: fakeRunner(),
     benchmark: benchmarkSequence([stableRun(), stableRun(), stableRun()]),
     runtimeFingerprint: () => ({ nodeVersion: '22', platform: 'linux', arch: 'x64' })
   }), /runtime fingerprint requires nodeVersion/);
+
+  await assert.rejects(() => qualifyMissionRuntime({
+    runner: fakeRunner(),
+    benchmark: benchmarkSequence([stableRun(), stableRun(), stableRun()]),
+    runtimeFingerprint: () => ({ ...RUNTIME, cpuModel: '' })
+  }), /cpuModel/);
+
+  await assert.rejects(() => qualifyMissionRuntime({
+    runner: fakeRunner(),
+    benchmark: benchmarkSequence([stableRun(), stableRun(), stableRun()]),
+    runtimeFingerprint: () => ({ ...RUNTIME, logicalCpus: 0 })
+  }), /logicalCpus/);
+
+  await assert.rejects(() => qualifyMissionRuntime({
+    runner: fakeRunner(),
+    benchmark: benchmarkSequence([stableRun(), stableRun(), stableRun()]),
+    runtimeFingerprint: () => ({ ...RUNTIME, totalMemoryMiB: 64 })
+  }), /totalMemoryMiB/);
 });
 
 test('fails closed on invalid benchmark run count before running tests', async () => {
