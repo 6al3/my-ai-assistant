@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { benchmarkCoordinatorFailurePath, evaluateCoordinatorFailurePathBudget } from './mission-coordinator-failure-path-benchmark.mjs';
+import { evaluateMissionRuntimeBenchmarkStability } from './mission-runtime-benchmark-stability.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -48,10 +49,16 @@ export async function qualifyMissionRuntime({
   expectedSha = null,
   samples = 15,
   queueSizes = [1000, 5000],
+  benchmarkRuns = 3,
+  maxRelativeP95Spread = 0.25,
   runner = run,
   benchmark = benchmarkCoordinatorFailurePath,
   runtimeFingerprint = defaultRuntimeFingerprint
 } = {}) {
+  if (!Number.isInteger(benchmarkRuns) || benchmarkRuns < 2 || benchmarkRuns > 10) {
+    throw new Error('benchmarkRuns must be an integer between 2 and 10');
+  }
+
   const sha = (await runner('git', ['rev-parse', 'HEAD'], { cwd })).stdout.trim();
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('unable to resolve exact git SHA');
   if (expectedSha && sha !== expectedSha) throw new Error(`git SHA mismatch: expected ${expectedSha}, got ${sha}`);
@@ -70,18 +77,36 @@ export async function qualifyMissionRuntime({
   const testDurationMs = Date.now() - testStartedAt;
 
   const benchmarkStartedAt = Date.now();
-  const benchmarkResults = await benchmark({ queueSizes, samples });
+  const runs = [];
+  const evaluations = [];
+  for (let runIndex = 0; runIndex < benchmarkRuns; runIndex += 1) {
+    const results = await benchmark({ queueSizes, samples });
+    runs.push(results);
+    evaluations.push(evaluateCoordinatorFailurePathBudget(results));
+  }
   const benchmarkDurationMs = Date.now() - benchmarkStartedAt;
-  const evaluation = evaluateCoordinatorFailurePathBudget(benchmarkResults);
+  const stability = evaluateMissionRuntimeBenchmarkStability(runs, { maxRelativeP95Spread });
+  const budgetsReady = evaluations.every(evaluation => evaluation.ready);
+  const ready = budgetsReady && stability.ready;
 
   const evidence = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     gitSha: sha,
     cleanWorktree: true,
     runtime,
     tests: { command: 'npm run test:mission-runtime', passed: true, durationMs: testDurationMs },
-    benchmark: { queueSizes, samples, durationMs: benchmarkDurationMs, results: benchmarkResults, evaluation },
-    readiness: evaluation.ready ? 'LAB READY' : 'NOT READY'
+    benchmark: {
+      queueSizes,
+      samples,
+      runCount: benchmarkRuns,
+      durationMs: benchmarkDurationMs,
+      runs,
+      evaluations,
+      stability,
+      budgetsReady,
+      ready
+    },
+    readiness: ready ? 'LAB READY' : 'NOT READY'
   };
 
   return { ...evidence, evidenceDigest: computeMissionRuntimeEvidenceDigest(evidence) };
