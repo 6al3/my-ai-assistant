@@ -1,0 +1,43 @@
+{
+  "decision": "Bind mission-runtime qualification reports to the exact runtime fingerprint and a canonical SHA-256 evidence digest.",
+  "context": "Hosted runner execution is currently unreliable, so local qualification evidence must be comparable and tamper-evident without being treated as a substitute for independent CI.",
+  "reviews": [
+    {
+      "agent": "correctness-review",
+      "approach": "Emit only git SHA and benchmark results.",
+      "assessment": "Rejected. Git SHA binds source code but not the Node/platform/architecture that materially affects timing measurements, and the report has no integrity check against accidental or post-run modification."
+    },
+    {
+      "agent": "robustness-security-review",
+      "approach": "Sign qualification evidence with a persistent private key.",
+      "assessment": "Deferred. Cryptographic authenticity is stronger than a digest but introduces key lifecycle, secret storage and recovery obligations that are disproportionate for Slice 1 lab evidence. A digest is explicitly not treated as authentication."
+    },
+    {
+      "agent": "latency-resource-regression-review",
+      "approach": "Canonical local SHA-256 digest plus runtime fingerprint.",
+      "assessment": "Selected. It adds negligible CPU/memory cost, zero worker/Qubes/network traffic and no production runtime semantic changes while making evidence reproducible to compare and detect content drift."
+    }
+  ],
+  "winner": {
+    "approach": "runtime fingerprint + canonical SHA-256 evidence digest",
+    "why": [
+      "preserves exact MissionQueue/Coordinator/WorkerRuntime semantics",
+      "binds benchmark evidence to Node version, platform and architecture",
+      "detects evidence modification after qualification",
+      "keeps local evidence clearly subordinate to independent hosted CI",
+      "adds no worker latency or distributed resource cost"
+    ]
+  },
+  "qa": [
+    "valid qualification report verifies its evidence digest",
+    "canonical object key ordering produces the same digest",
+    "tampering with report content invalidates verification",
+    "invalid runtime fingerprint fails closed",
+    "benchmark NOT READY reports remain digest-verifiable"
+  ],
+  "failures_lessons": [
+    "A content digest provides integrity comparison, not trusted-origin authentication; do not use it to replace CI or coordinator-side attestation.",
+    "Machine-dependent timing evidence must record the runtime environment before comparing benchmark results across laptop, CI or Qubes hosts.",
+    "Production rollback semantics should remain frozen until executable benchmark evidence justifies a change."
+  ]
+}
