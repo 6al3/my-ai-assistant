@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import os from 'node:os';
 import { promisify } from 'node:util';
 import { benchmarkCoordinatorFailurePath, evaluateCoordinatorFailurePathBudget } from './mission-coordinator-failure-path-benchmark.mjs';
 import { evaluateMissionRuntimeBenchmarkStability } from './mission-runtime-benchmark-stability.mjs';
@@ -37,11 +38,25 @@ export function verifyMissionRuntimeEvidenceDigest(report) {
 }
 
 function defaultRuntimeFingerprint() {
+  const cpus = os.cpus();
   return {
     nodeVersion: process.version,
     platform: process.platform,
-    arch: process.arch
+    arch: process.arch,
+    cpuModel: cpus[0]?.model?.trim() || 'unknown',
+    logicalCpus: cpus.length,
+    totalMemoryMiB: Math.round(os.totalmem() / (1024 * 1024))
   };
+}
+
+function validateRuntimeFingerprint(runtime) {
+  if (!runtime || typeof runtime !== 'object') throw new Error('runtime fingerprint is required');
+  if (typeof runtime.nodeVersion !== 'string' || !runtime.nodeVersion.startsWith('v')) throw new Error('runtime fingerprint requires nodeVersion');
+  if (typeof runtime.platform !== 'string' || runtime.platform.length === 0) throw new Error('runtime fingerprint requires platform');
+  if (typeof runtime.arch !== 'string' || runtime.arch.length === 0) throw new Error('runtime fingerprint requires arch');
+  if (typeof runtime.cpuModel !== 'string' || runtime.cpuModel.trim().length === 0) throw new Error('runtime fingerprint requires cpuModel');
+  if (!Number.isInteger(runtime.logicalCpus) || runtime.logicalCpus < 1) throw new Error('runtime fingerprint requires positive logicalCpus');
+  if (!Number.isInteger(runtime.totalMemoryMiB) || runtime.totalMemoryMiB < 128) throw new Error('runtime fingerprint requires totalMemoryMiB >= 128');
 }
 
 export async function qualifyMissionRuntime({
@@ -67,10 +82,7 @@ export async function qualifyMissionRuntime({
   if (status) throw new Error('mission runtime qualification requires a clean worktree');
 
   const runtime = runtimeFingerprint();
-  if (!runtime || typeof runtime !== 'object') throw new Error('runtime fingerprint is required');
-  if (typeof runtime.nodeVersion !== 'string' || !runtime.nodeVersion.startsWith('v')) throw new Error('runtime fingerprint requires nodeVersion');
-  if (typeof runtime.platform !== 'string' || runtime.platform.length === 0) throw new Error('runtime fingerprint requires platform');
-  if (typeof runtime.arch !== 'string' || runtime.arch.length === 0) throw new Error('runtime fingerprint requires arch');
+  validateRuntimeFingerprint(runtime);
 
   const testStartedAt = Date.now();
   await runner('npm', ['run', 'test:mission-runtime'], { cwd, timeoutMs: 15 * 60 * 1000 });
@@ -90,7 +102,7 @@ export async function qualifyMissionRuntime({
   const ready = budgetsReady && stability.ready;
 
   const evidence = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     gitSha: sha,
     cleanWorktree: true,
     runtime,
