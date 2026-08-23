@@ -19,10 +19,12 @@ function runtimeKey(runtime) {
 function extractP95(report, queueSize, operation) {
   const runs = report?.benchmark?.runs;
   if (!Array.isArray(runs) || runs.length < 1) throw new Error('benchmark runs are required');
+  const field = operation === 'enqueue' ? 'failedEnqueue' : operation === 'claim' ? 'failedClaim' : null;
+  if (!field) throw new Error(`unsupported benchmark operation: ${operation}`);
   const values = [];
   for (const run of runs) {
     const row = Array.isArray(run) ? run.find(item => item.queueSize === queueSize) : null;
-    const value = row?.[operation]?.p95Ms;
+    const value = row?.[field]?.p95Ms;
     if (!Number.isFinite(value) || value < 0) {
       throw new Error(`missing p95 for queueSize=${queueSize} operation=${operation}`);
     }
@@ -59,12 +61,8 @@ export function compareMissionRuntimeEvidence(reports, {
   maxFutureSkewMs = 5 * 60 * 1000,
   now = () => Date.now()
 } = {}) {
-  if (!Array.isArray(reports) || reports.length < 2) {
-    throw new Error('at least two mission runtime evidence reports are required');
-  }
-  if (!Number.isFinite(maxCrossReportRelativeP95Spread) || maxCrossReportRelativeP95Spread < 0 || maxCrossReportRelativeP95Spread > 1) {
-    throw new Error('maxCrossReportRelativeP95Spread must be between 0 and 1');
-  }
+  if (!Array.isArray(reports) || reports.length < 2) throw new Error('at least two mission runtime evidence reports are required');
+  if (!Number.isFinite(maxCrossReportRelativeP95Spread) || maxCrossReportRelativeP95Spread < 0 || maxCrossReportRelativeP95Spread > 1) throw new Error('maxCrossReportRelativeP95Spread must be between 0 and 1');
   if (!Number.isFinite(maxReportAgeMs) || maxReportAgeMs <= 0) throw new Error('maxReportAgeMs must be positive');
   if (!Number.isFinite(maxFutureSkewMs) || maxFutureSkewMs < 0) throw new Error('maxFutureSkewMs must be non-negative');
   const nowMs = now();
@@ -85,23 +83,15 @@ export function compareMissionRuntimeEvidence(reports, {
   if (new Set(runIds).size !== reports.length) throw new Error('mission runtime evidence reports must come from unique qualification runs');
   const digests = reports.map(report => report.evidenceDigest);
   if (new Set(digests).size !== reports.length) throw new Error('duplicate mission runtime evidence report detected');
-
   const gitShas = new Set(reports.map(report => report.gitSha));
   if (gitShas.size !== 1) throw new Error('mission runtime evidence reports must use the same git SHA');
-
   const runtimeKeys = reports.map(report => runtimeKey(report.runtime));
-  if (requireSameRuntime && new Set(runtimeKeys).size !== 1) {
-    throw new Error('mission runtime evidence reports must use the same runtime fingerprint');
-  }
+  if (requireSameRuntime && new Set(runtimeKeys).size !== 1) throw new Error('mission runtime evidence reports must use the same runtime fingerprint');
 
   const queueSizes = reports[0]?.benchmark?.queueSizes;
-  if (!Array.isArray(queueSizes) || queueSizes.length === 0 || queueSizes.some(size => !Number.isInteger(size) || size < 1)) {
-    throw new Error('benchmark queueSizes are required');
-  }
+  if (!Array.isArray(queueSizes) || queueSizes.length === 0 || queueSizes.some(size => !Number.isInteger(size) || size < 1)) throw new Error('benchmark queueSizes are required');
   for (const report of reports.slice(1)) {
-    if (JSON.stringify(report?.benchmark?.queueSizes) !== JSON.stringify(queueSizes)) {
-      throw new Error('mission runtime evidence reports must use identical queueSizes');
-    }
+    if (JSON.stringify(report?.benchmark?.queueSizes) !== JSON.stringify(queueSizes)) throw new Error('mission runtime evidence reports must use identical queueSizes');
   }
 
   const operations = ['enqueue', 'claim'];
@@ -117,19 +107,7 @@ export function compareMissionRuntimeEvidence(reports, {
     }
   }
 
-  return {
-    schemaVersion: 2,
-    gitSha: reports[0].gitSha,
-    reportCount: reports.length,
-    qualificationRunIds: runIds,
-    generatedAt,
-    runtimeComparable: new Set(runtimeKeys).size === 1,
-    maxCrossReportRelativeP95Spread,
-    maxReportAgeMs,
-    comparisons,
-    ready,
-    readiness: ready ? 'LAB READY' : 'NOT READY'
-  };
+  return { schemaVersion: 2, gitSha: reports[0].gitSha, reportCount: reports.length, qualificationRunIds: runIds, generatedAt, runtimeComparable: new Set(runtimeKeys).size === 1, maxCrossReportRelativeP95Spread, maxReportAgeMs, comparisons, ready, readiness: ready ? 'LAB READY' : 'NOT READY' };
 }
 
 function main() {
@@ -142,10 +120,5 @@ function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  try {
-    main();
-  } catch (error) {
-    process.stderr.write(`${error?.stack || error}\n`);
-    process.exitCode = 1;
-  }
+  try { main(); } catch (error) { process.stderr.write(`${error?.stack || error}\n`); process.exitCode = 1; }
 }
