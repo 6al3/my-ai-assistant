@@ -1,0 +1,21 @@
+{
+  "decision": "Use a shared fsync-backed atomic writer for MissionQueueStore and DurableRequestJournal.",
+  "problem": "rename-based atomic replacement prevented torn JSON but did not explicitly flush file contents or the containing directory before acknowledging a durable mutation.",
+  "reviews": {
+    "correctness": "Preferred write temp -> fsync temp -> rename -> fsync directory so an acknowledged save has stronger crash/power-loss durability semantics.",
+    "robustness_security": "Preferred one shared primitive with bounded cleanup over duplicating persistence code; unexpected fsync errors remain fail-closed while known unsupported directory-fsync cases are tolerated after the data file is synced.",
+    "latency_resources_regression": "Preferred local fsync over a transactional database or write-ahead service. It adds storage latency only on durable mutations, no network/Qubes dependency, and keeps existing JSON formats and APIs unchanged."
+  },
+  "alternatives_rejected": [
+    "Keep writeFile+rename only: atomic replacement is not the same as explicit durability after acknowledgement.",
+    "Move Slice 1 to a transactional database: stronger multi-record semantics but substantially larger operational and regression surface.",
+    "Add a separate WAL service: unnecessary process/network lifecycle for the current single-host slice."
+  ],
+  "qa": [
+    "Atomic replacement preserves final content and 0600 mode on POSIX.",
+    "Temporary state is removed after failed writes.",
+    "MissionQueueStore and DurableRequestJournal both use the same primitive.",
+    "Existing journal rollback tests continue to prove no phantom in-memory state after persistence failure."
+  ],
+  "lesson": "Atomic rename protects file structure, but durability-sensitive acknowledgements should also define flush semantics explicitly."
+}
