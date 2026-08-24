@@ -29,8 +29,7 @@ export async function processStartIdentity(pid) {
       const fields = statText.slice(closeParen + 2).trim().split(/\s+/);
       const startTicks = fields[19];
       return startTicks ? `linux-proc:${startTicks}` : null;
-    } catch (error) {
-      if (error?.code === 'ENOENT') return null;
+    } catch {
       return null;
     }
   }
@@ -65,6 +64,7 @@ export async function withFileMutationLock(lockPath, operation, {
   orphanGraceMs = 5_000,
   now = () => Date.now(),
   getProcessIdentity = processStartIdentity,
+  isProcessAlive = pidAlive,
   onAcquired = null
 } = {}) {
   if (!lockPath?.trim()) throw new Error('lock path is required');
@@ -72,6 +72,7 @@ export async function withFileMutationLock(lockPath, operation, {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('lock timeoutMs must be positive');
   if (!Number.isFinite(retryMs) || retryMs <= 0) throw new Error('lock retryMs must be positive');
   if (typeof getProcessIdentity !== 'function') throw new Error('getProcessIdentity must be a function');
+  if (typeof isProcessAlive !== 'function') throw new Error('isProcessAlive must be a function');
   if (onAcquired !== null && typeof onAcquired !== 'function') throw new Error('lock onAcquired must be a function');
 
   const ownerToken = randomUUID();
@@ -100,7 +101,13 @@ export async function withFileMutationLock(lockPath, operation, {
           throw new Error('invalid mutation lock owner metadata');
         }
         const liveIdentity = await getProcessIdentity(owner.pid);
-        reclaim = liveIdentity === null || liveIdentity !== owner.processIdentity;
+        if (liveIdentity === null) {
+          // Identity lookup can fail for a live process because /proc or ps is restricted.
+          // Reclaim only when liveness independently proves the PID is gone.
+          reclaim = !isProcessAlive(owner.pid);
+        } else {
+          reclaim = liveIdentity !== owner.processIdentity;
+        }
       } catch (ownerError) {
         if (ownerError?.message === 'invalid mutation lock owner metadata') throw ownerError;
         try {
