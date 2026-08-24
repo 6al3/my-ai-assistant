@@ -64,13 +64,15 @@ export async function withFileMutationLock(lockPath, operation, {
   retryMs = 20,
   orphanGraceMs = 5_000,
   now = () => Date.now(),
-  getProcessIdentity = processStartIdentity
+  getProcessIdentity = processStartIdentity,
+  onAcquired = null
 } = {}) {
   if (!lockPath?.trim()) throw new Error('lock path is required');
   if (typeof operation !== 'function') throw new Error('lock operation is required');
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('lock timeoutMs must be positive');
   if (!Number.isFinite(retryMs) || retryMs <= 0) throw new Error('lock retryMs must be positive');
   if (typeof getProcessIdentity !== 'function') throw new Error('getProcessIdentity must be a function');
+  if (onAcquired !== null && typeof onAcquired !== 'function') throw new Error('lock onAcquired must be a function');
 
   const ownerToken = randomUUID();
   const ownerPath = path.join(lockPath, 'owner.json');
@@ -100,9 +102,7 @@ export async function withFileMutationLock(lockPath, operation, {
         const liveIdentity = await getProcessIdentity(owner.pid);
         reclaim = liveIdentity === null || liveIdentity !== owner.processIdentity;
       } catch (ownerError) {
-        if (ownerError?.message === 'invalid mutation lock owner metadata') {
-          throw ownerError;
-        }
+        if (ownerError?.message === 'invalid mutation lock owner metadata') throw ownerError;
         try {
           const info = await stat(lockPath);
           reclaim = now() - info.mtimeMs > orphanGraceMs;
@@ -116,6 +116,9 @@ export async function withFileMutationLock(lockPath, operation, {
       await sleep(retryMs);
     }
   }
+
+  const acquiredAt = now();
+  if (onAcquired) await onAcquired({ waitMs: Math.max(0, acquiredAt - startedAt), acquiredAt });
 
   try {
     return await operation();
