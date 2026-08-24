@@ -16,20 +16,22 @@ function evaluation({
   journalLock = 22,
   journalCommit = 75,
   ready = true,
+  journalPhase = 'commit',
   budgetOverrides = {}
 } = {}) {
   return {
     ready,
+    qualifiedJournalPhase: journalPhase,
     budgets: { ...budgets, ...budgetOverrides },
     summaries: {
       enqueue: { lockWaitP95Ms: enqueueLock, durableCommitP95Ms: enqueueCommit },
       claim: { lockWaitP95Ms: claimLock, durableCommitP95Ms: claimCommit },
-      journal: { lockWaitP95Ms: journalLock, durableCommitP95Ms: journalCommit }
+      journalCommit: { lockWaitP95Ms: journalLock, durableCommitP95Ms: journalCommit }
     }
   };
 }
 
-test('contention stability accepts repeated ready runs with bounded p95 drift', () => {
+test('contention stability accepts repeated ready runs with bounded terminal-commit p95 drift', () => {
   const result = evaluateContentionStability([
     evaluation(),
     evaluation({ enqueueLock: 21, claimCommit: 66, journalCommit: 76 }),
@@ -38,7 +40,9 @@ test('contention stability accepts repeated ready runs with bounded p95 drift', 
 
   assert.equal(result.ready, true);
   assert.equal(result.runCount, 3);
+  assert.equal(result.qualifiedJournalPhase, 'commit');
   assert.ok(result.spreads.enqueue.lockWaitP95Ms < 0.25);
+  assert.ok(result.spreads.journalCommit.durableCommitP95Ms < 0.25);
   assert.ok(Object.values(result.checks).every(Boolean));
 });
 
@@ -53,7 +57,7 @@ test('contention stability rejects a noisy p95 even when every run is individual
   assert.equal(result.checks.claimLockWaitP95MsStable, false);
 });
 
-test('contention stability rejects incomplete, not-ready, and budget-mismatched evidence', () => {
+test('contention stability rejects incomplete, not-ready, budget-mismatched, or begin-only evidence', () => {
   assert.throws(() => evaluateContentionStability([evaluation(), evaluation()]), /at least 3/);
   assert.throws(() => evaluateContentionStability([
     evaluation(),
@@ -65,12 +69,17 @@ test('contention stability rejects incomplete, not-ready, and budget-mismatched 
     evaluation({ budgetOverrides: { lockWaitP95Ms: 101 } }),
     evaluation()
   ]), /identical budgets/);
+  assert.throws(() => evaluateContentionStability([
+    evaluation(),
+    evaluation({ journalPhase: 'begin' }),
+    evaluation()
+  ]), /terminal journal commit/);
 });
 
 test('contention stability fails closed on malformed timing evidence and invalid policy', () => {
   const malformed = evaluation();
-  malformed.summaries.journal.lockWaitP95Ms = Number.NaN;
-  assert.throws(() => evaluateContentionStability([evaluation(), evaluation(), malformed]), /invalid journal.lockWaitP95Ms/);
+  malformed.summaries.journalCommit.lockWaitP95Ms = Number.NaN;
+  assert.throws(() => evaluateContentionStability([evaluation(), evaluation(), malformed]), /invalid journalCommit.lockWaitP95Ms/);
   assert.throws(() => evaluateContentionStability([evaluation(), evaluation(), evaluation()], { minimumRuns: 1 }), /minimumRuns/);
   assert.throws(() => evaluateContentionStability([evaluation(), evaluation(), evaluation()], { maxRelativeP95Spread: 1.1 }), /maxRelativeP95Spread/);
 });
