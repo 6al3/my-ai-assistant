@@ -1,0 +1,29 @@
+{
+  "decision": "restore the exact pre-mutation in-memory journal state whenever durable persistence fails",
+  "reviews": {
+    "correctness": "DurableRequestJournal.begin and commit previously mutated entries before save; a save failure could expose phantom pending or committed state that was never durable. Exact rollback restores the last durable in-memory view.",
+    "robustness_security": "Rollback prevents a process from treating an unpersisted response as committed and prevents phantom request IDs from affecting retries. Keep serialization intact after failure so later mutations can proceed only from the restored durable state.",
+    "latency_resources_regression": "Clone the small journal map only on begin/commit mutation paths. This adds local memory/CPU cost but no network, Qubes, database, or file-format change and has substantially lower regression risk than replacing the journal with a transactional backend."
+  },
+  "alternatives": [
+    {
+      "approach": "leave mutate-before-save behavior unchanged",
+      "rejected": "violates durable request reconciliation because memory can claim state that disk never committed"
+    },
+    {
+      "approach": "introduce a transactional database now",
+      "rejected": "larger operational and regression surface for Slice 1 without evidence that the file-backed journal cannot meet current lab scale"
+    },
+    {
+      "approach": "reload the journal file after every failed save",
+      "rejected": "adds extra I/O on the failure path and can itself fail; exact pre-mutation rollback is deterministic and already available in memory"
+    }
+  ],
+  "qa": [
+    "failed begin leaves no in-memory or restarted phantom request",
+    "failed commit restores pending status, null response, and null committedAt",
+    "restart after failed commit observes the last durable pending state",
+    "serialization remains usable after a failed save and a later durable mutation succeeds"
+  ],
+  "lesson": "For file-backed durability, atomic rename protects the file but not process memory. Any mutate-before-save path also needs exact in-memory rollback on persistence failure."
+}
