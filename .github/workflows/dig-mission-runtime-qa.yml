@@ -13,6 +13,11 @@ on:
       - 'agents/mission-coordinator-rollback-benchmark.test.mjs'
       - 'agents/mission-coordinator-failure-path-benchmark.mjs'
       - 'agents/mission-coordinator-failure-path-benchmark.test.mjs'
+      - 'agents/mission-runtime-contention-qualification.mjs'
+      - 'agents/mission-runtime-contention-qualification.test.mjs'
+      - 'agents/mission-runtime-contention-stability.mjs'
+      - 'agents/mission-runtime-contention-stability.test.mjs'
+      - 'agents/mission-runtime-process-boundary.test.mjs'
       - 'agents/durable-request-journal.mjs'
       - 'agents/durable-request-journal.test.mjs'
       - 'agents/worker-runtime.mjs'
@@ -42,6 +47,8 @@ jobs:
           node --check agents/mission-coordinator.mjs
           node --check agents/mission-coordinator-rollback-benchmark.mjs
           node --check agents/mission-coordinator-failure-path-benchmark.mjs
+          node --check agents/mission-runtime-contention-qualification.mjs
+          node --check agents/mission-runtime-contention-stability.mjs
           node --check agents/durable-request-journal.mjs
           node --check agents/worker-runtime.mjs
       - name: Run mission runtime QA
