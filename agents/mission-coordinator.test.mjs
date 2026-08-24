@@ -54,6 +54,44 @@ test('concurrent mutations are serialized and persisted without lost missions', 
   assert.equal(restarted.stats().total, 20);
 });
 
+test('independent coordinators sharing one durable store do not lose concurrent mutations', async t => {
+  const { store } = await fixture(t);
+  const first = await MissionCoordinator.open({ store });
+  const second = await MissionCoordinator.open({ store });
+
+  const created = await Promise.all(Array.from({ length: 24 }, (_, index) => {
+    const coordinator = index % 2 === 0 ? first : second;
+    return coordinator.enqueue({ task: `shared-${index}`, idempotencyKey: `shared-${index}` });
+  }));
+
+  assert.equal(new Set(created.map(mission => mission.id)).size, 24);
+  const restarted = await MissionCoordinator.open({ store });
+  assert.equal(restarted.stats().total, 24);
+  assert.deepEqual(
+    restarted.list().map(mission => mission.idempotencyKey).sort(),
+    Array.from({ length: 24 }, (_, index) => `shared-${index}`).sort()
+  );
+});
+
+test('two coordinators claim distinct work from the same durable snapshot', async t => {
+  const { store } = await fixture(t);
+  const seed = await MissionCoordinator.open({ store });
+  await seed.enqueue({ task: 'claim-a' });
+  await seed.enqueue({ task: 'claim-b' });
+
+  const first = await MissionCoordinator.open({ store, queueOptions: { requireLeaseToken: true } });
+  const second = await MissionCoordinator.open({ store, queueOptions: { requireLeaseToken: true } });
+  const [a, b] = await Promise.all([
+    first.claim({ id: 'worker-a' }),
+    second.claim({ id: 'worker-b' })
+  ]);
+
+  assert.ok(a && b);
+  assert.notEqual(a.id, b.id);
+  const restarted = await MissionCoordinator.open({ store, queueOptions: { requireLeaseToken: true, preserveRunningLeasesOnRestore: true } });
+  assert.equal(restarted.stats().running, 2);
+});
+
 test('persistence failure rolls back uncommitted enqueue and poisons coordinator', async () => {
   let saves = 0;
   const store = {
