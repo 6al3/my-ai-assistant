@@ -19,17 +19,19 @@ export function digestWorkerCommand({ op, body = null } = {}) {
 }
 
 export class DurableRequestJournal {
-  static async open(path, { lockOptions = {} } = {}) {
+  static async open(path, { lockOptions = {}, writer = durableAtomicWrite } = {}) {
     if (!path) throw new Error('journal path is required');
-    const journal = new DurableRequestJournal(path, { lockOptions });
+    const journal = new DurableRequestJournal(path, { lockOptions, writer });
     await journal.#loadExact();
     return journal;
   }
 
-  constructor(path, { lockOptions = {} } = {}) {
+  constructor(path, { lockOptions = {}, writer = durableAtomicWrite } = {}) {
+    if (typeof writer !== 'function') throw new Error('journal writer must be a function');
     this.path = path;
     this.lockPath = `${path}.lock`;
     this.lockOptions = lockOptions;
+    this.writer = writer;
     this.entries = new Map();
     this.tail = Promise.resolve();
   }
@@ -107,7 +109,7 @@ export class DurableRequestJournal {
 
   async #save() {
     const payload = JSON.stringify({ version: VERSION, savedAt: Date.now(), entries: [...this.entries.values()] }, null, 2);
-    await durableAtomicWrite(this.path, payload);
+    await this.writer(this.path, payload);
   }
 
   #mutate(operation) {
