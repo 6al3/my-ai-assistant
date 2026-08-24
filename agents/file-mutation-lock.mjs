@@ -117,10 +117,9 @@ export async function withFileMutationLock(lockPath, operation, {
     }
   }
 
-  const acquiredAt = now();
-  if (onAcquired) await onAcquired({ waitMs: Math.max(0, acquiredAt - startedAt), acquiredAt });
-
   try {
+    const acquiredAt = now();
+    if (onAcquired) await onAcquired({ waitMs: Math.max(0, acquiredAt - startedAt), acquiredAt });
     return await operation();
   } finally {
     try {
