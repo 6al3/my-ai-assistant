@@ -23,7 +23,7 @@ export function verifyContentionEvidenceDigest(report) {
   return computeContentionEvidenceDigest(evidence) === evidenceDigest;
 }
 
-function runtimeFingerprint() {
+function defaultRuntimeFingerprint() {
   const cpus = os.cpus();
   return {
     nodeVersion: process.version,
@@ -35,7 +35,17 @@ function runtimeFingerprint() {
   };
 }
 
-async function git(commandArgs, cwd) {
+function validateRuntimeFingerprint(runtime) {
+  if (!runtime || typeof runtime !== 'object') throw new Error('runtime fingerprint is required');
+  if (typeof runtime.nodeVersion !== 'string' || !runtime.nodeVersion.startsWith('v')) throw new Error('runtime fingerprint requires nodeVersion');
+  if (typeof runtime.platform !== 'string' || !runtime.platform) throw new Error('runtime fingerprint requires platform');
+  if (typeof runtime.arch !== 'string' || !runtime.arch) throw new Error('runtime fingerprint requires arch');
+  if (typeof runtime.cpuModel !== 'string' || !runtime.cpuModel.trim()) throw new Error('runtime fingerprint requires cpuModel');
+  if (!Number.isInteger(runtime.logicalCpus) || runtime.logicalCpus < 1) throw new Error('runtime fingerprint requires logicalCpus');
+  if (!Number.isInteger(runtime.totalMemoryMiB) || runtime.totalMemoryMiB < 128) throw new Error('runtime fingerprint requires totalMemoryMiB >= 128');
+}
+
+async function defaultGitRead(commandArgs, cwd) {
   const { stdout } = await execFileAsync('git', commandArgs, { cwd, encoding: 'utf8', timeout: 30_000 });
   return stdout.trim();
 }
@@ -47,21 +57,26 @@ export async function qualifyMissionRuntimeContention({
   maxRelativeP95Spread = 0.25,
   campaignOptions = {},
   campaign = runMissionRuntimeContentionCampaign,
+  gitRead = defaultGitRead,
+  runtimeFingerprint = defaultRuntimeFingerprint,
   now = () => Date.now(),
   runIdFactory = randomUUID
 } = {}) {
   if (!Number.isInteger(runCount) || runCount < 3 || runCount > 10) throw new Error('runCount must be an integer between 3 and 10');
   if (!Number.isFinite(maxRelativeP95Spread) || maxRelativeP95Spread < 0 || maxRelativeP95Spread > 1) throw new Error('maxRelativeP95Spread must be between 0 and 1');
 
-  const sha = await git(['rev-parse', 'HEAD'], cwd);
+  const sha = await gitRead(['rev-parse', 'HEAD'], cwd);
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('unable to resolve exact git SHA');
   if (expectedSha && sha !== expectedSha) throw new Error(`git SHA mismatch: expected ${expectedSha}, got ${sha}`);
-  if (await git(['status', '--porcelain'], cwd)) throw new Error('contention qualification requires a clean worktree');
+  if (await gitRead(['status', '--porcelain'], cwd)) throw new Error('contention qualification requires a clean worktree');
 
+  const runtime = runtimeFingerprint();
+  validateRuntimeFingerprint(runtime);
   const startedAt = now();
   const runs = [];
   for (let index = 0; index < runCount; index += 1) {
     const campaignRunId = runIdFactory();
+    if (typeof campaignRunId !== 'string' || campaignRunId.length < 8) throw new Error('campaign run ID is invalid');
     runs.push(await campaign({ ...campaignOptions, runId: campaignRunId }));
   }
   if (new Set(runs.map(run => run.runId)).size !== runs.length) throw new Error('contention qualification requires unique campaign run IDs');
@@ -71,13 +86,15 @@ export async function qualifyMissionRuntimeContention({
   const correctnessReady = runs.every(run => run.correctness?.lostMissions === 0 && run.correctness?.lostRequests === 0 && run.correctness?.doubleClaims === 0);
   const ready = correctnessReady && stability.ready;
   const generatedAtMs = now();
+  const qualificationRunId = runIdFactory();
+  if (typeof qualificationRunId !== 'string' || qualificationRunId.length < 8) throw new Error('qualification run ID is invalid');
   const evidence = {
     schemaVersion: 1,
-    qualificationRunId: runIdFactory(),
+    qualificationRunId,
     generatedAt: new Date(generatedAtMs).toISOString(),
     gitSha: sha,
     cleanWorktree: true,
-    runtime: runtimeFingerprint(),
+    runtime,
     durationMs: Math.max(0, generatedAtMs - startedAt),
     runCount,
     runs,
