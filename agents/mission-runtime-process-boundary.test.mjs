@@ -10,6 +10,7 @@ import { MissionQueueStore } from './mission-queue-store.mjs';
 import { DurableRequestJournal } from './durable-request-journal.mjs';
 import { withFileMutationLock } from './file-mutation-lock.mjs';
 import { evaluateContentionQualification } from './mission-runtime-contention-qualification.mjs';
+import { evaluateContentionStability } from './mission-runtime-contention-stability.mjs';
 
 const worker = fileURLToPath(new URL('./mission-runtime-process-worker.mjs', import.meta.url));
 
@@ -61,6 +62,40 @@ async function fixture(t) {
     journalFile: path.join(root, 'requests.json'),
     lockPath: path.join(root, 'crash.lock')
   };
+}
+
+async function runQualifiedContentionCampaign(t, runIndex, {
+  enqueueCount = 8,
+  claimCount = 8,
+  journalCount = 8,
+  minimumSamplesPerPath = 8
+} = {}) {
+  const { missionFile, journalFile } = await fixture(t);
+  const enqueueKeys = Array.from({ length: enqueueCount }, (_, index) => `stability-${runIndex}-enqueue-${index}`);
+  const enqueue = await Promise.all(enqueueKeys.map(key => runWorker(['enqueue', missionFile, key])));
+
+  const claimWorkers = Array.from({ length: claimCount }, (_, index) => `stability-${runIndex}-worker-${index}`);
+  const claim = await Promise.all(claimWorkers.map(workerId => runWorker(['claim', missionFile, workerId])));
+  assert.equal(claim.filter(item => item.id).length, claimWorkers.length);
+  assert.equal(new Set(claim.map(item => item.id)).size, claimWorkers.length, 'spawned claims must remain distinct');
+
+  const requestIds = Array.from({ length: journalCount }, (_, index) => `stability-${runIndex}-request-${index}`);
+  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
+
+  const evaluation = evaluateContentionQualification({ enqueue, claim, journal }, {
+    minimumSamplesPerPath,
+    lockWaitP95Ms: 9_000,
+    durableCommitP95Ms: 9_500
+  });
+  assert.equal(evaluation.ready, true, `contention campaign ${runIndex} must be individually ready`);
+
+  const reopened = await MissionCoordinator.open({ store: new MissionQueueStore(missionFile) });
+  assert.equal(reopened.stats().total, enqueueKeys.length);
+  assert.equal(reopened.stats().running, claimWorkers.length);
+  const reopenedJournal = await DurableRequestJournal.open(journalFile);
+  for (const id of requestIds) assert.equal(reopenedJournal.get(id)?.requestId, id);
+
+  return evaluation;
 }
 
 test('spawned coordinators preserve concurrent enqueues and expose contention timing', async t => {
@@ -131,6 +166,37 @@ test('spawned contention evidence covers enqueue, claim, and journal paths befor
   assert.equal(reopened.stats().running, claimWorkers.length);
   const reopenedJournal = await DurableRequestJournal.open(journalFile);
   for (const id of requestIds) assert.equal(reopenedJournal.get(id)?.requestId, id);
+});
+
+test('three real spawned contention campaigns feed the stability evaluator without weakening the 25% qualification policy', async t => {
+  const evaluations = [];
+  for (let runIndex = 0; runIndex < 3; runIndex += 1) {
+    evaluations.push(await runQualifiedContentionCampaign(t, runIndex));
+  }
+
+  // Integration wiring uses a permissive ceiling only to prove that three actual OS-process
+  // campaigns reach the stability evaluator deterministically. The qualification policy below
+  // remains 25%; its measured result is reported rather than made flaky before a host baseline exists.
+  const integration = evaluateContentionStability(evaluations, {
+    minimumRuns: 3,
+    maxRelativeP95Spread: 1
+  });
+  assert.equal(integration.ready, true);
+  assert.equal(integration.runCount, 3);
+
+  const qualificationPolicy = evaluateContentionStability(evaluations, {
+    minimumRuns: 3,
+    maxRelativeP95Spread: 0.25
+  });
+  assert.equal(qualificationPolicy.runCount, 3);
+  assert.equal(typeof qualificationPolicy.ready, 'boolean');
+  for (const pathName of ['enqueue', 'claim', 'journal']) {
+    for (const metric of ['lockWaitP95Ms', 'durableCommitP95Ms']) {
+      const spread = qualificationPolicy.spreads[pathName][metric];
+      assert.ok(Number.isFinite(spread) && spread >= 0 && spread <= 1);
+    }
+  }
+  t.diagnostic(`contention stability @25%: ${JSON.stringify({ ready: qualificationPolicy.ready, spreads: qualificationPolicy.spreads })}`);
 });
 
 test('dead lock owner is reclaimed by a separate process boundary', async t => {
