@@ -40,6 +40,25 @@ test('mutation lock validates acquisition telemetry callback', async t => {
   await assert.rejects(() => withFileMutationLock(path.join(root, 'state.lock'), async () => {}, { onAcquired: true }), /onAcquired/);
 });
 
+test('mutation lock is released when acquisition telemetry throws', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-telemetry-error-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+  let operationRan = false;
+
+  await assert.rejects(() => withFileMutationLock(lock, async () => {
+    operationRan = true;
+  }, {
+    onAcquired: async () => {
+      throw new Error('telemetry failed');
+    }
+  }), /telemetry failed/);
+  assert.equal(operationRan, false, 'protected operation must not run after telemetry failure');
+
+  const result = await withFileMutationLock(lock, async () => 'reacquired', { retryMs: 1, timeoutMs: 100 });
+  assert.equal(result, 'reacquired');
+});
+
 test('mutation lock is released when the protected operation throws', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-error-'));
   t.after(() => rm(root, { recursive: true, force: true }));
