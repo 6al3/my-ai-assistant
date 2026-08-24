@@ -36,7 +36,10 @@ export function summarizeContentionTimings(results, { minimumSamples = 1 } = {})
   };
 }
 
-export function evaluateContentionQualification({ enqueue, claim, journal }, budgets) {
+export function evaluateContentionQualification({ enqueue, claim, journalCommit, journal }, budgets) {
+  if (journal !== undefined) {
+    throw new Error('legacy journal contention evidence is ambiguous; provide terminal journalCommit evidence');
+  }
   if (!budgets || typeof budgets !== 'object') throw new Error('contention budgets are required');
   for (const key of ['lockWaitP95Ms', 'durableCommitP95Ms']) validateBudget(budgets[key], key);
   validateMinimumSamples(budgets.minimumSamplesPerPath);
@@ -45,7 +48,7 @@ export function evaluateContentionQualification({ enqueue, claim, journal }, bud
   const summaries = {
     enqueue: summarizeContentionTimings(enqueue, summaryOptions),
     claim: summarizeContentionTimings(claim, summaryOptions),
-    journal: summarizeContentionTimings(journal, summaryOptions)
+    journalCommit: summarizeContentionTimings(journalCommit, summaryOptions)
   };
   const checks = {};
   for (const [name, summary] of Object.entries(summaries)) {
@@ -57,6 +60,7 @@ export function evaluateContentionQualification({ enqueue, claim, journal }, bud
     ready: Object.values(checks).every(Boolean),
     checks,
     summaries,
-    budgets: { ...budgets }
+    budgets: { ...budgets },
+    qualifiedJournalPhase: 'commit'
   };
 }
