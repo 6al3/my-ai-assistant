@@ -65,7 +65,8 @@ export async function withFileMutationLock(lockPath, operation, {
   now = () => Date.now(),
   getProcessIdentity = processStartIdentity,
   isProcessAlive = pidAlive,
-  onAcquired = null
+  onAcquired = null,
+  onDirectoryCreated = null
 } = {}) {
   if (!lockPath?.trim()) throw new Error('lock path is required');
   if (typeof operation !== 'function') throw new Error('lock operation is required');
@@ -74,6 +75,7 @@ export async function withFileMutationLock(lockPath, operation, {
   if (typeof getProcessIdentity !== 'function') throw new Error('getProcessIdentity must be a function');
   if (typeof isProcessAlive !== 'function') throw new Error('isProcessAlive must be a function');
   if (onAcquired !== null && typeof onAcquired !== 'function') throw new Error('lock onAcquired must be a function');
+  if (onDirectoryCreated !== null && typeof onDirectoryCreated !== 'function') throw new Error('lock onDirectoryCreated must be a function');
 
   const ownerToken = randomUUID();
   const ownerPath = path.join(lockPath, 'owner.json');
@@ -84,6 +86,9 @@ export async function withFileMutationLock(lockPath, operation, {
   while (true) {
     try {
       await mkdir(lockPath, { mode: 0o700 });
+      // Fault-injection/observability hook for the only legitimate ownerless-lock window:
+      // the directory exists, but owner metadata has not yet been published.
+      if (onDirectoryCreated) await onDirectoryCreated({ lockPath, ownerPath });
       await writeFile(ownerPath, JSON.stringify({
         pid: process.pid,
         token: ownerToken,
