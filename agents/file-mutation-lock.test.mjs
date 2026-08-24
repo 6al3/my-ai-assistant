@@ -158,3 +158,20 @@ test('mutation lock fails closed on malformed owner metadata', async t => {
     timeoutMs: 10
   }), /invalid mutation lock owner metadata/);
 });
+
+test('mutation lock fails closed on corrupt owner JSON even after orphan grace', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-corrupt-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+  await mkdir(lock, { mode: 0o700 });
+  await writeFile(path.join(lock, 'owner.json'), '{not-json');
+
+  await assert.rejects(() => withFileMutationLock(lock, async () => 'must-not-run', {
+    now: () => 1_000_000,
+    orphanGraceMs: 1,
+    getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'unexpected',
+    isProcessAlive: () => true,
+    retryMs: 1,
+    timeoutMs: 10
+  }), /invalid mutation lock owner metadata/);
+});
