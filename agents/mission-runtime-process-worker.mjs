@@ -43,7 +43,16 @@ async function main() {
     const started = performance.now();
     const entry = await journal.begin({ requestId: value, digest: digestWorkerCommand(command) });
     const durableCommitMs = performance.now() - started;
-    process.stdout.write(JSON.stringify({ ok: true, requestId: entry.requestId, lockWaitMs: metrics.lockWaitMs, durableCommitMs }));
+    process.stdout.write(JSON.stringify({ ok: true, requestId: entry.requestId, status: entry.status, lockWaitMs: metrics.lockWaitMs, durableCommitMs }));
+    return;
+  }
+  if (op === 'journal-commit') {
+    const metrics = { lockWaitMs: null };
+    const journal = await DurableRequestJournal.open(target, { lockOptions: timedLockOptions(metrics) });
+    const started = performance.now();
+    const entry = await journal.commit(value, { ok: true, requestId: value });
+    const durableCommitMs = performance.now() - started;
+    process.stdout.write(JSON.stringify({ ok: true, requestId: entry.requestId, status: entry.status, lockWaitMs: metrics.lockWaitMs, durableCommitMs }));
     return;
   }
   if (op === 'hold-lock') {
