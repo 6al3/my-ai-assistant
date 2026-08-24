@@ -6,22 +6,24 @@ const SHA = 'a'.repeat(40);
 const budgets = { minimumSamplesPerPath: 8, lockWaitP95Ms: 100, durableCommitP95Ms: 200 };
 
 function evaluation(lockWait, durableCommit) {
-  const summaries = Object.fromEntries(['enqueue', 'claim', 'journal'].map(path => [path, {
+  const summaries = Object.fromEntries(['enqueue', 'claim', 'journalCommit'].map(path => [path, {
     count: 8,
     lockWaitP50Ms: lockWait / 2,
     lockWaitP95Ms: lockWait,
     durableCommitP50Ms: durableCommit / 2,
     durableCommitP95Ms: durableCommit
   }]));
-  return { ready: true, checks: {}, summaries, budgets: { ...budgets } };
+  return { ready: true, qualifiedJournalPhase: 'commit', checks: {}, summaries, budgets: { ...budgets } };
 }
 
 function campaignFactory(values, { duplicateRunId = false, correctness = true, committedResponses = true } = {}) {
   let index = 0;
   return async ({ runId }) => {
     const value = values[index++] ?? values.at(-1);
+    const runEvaluation = evaluation(value, value * 2);
+    if (!committedResponses) runEvaluation.qualifiedJournalPhase = 'begin';
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       runId: duplicateRunId ? 'duplicate-run' : runId,
       counts: { enqueue: 8, claim: 8, journalBegin: 8, journalCommit: 8 },
       correctness: {
@@ -37,7 +39,7 @@ function campaignFactory(values, { duplicateRunId = false, correctness = true, c
         journalCommitCount: 8,
         qualifiedJournalPhase: committedResponses ? 'commit' : 'begin'
       },
-      evaluation: evaluation(value, value * 2)
+      evaluation: runEvaluation
     };
   };
 }
@@ -72,6 +74,7 @@ test('contention qualification emits LAB READY evidence only when three independ
   assert.equal(report.schemaVersion, 2);
   assert.equal(report.readiness, 'LAB READY');
   assert.equal(report.stability.ready, true);
+  assert.equal(report.stability.qualifiedJournalPhase, 'commit');
   assert.equal(report.correctnessReady, true);
   assert.equal(report.runCount, 3);
   assert.equal(new Set(report.runs.map(run => run.runId)).size, 3);
@@ -91,16 +94,13 @@ test('contention qualification reports NOT READY when p95 spread exceeds 25 perc
 });
 
 test('contention qualification refuses begin-only journal evidence even when timings are stable', async () => {
-  const report = await qualifyMissionRuntimeContention({
+  await assert.rejects(() => qualifyMissionRuntimeContention({
     expectedSha: SHA,
     campaign: campaignFactory([10, 10, 10], { committedResponses: false }),
     gitRead: gitReadFactory(),
     runtimeFingerprint,
     runIdFactory: runIdFactory()
-  });
-  assert.equal(report.stability.ready, true);
-  assert.equal(report.correctnessReady, false);
-  assert.equal(report.readiness, 'NOT READY');
+  }), /terminal journal commit/);
 });
 
 test('contention qualification refuses copied campaign run identities', async () => {
