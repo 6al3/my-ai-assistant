@@ -80,7 +80,10 @@ async function runQualifiedContentionCampaign(t, runIndex, {
   assert.equal(new Set(claim.map(item => item.id)).size, claimWorkers.length, 'spawned claims must remain distinct');
 
   const requestIds = Array.from({ length: journalCount }, (_, index) => `stability-${runIndex}-request-${index}`);
-  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
+  const journalBegin = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
+  assert.equal(journalBegin.filter(item => item.status === 'pending').length, requestIds.length);
+  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
+  assert.equal(journal.filter(item => item.status === 'committed').length, requestIds.length);
 
   const evaluation = evaluateContentionQualification({ enqueue, claim, journal }, {
     minimumSamplesPerPath,
@@ -93,7 +96,11 @@ async function runQualifiedContentionCampaign(t, runIndex, {
   assert.equal(reopened.stats().total, enqueueKeys.length);
   assert.equal(reopened.stats().running, claimWorkers.length);
   const reopenedJournal = await DurableRequestJournal.open(journalFile);
-  for (const id of requestIds) assert.equal(reopenedJournal.get(id)?.requestId, id);
+  for (const id of requestIds) {
+    assert.equal(reopenedJournal.get(id)?.requestId, id);
+    assert.equal(reopenedJournal.get(id)?.status, 'committed');
+    assert.equal(reopenedJournal.get(id)?.response?.requestId, id);
+  }
 
   return evaluation;
 }
@@ -120,19 +127,27 @@ test('spawned coordinators preserve concurrent enqueues and expose contention ti
   timingSummary([a, b]);
 });
 
-test('spawned journals preserve concurrent request begins and expose contention timing', async t => {
+test('spawned journals preserve concurrent begin and committed-response contention timing', async t => {
   const { journalFile } = await fixture(t);
   const ids = Array.from({ length: 16 }, (_, index) => `request-${index}`);
-  const results = await Promise.all(ids.map(id => runWorker(['journal-begin', journalFile, id])));
-  const journalTiming = timingSummary(results);
+  const began = await Promise.all(ids.map(id => runWorker(['journal-begin', journalFile, id])));
+  assert.equal(began.filter(item => item.status === 'pending').length, ids.length);
+
+  const committed = await Promise.all(ids.map(id => runWorker(['journal-commit', journalFile, id])));
+  const journalTiming = timingSummary(committed);
   assert.equal(journalTiming.count, ids.length);
   assert.ok(journalTiming.durableCommitP95Ms >= journalTiming.lockWaitP95Ms);
 
   const reopened = await DurableRequestJournal.open(journalFile);
-  for (const id of ids) assert.equal(reopened.get(id)?.requestId, id);
+  for (const id of ids) {
+    const entry = reopened.get(id);
+    assert.equal(entry?.requestId, id);
+    assert.equal(entry?.status, 'committed');
+    assert.equal(entry?.response?.requestId, id);
+  }
 });
 
-test('spawned contention evidence covers enqueue, claim, and journal paths before qualification', async t => {
+test('spawned contention evidence qualifies terminal journal commit rather than pending begin', async t => {
   const { missionFile, journalFile } = await fixture(t);
   const enqueueKeys = Array.from({ length: 12 }, (_, index) => `qualified-enqueue-${index}`);
   const enqueue = await Promise.all(enqueueKeys.map(key => runWorker(['enqueue', missionFile, key])));
@@ -143,7 +158,10 @@ test('spawned contention evidence covers enqueue, claim, and journal paths befor
   assert.equal(new Set(claim.map(item => item.id)).size, claimWorkers.length, 'spawned claims must remain distinct');
 
   const requestIds = Array.from({ length: 12 }, (_, index) => `qualified-request-${index}`);
-  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
+  const journalBegin = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
+  assert.equal(journalBegin.filter(item => item.status === 'pending').length, requestIds.length);
+  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
+  assert.equal(journal.filter(item => item.status === 'committed').length, requestIds.length);
 
   // These are integration safety ceilings tied to the 10s worker timeout, not production SLOs.
   // Tighter budgets must come from repeated, host-bound measurements before Slice 1 is frozen.
@@ -165,7 +183,12 @@ test('spawned contention evidence covers enqueue, claim, and journal paths befor
   assert.equal(reopened.stats().total, enqueueKeys.length);
   assert.equal(reopened.stats().running, claimWorkers.length);
   const reopenedJournal = await DurableRequestJournal.open(journalFile);
-  for (const id of requestIds) assert.equal(reopenedJournal.get(id)?.requestId, id);
+  for (const id of requestIds) {
+    const entry = reopenedJournal.get(id);
+    assert.equal(entry?.requestId, id);
+    assert.equal(entry?.status, 'committed');
+    assert.equal(entry?.response?.requestId, id);
+  }
 });
 
 test('three real spawned contention campaigns feed the stability evaluator without weakening the 25% qualification policy', async t => {
