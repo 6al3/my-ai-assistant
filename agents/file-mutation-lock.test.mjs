@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { withFileMutationLock } from './file-mutation-lock.mjs';
+import { processStartIdentity, withFileMutationLock } from './file-mutation-lock.mjs';
 
 test('mutation lock serializes competing callers', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-'));
@@ -41,4 +41,71 @@ test('mutation lock is released when the protected operation throws', async t =>
   );
   const result = await withFileMutationLock(lock, async () => 'reacquired');
   assert.equal(result, 'reacquired');
+});
+
+test('process start identity is available for the current process', async () => {
+  const identity = await processStartIdentity(process.pid);
+  assert.equal(typeof identity, 'string');
+  assert.ok(identity.length > 0);
+});
+
+test('mutation lock reclaims a reused PID only when process identity differs', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-reused-pid-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+  await mkdir(lock, { mode: 0o700 });
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({
+    pid: 4242,
+    token: 'old-owner',
+    processIdentity: 'old-process-instance',
+    createdAt: 1
+  }));
+
+  const result = await withFileMutationLock(lock, async () => 'reclaimed', {
+    getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'reused-pid-new-instance',
+    retryMs: 1,
+    timeoutMs: 100
+  });
+  assert.equal(result, 'reclaimed');
+});
+
+test('mutation lock never steals a lock from a live matching process instance', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-live-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+  await mkdir(lock, { mode: 0o700 });
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({
+    pid: 4242,
+    token: 'live-owner',
+    processIdentity: 'live-process-instance',
+    createdAt: 1
+  }));
+
+  await assert.rejects(
+    () => withFileMutationLock(lock, async () => 'must-not-run', {
+      getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'live-process-instance',
+      retryMs: 1,
+      timeoutMs: 10
+    }),
+    /timed out acquiring mutation lock/
+  );
+  const owner = JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8'));
+  assert.equal(owner.token, 'live-owner');
+});
+
+test('mutation lock fails closed on malformed owner metadata', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-malformed-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+  await mkdir(lock, { mode: 0o700 });
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: 4242, token: 'legacy-owner' }));
+
+  await assert.rejects(
+    () => withFileMutationLock(lock, async () => 'must-not-run', {
+      getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'some-live-process',
+      retryMs: 1,
+      timeoutMs: 10
+    }),
+    /invalid mutation lock owner metadata/
+  );
 });
