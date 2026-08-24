@@ -5,22 +5,23 @@ import path from 'node:path';
 import test from 'node:test';
 import { processStartIdentity, withFileMutationLock } from './file-mutation-lock.mjs';
 
-test('mutation lock serializes competing callers', async t => {
+test('mutation lock serializes competing callers and reports acquisition wait', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const lock = path.join(root, 'state.lock');
   const events = [];
+  const waits = [];
 
   await Promise.all([
     withFileMutationLock(lock, async () => {
       events.push('a:start');
       await new Promise(resolve => setTimeout(resolve, 40));
       events.push('a:end');
-    }),
+    }, { onAcquired: timing => waits.push(timing.waitMs) }),
     withFileMutationLock(lock, async () => {
       events.push('b:start');
       events.push('b:end');
-    })
+    }, { onAcquired: timing => waits.push(timing.waitMs) })
   ]);
 
   const aStart = events.indexOf('a:start');
@@ -28,17 +29,22 @@ test('mutation lock serializes competing callers', async t => {
   const bStart = events.indexOf('b:start');
   const bEnd = events.indexOf('b:end');
   assert.ok((aEnd < bStart) || (bEnd < aStart), `critical sections overlapped: ${events.join(', ')}`);
+  assert.equal(waits.length, 2);
+  assert.ok(waits.every(value => Number.isFinite(value) && value >= 0));
+  assert.ok(Math.max(...waits) >= 20, `expected a contended acquisition wait, got ${waits.join(', ')}`);
+});
+
+test('mutation lock validates acquisition telemetry callback', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-callback-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await assert.rejects(() => withFileMutationLock(path.join(root, 'state.lock'), async () => {}, { onAcquired: true }), /onAcquired/);
 });
 
 test('mutation lock is released when the protected operation throws', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-error-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const lock = path.join(root, 'state.lock');
-
-  await assert.rejects(
-    () => withFileMutationLock(lock, async () => { throw new Error('boom'); }),
-    /boom/
-  );
+  await assert.rejects(() => withFileMutationLock(lock, async () => { throw new Error('boom'); }), /boom/);
   const result = await withFileMutationLock(lock, async () => 'reacquired');
   assert.equal(result, 'reacquired');
 });
@@ -54,17 +60,9 @@ test('mutation lock reclaims a reused PID only when process identity differs', a
   t.after(() => rm(root, { recursive: true, force: true }));
   const lock = path.join(root, 'state.lock');
   await mkdir(lock, { mode: 0o700 });
-  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({
-    pid: 4242,
-    token: 'old-owner',
-    processIdentity: 'old-process-instance',
-    createdAt: 1
-  }));
-
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: 4242, token: 'old-owner', processIdentity: 'old-process-instance', createdAt: 1 }));
   const result = await withFileMutationLock(lock, async () => 'reclaimed', {
-    getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'reused-pid-new-instance',
-    retryMs: 1,
-    timeoutMs: 100
+    getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'reused-pid-new-instance', retryMs: 1, timeoutMs: 100
   });
   assert.equal(result, 'reclaimed');
 });
@@ -74,21 +72,10 @@ test('mutation lock never steals a lock from a live matching process instance', 
   t.after(() => rm(root, { recursive: true, force: true }));
   const lock = path.join(root, 'state.lock');
   await mkdir(lock, { mode: 0o700 });
-  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({
-    pid: 4242,
-    token: 'live-owner',
-    processIdentity: 'live-process-instance',
-    createdAt: 1
-  }));
-
-  await assert.rejects(
-    () => withFileMutationLock(lock, async () => 'must-not-run', {
-      getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'live-process-instance',
-      retryMs: 1,
-      timeoutMs: 10
-    }),
-    /timed out acquiring mutation lock/
-  );
+  await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: 4242, token: 'live-owner', processIdentity: 'live-process-instance', createdAt: 1 }));
+  await assert.rejects(() => withFileMutationLock(lock, async () => 'must-not-run', {
+    getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'live-process-instance', retryMs: 1, timeoutMs: 10
+  }), /timed out acquiring mutation lock/);
   const owner = JSON.parse(await readFile(path.join(lock, 'owner.json'), 'utf8'));
   assert.equal(owner.token, 'live-owner');
 });
@@ -99,13 +86,7 @@ test('mutation lock fails closed on malformed owner metadata', async t => {
   const lock = path.join(root, 'state.lock');
   await mkdir(lock, { mode: 0o700 });
   await writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: 4242, token: 'legacy-owner' }));
-
-  await assert.rejects(
-    () => withFileMutationLock(lock, async () => 'must-not-run', {
-      getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'some-live-process',
-      retryMs: 1,
-      timeoutMs: 10
-    }),
-    /invalid mutation lock owner metadata/
-  );
+  await assert.rejects(() => withFileMutationLock(lock, async () => 'must-not-run', {
+    getProcessIdentity: async pid => pid === process.pid ? 'current-process-instance' : 'some-live-process', retryMs: 1, timeoutMs: 10
+  }), /invalid mutation lock owner metadata/);
 });
