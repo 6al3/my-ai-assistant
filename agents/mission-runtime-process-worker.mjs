@@ -62,6 +62,17 @@ async function main() {
     });
     return;
   }
+  if (op === 'hold-ownerless-lock') {
+    await withFileMutationLock(target, async () => {
+      throw new Error('ownerless fault hook unexpectedly reached lock operation');
+    }, {
+      onDirectoryCreated: async () => {
+        process.stdout.write('OWNERLESS\n');
+        await new Promise(() => {});
+      }
+    });
+    return;
+  }
   throw new Error(`unsupported process worker operation: ${op}`);
 }
 
