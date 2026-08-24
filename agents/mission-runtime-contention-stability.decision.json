@@ -1,0 +1,46 @@
+{
+  "decision": "Require multiple individually-qualified contention runs to demonstrate bounded cross-run p95 drift before using lock/commit timings as performance evidence.",
+  "problem": "A single spawned process-boundary campaign can pass absolute lock-wait and durable-commit ceilings because of favorable scheduler, filesystem, cache, or fsync conditions. Using one run to set or justify tighter budgets risks overfitting to noise.",
+  "independent_reviews": {
+    "correctness": {
+      "preferred": "Cross-run stability evaluation over the same enqueue, claim, and journal p95 metrics that already gate one campaign.",
+      "reason": "It preserves the current correctness invariants while distinguishing repeatable performance from one lucky execution."
+    },
+    "robustness_security": {
+      "preferred": "Fail closed unless every run is individually contention-ready and uses identical budgets.",
+      "reason": "Mixing failed runs or different budget policies can manufacture an apparently stable aggregate and obscure degraded durability behavior."
+    },
+    "latency_resources_regression": {
+      "preferred": "Offline comparison of existing summaries with a minimum of three sequential campaigns.",
+      "reason": "It adds no production, Qubes, or network overhead and avoids parallel self-contention that would contaminate the measurement we are trying to qualify."
+    }
+  },
+  "alternatives_rejected": [
+    "Treat one contention campaign as sufficient: lowest runtime cost but vulnerable to scheduler/fsync noise and false confidence.",
+    "Run repeated campaigns in parallel: faster wall-clock but creates artificial host contention and corrupts the latency comparison.",
+    "Move immediately to a database or lock daemon: may alter contention characteristics but substantially increases operational and regression surface before the local design has been measured reproducibly."
+  ],
+  "selected_policy": {
+    "minimumRuns": 3,
+    "maxRelativeP95Spread": 0.25,
+    "metrics": [
+      "enqueue.lockWaitP95Ms",
+      "enqueue.durableCommitP95Ms",
+      "claim.lockWaitP95Ms",
+      "claim.durableCommitP95Ms",
+      "journal.lockWaitP95Ms",
+      "journal.durableCommitP95Ms"
+    ]
+  },
+  "qa": [
+    "Three individually-ready runs with small p95 drift qualify.",
+    "A noisy path fails stability even when every run remains under its absolute budget.",
+    "Insufficient run count, a not-ready run, or mixed budgets fail closed.",
+    "Malformed or non-finite timing evidence and invalid stability policy fail closed."
+  ],
+  "failure_lessons": [
+    "Absolute latency ceilings and repeatability answer different questions; both are required before using measurements to change persistence architecture.",
+    "Performance evidence should be gathered sequentially on the same host/SHA before comparing exact snapshot rollback with a mutation-delta candidate.",
+    "Stability gates are QA evidence only and do not replace independent CI or Qubes qualification."
+  ]
+}
