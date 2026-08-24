@@ -1,0 +1,27 @@
+{
+  "decision": "Make terminal DurableRequestJournal commit contention evidence an explicit schema path named journalCommit, reject the legacy ambiguous journal path, and require the commit phase again in cross-run stability qualification.",
+  "problem": "The campaign already measured terminal journal commit, but the contention evaluator accepted a generic journal array. A direct caller could therefore pass fast journal-begin timings and receive a ready result even though committed-response reconciliation had not been measured.",
+  "reviews": {
+    "correctness": "Preferred making the terminal phase explicit in the evaluator input and output rather than relying on a separate outer correctness flag. Readiness should be impossible to compute from begin-only timings by construction.",
+    "robustness_security": "Preferred fail-closed rejection of the legacy journal field and explicit qualifiedJournalPhase=commit propagation through per-run and stability evidence. This prevents ambiguous or replayed legacy evidence from silently receiving readiness.",
+    "latency_resources_regression": "Preferred a schema-only contract hardening over additional I/O, probes, databases, or worker processes. The change adds no runtime Qubes/network latency and only renames/validates in-memory evidence."
+  },
+  "alternatives_rejected": [
+    "Keep the generic journal field and trust campaign callers to provide commit samples: weakest because the final evaluator remains callable with begin-only evidence.",
+    "Keep generic journal timings but add another boolean outside the evaluator: improves reporting but leaves the timing path itself ambiguous and easier to misuse.",
+    "Measure both begin and commit and average them: incorrect for the readiness question because terminal response commit is the stronger durability boundary."
+  ],
+  "qa": [
+    "Contention qualification requires journalCommit and rejects legacy journal evidence.",
+    "Per-run qualification emits qualifiedJournalPhase=commit.",
+    "Cross-run stability requires journalCommit summaries and terminal commit qualification on every run.",
+    "OS-process contention tests use only journal-commit worker results for readiness.",
+    "Operational contention evidence rejects begin-only runs instead of returning LAB READY."
+  ],
+  "failure_lessons": [
+    "A correct producer does not make an ambiguous consumer contract safe; readiness authorities must encode the exact evidence phase they require.",
+    "Durability timing names are part of the safety contract. Generic names can hide a weaker lifecycle boundary even when the current harness happens to use the stronger one.",
+    "The safest change here is evidence-schema hardening, not more infrastructure."
+  ],
+  "readiness_effect": "No upgrade beyond LAB READY. This closes a false-readiness path in Slice 1, but independent executable QA and later Qubes transport qualification are still required before REAL-WORKER readiness."
+}
