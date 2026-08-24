@@ -78,12 +78,11 @@ export async function runMissionRuntimeContentionCampaign({
     const journalBegin = await Promise.all(requestIds.map(requestId => run('journal-begin', journalFile, requestId)));
     if (journalBegin.some(item => item.status !== 'pending')) throw new Error('contention campaign journal begin did not persist pending state');
 
-    // The qualification path intentionally measures terminal response commit contention,
-    // because committed-response reconciliation is the stronger reliability boundary.
-    const journal = await Promise.all(requestIds.map(requestId => run('journal-commit', journalFile, requestId)));
-    if (journal.some(item => item.status !== 'committed')) throw new Error('contention campaign journal commit did not persist terminal state');
+    // Only terminal response commit timings are eligible for contention readiness.
+    const journalCommit = await Promise.all(requestIds.map(requestId => run('journal-commit', journalFile, requestId)));
+    if (journalCommit.some(item => item.status !== 'committed')) throw new Error('contention campaign journal commit did not persist terminal state');
 
-    const evaluation = evaluateContentionQualification({ enqueue, claim, journal }, {
+    const evaluation = evaluateContentionQualification({ enqueue, claim, journalCommit }, {
       minimumSamplesPerPath,
       lockWaitP95Ms,
       durableCommitP95Ms
@@ -104,7 +103,7 @@ export async function runMissionRuntimeContentionCampaign({
     }
 
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       runId,
       counts: { enqueue: enqueueCount, claim: claimCount, journalBegin: journalCount, journalCommit: journalCount },
       correctness: {
@@ -117,7 +116,7 @@ export async function runMissionRuntimeContentionCampaign({
       },
       evidence: {
         journalBeginCount: journalBegin.length,
-        journalCommitCount: journal.length,
+        journalCommitCount: journalCommit.length,
         qualifiedJournalPhase: 'commit'
       },
       evaluation
