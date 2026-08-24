@@ -40,12 +40,13 @@ export function evaluateContentionStability(
   }
 
   const budgetIdentity = stableBudgetIdentity(evaluations[0]?.budgets);
-  const requiredPaths = ['enqueue', 'claim', 'journal'];
+  const requiredPaths = ['enqueue', 'claim', 'journalCommit'];
   const requiredMetrics = ['lockWaitP95Ms', 'durableCommitP95Ms'];
 
   for (const [index, evaluation] of evaluations.entries()) {
     if (!evaluation || typeof evaluation !== 'object') throw new Error(`evaluation ${index} is required`);
     if (evaluation.ready !== true) throw new Error(`evaluation ${index} is not contention-ready`);
+    if (evaluation.qualifiedJournalPhase !== 'commit') throw new Error(`evaluation ${index} is not qualified on terminal journal commit`);
     if (stableBudgetIdentity(evaluation.budgets) !== budgetIdentity) {
       throw new Error('contention evaluations must use identical budgets');
     }
@@ -79,6 +80,7 @@ export function evaluateContentionStability(
     runCount: evaluations.length,
     minimumRuns,
     maxRelativeP95Spread,
-    budgets: { ...evaluations[0].budgets }
+    budgets: { ...evaluations[0].budgets },
+    qualifiedJournalPhase: 'commit'
   };
 }
