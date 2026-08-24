@@ -1,0 +1,48 @@
+{
+  "decision": "Qualify DurableRequestJournal terminal commit contention, not pending begin contention, as the journal performance/readiness path.",
+  "context": "The contention campaign previously measured journal begin() latency only. The higher-value reliability boundary is commit(), because committed-response reconciliation depends on the terminal response being durably persisted under cross-process contention.",
+  "independent_reviews": [
+    {
+      "lens": "correctness",
+      "preferred": "Pre-seed pending requests, then concurrently measure journal commit() and reopen the journal to verify every response remains committed.",
+      "reason": "A fast begin() does not prove terminal response durability or committed-response reconciliation."
+    },
+    {
+      "lens": "robustness_security",
+      "preferred": "Fail closed unless every request is committed after reopen and qualification evidence explicitly states qualifiedJournalPhase=commit.",
+      "reason": "Prevents begin-only or legacy evidence from producing false readiness."
+    },
+    {
+      "lens": "latency_resources_regression",
+      "preferred": "Reuse the existing spawned-process worker and contention evaluator, adding only a journal-commit operation.",
+      "reason": "Measures the real critical persistence path with no new daemon, database, Qubes traffic, or production runtime dependency."
+    }
+  ],
+  "alternatives_rejected": [
+    {
+      "approach": "Keep begin() as the journal timing authority",
+      "failure": "Misses the durability cost and contention behavior of terminal response commit."
+    },
+    {
+      "approach": "Measure begin and commit as one combined wall-clock operation",
+      "failure": "Conflates two persistence phases and makes it harder to attribute contention to the terminal commit boundary."
+    },
+    {
+      "approach": "Move the journal to a database before measuring commit contention",
+      "failure": "Adds migration and operational complexity before evidence shows the current fsync-backed file design is insufficient."
+    }
+  ],
+  "qa_gates": [
+    "Concurrent begin operations must persist pending state for every request.",
+    "Concurrent commit operations must persist committed state for every request.",
+    "Reopen must show every request committed with the expected response identity.",
+    "Contention qualification must use commit timing samples for the journal path.",
+    "Qualification evidence must be NOT READY for begin-only or uncommitted-response runs.",
+    "Cross-run stability still applies to journal lock-wait and durable-commit p95."
+  ],
+  "lessons": [
+    "Performance evidence must target the reliability boundary that actually determines correctness, not merely the first durable mutation.",
+    "Stable timings are insufficient if the measured phase is semantically weaker than the readiness claim.",
+    "Keep the journal implementation unchanged until commit-path measurements justify a redesign."
+  ]
+}
