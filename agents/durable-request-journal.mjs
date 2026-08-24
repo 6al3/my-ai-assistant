@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { durableAtomicWrite } from './durable-atomic-write.mjs';
+import { withFileMutationLock } from './file-mutation-lock.mjs';
 
 const VERSION = 1;
 
@@ -18,15 +19,17 @@ export function digestWorkerCommand({ op, body = null } = {}) {
 }
 
 export class DurableRequestJournal {
-  static async open(path) {
+  static async open(path, { lockOptions = {} } = {}) {
     if (!path) throw new Error('journal path is required');
-    const journal = new DurableRequestJournal(path);
-    await journal.#load();
+    const journal = new DurableRequestJournal(path, { lockOptions });
+    await journal.#loadExact();
     return journal;
   }
 
-  constructor(path) {
+  constructor(path, { lockOptions = {} } = {}) {
     this.path = path;
+    this.lockPath = `${path}.lock`;
+    this.lockOptions = lockOptions;
     this.entries = new Map();
     this.tail = Promise.resolve();
   }
@@ -69,18 +72,20 @@ export class DurableRequestJournal {
     });
   }
 
-  async #load() {
+  async #loadExact() {
+    const loaded = new Map();
     try {
       const raw = JSON.parse(await readFile(this.path, 'utf8'));
       if (raw.version !== VERSION || !Array.isArray(raw.entries)) throw new Error('unsupported request journal state');
       for (const entry of raw.entries) {
         if (!entry?.requestId || !entry?.digest || !['pending', 'committed'].includes(entry.status)) throw new Error('invalid request journal state');
-        this.entries.set(entry.requestId, entry);
+        if (loaded.has(entry.requestId)) throw new Error('duplicate request journal entry');
+        loaded.set(entry.requestId, structuredClone(entry));
       }
     } catch (error) {
-      if (error?.code === 'ENOENT') return;
-      throw error;
+      if (error?.code !== 'ENOENT') throw error;
     }
+    this.entries = loaded;
   }
 
   #snapshotEntries() {
@@ -106,7 +111,10 @@ export class DurableRequestJournal {
   }
 
   #mutate(operation) {
-    const run = this.tail.then(operation);
+    const run = this.tail.then(() => withFileMutationLock(this.lockPath, async () => {
+      await this.#loadExact();
+      return operation();
+    }, this.lockOptions));
     this.tail = run.catch(() => {});
     return run;
   }
