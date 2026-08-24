@@ -1,0 +1,25 @@
+{
+  "decision": "Run acquisition telemetry inside the mutation-lock cleanup scope so any telemetry exception releases the owned lock before propagating the error.",
+  "problem": "The lock was acquired and owner metadata written before onAcquired ran, but the try/finally cleanup scope began only after onAcquired completed. A throwing telemetry callback therefore leaked a lock owned by a still-live process; process-instance fencing correctly refused to reclaim it, causing subsequent mutations to time out.",
+  "reviews": {
+    "correctness": "Preferred moving onAcquired inside the existing try/finally. The protected operation must not run if telemetry fails, but the lock must still be released exactly once.",
+    "robustness_security": "Preferred fail-closed telemetry errors with guaranteed cleanup. Swallowing telemetry failures would let contention evidence silently disappear; fire-and-forget telemetry could create unhandled rejection or ordering ambiguity.",
+    "latency_resources_regression": "Preferred a control-flow-only fix. It adds no filesystem operations, network/Qubes round trips, daemons, or persistence format changes and has effectively zero runtime overhead on the successful path."
+  },
+  "alternatives_rejected": [
+    "Ignore onAcquired errors: avoids leaked locks but weakens measurement integrity and can certify contention using missing telemetry.",
+    "Fire-and-forget onAcquired: removes callback latency from the critical section but creates ordering/error-handling ambiguity and can lose evidence.",
+    "Remove acquisition telemetry: avoids the callback failure mode but loses direct lock-wait measurements needed for Slice 1 qualification."
+  ],
+  "qa": [
+    "A throwing onAcquired callback rejects the acquisition call.",
+    "The protected mutation does not run after telemetry failure.",
+    "The same lock can be immediately reacquired by the same live process after telemetry failure.",
+    "Existing operation-throw cleanup and contention serialization tests remain unchanged."
+  ],
+  "failure_lesson": "Any code that runs after ownership is acquired must be inside the ownership cleanup scope. Observability callbacks are part of the critical lifecycle even when they do not mutate durable state.",
+  "remaining_risks": [
+    "The filesystem lock remains a same-host primitive, not a distributed lock.",
+    "Hosted runner execution is still required to validate the full Slice 1 suite independently."
+  ]
+}
