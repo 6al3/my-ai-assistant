@@ -45,9 +45,11 @@ export class DurableRequestJournal {
         if (existing.digest !== digest) throw new Error('requestId reused with different command');
         return structuredClone(existing);
       }
+
+      const before = this.#snapshotEntries();
       const entry = { requestId, digest, status: 'pending', response: null, createdAt: Date.now(), committedAt: null };
       this.entries.set(requestId, entry);
-      await this.#save();
+      await this.#saveOrRollback(before);
       return structuredClone(entry);
     });
   }
@@ -57,10 +59,12 @@ export class DurableRequestJournal {
       const entry = this.entries.get(requestId);
       if (!entry) throw new Error('journal request not found');
       if (entry.status === 'committed') return structuredClone(entry);
+
+      const before = this.#snapshotEntries();
       entry.status = 'committed';
       entry.response = structuredClone(response);
       entry.committedAt = Date.now();
-      await this.#save();
+      await this.#saveOrRollback(before);
       return structuredClone(entry);
     });
   }
@@ -75,6 +79,23 @@ export class DurableRequestJournal {
       }
     } catch (error) {
       if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+  }
+
+  #snapshotEntries() {
+    return new Map([...this.entries].map(([requestId, entry]) => [requestId, structuredClone(entry)]));
+  }
+
+  #restoreEntries(snapshot) {
+    this.entries = new Map([...snapshot].map(([requestId, entry]) => [requestId, structuredClone(entry)]));
+  }
+
+  async #saveOrRollback(snapshot) {
+    try {
+      await this.#save();
+    } catch (error) {
+      this.#restoreEntries(snapshot);
       throw error;
     }
   }
