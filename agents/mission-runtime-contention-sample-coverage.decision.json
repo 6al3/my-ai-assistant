@@ -1,0 +1,24 @@
+{
+  "decision": "Require explicit minimum sample coverage per mutation path before p95 contention evidence can qualify Mission/runtime readiness.",
+  "problem": "The contention evaluator previously accepted any non-empty sample set. A path with one or two lucky measurements could therefore satisfy a p95 budget without enough evidence to characterize contention.",
+  "reviews": {
+    "correctness": "Preferred an explicit per-path minimum because p95 from a tiny sample set is not meaningful evidence for enqueue, claim, and journal contention independently.",
+    "robustness_security": "Preferred fail-closed rejection of under-sampled evidence so a missing or partially executed worker campaign cannot silently look healthy.",
+    "latency_resources_regression": "Preferred a local coverage check over adding new persistence, telemetry services, or Qubes traffic. The evaluator cost is constant and the only execution cost is collecting the bounded samples already required for qualification."
+  },
+  "alternatives_rejected": [
+    "Accept any non-empty sample set: lowest latency but permits false readiness from one or two favorable observations.",
+    "Hard-code one global campaign size in the evaluator: inflexible across hosts and future contention profiles.",
+    "Introduce a metrics database now: unnecessary operational and regression surface for Slice 1."
+  ],
+  "qa": [
+    "All three mutation paths must meet minimumSamplesPerPath before p95 budgets are evaluated.",
+    "Under-sampled claim evidence fails closed even when its observed timings are fast.",
+    "Invalid sample-count budgets are rejected.",
+    "Existing lock-wait and durable-commit p95 budget checks remain unchanged."
+  ],
+  "failure_lessons": [
+    "A percentile threshold without sample coverage is not a readiness gate; it is only a threshold on whatever observations happened to arrive.",
+    "Coverage must be path-specific because enqueue, claim, and journal contention exercise different durable mutations."
+  ]
+}
