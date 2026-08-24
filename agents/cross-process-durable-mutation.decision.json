@@ -1,0 +1,31 @@
+{
+  "decision": "Serialize file-backed mission and request-journal mutations across processes, reload the latest durable state inside the lock, then mutate and persist.",
+  "problem": "Unique staging files and atomic rename prevent torn writes but do not prevent lost updates when two coordinator or journal processes load the same old snapshot and later each save a complete replacement.",
+  "reviews": {
+    "correctness": "Preferred an inter-process mutation critical section plus reload-before-mutate. Atomic replacement alone only protects one write; it does not merge concurrent read-modify-write transactions.",
+    "robustness_security": "Preferred a same-host filesystem lock with owner identity, bounded acquisition timeout, dead-owner reclamation, and exact durable reload before mutation. This keeps idempotency, worker leases, and committed-response reconciliation from silently reverting to stale state.",
+    "latency_resources_regression": "Preferred a small local lock over introducing a database, lock daemon, or network service in Slice 1. Lock acquisition adds local filesystem latency on mutations only, no Qubes/network round trips, preserves the JSON formats, and keeps the public queue/journal contracts intact."
+  },
+  "alternatives_rejected": [
+    "Unique temp files only: prevents staging collisions but still allows last-writer-wins lost updates from stale snapshots.",
+    "Optimistic revision check without a lock: a compare-then-rename sequence still has a TOCTOU race between independent processes.",
+    "Move immediately to a transactional database: stronger multi-record transactions but materially larger operational, migration, and regression surface before Slice 2 requires it."
+  ],
+  "qa": [
+    "Two independent MissionCoordinator instances sharing one MissionQueueStore preserve all concurrent enqueues.",
+    "Two independent coordinators claim distinct missions from the same original durable snapshot.",
+    "Two independent DurableRequestJournal instances preserve all concurrent begin mutations.",
+    "Mutation lock critical sections do not overlap and the lock is released after an operation throws.",
+    "Persistence-failure rollback tests use deterministic writer injection rather than assumptions about a fixed temp filename."
+  ],
+  "failure_lessons": [
+    "Atomic file replacement is not transaction isolation.",
+    "A per-process Promise tail serializes only one JavaScript instance; it does not protect qrexec/process-per-call writers.",
+    "Tests that injected failure by occupying a fixed .tmp path became invalid once staging names were made unique; failure injection should target the persistence dependency directly."
+  ],
+  "remaining_risks": [
+    "Read-only methods on a long-lived coordinator remain a point-in-time in-memory view until that coordinator performs another mutation or is reopened; process-per-call coordinators naturally reload on open.",
+    "The filesystem lock is a same-host coordination primitive, not a distributed lock across multiple coordinator machines.",
+    "Lock contention and stale-owner recovery latency still require execution measurements before real-worker readiness."
+  ]
+}
