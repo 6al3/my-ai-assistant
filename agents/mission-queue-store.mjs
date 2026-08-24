@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { durableAtomicWrite } from './durable-atomic-write.mjs';
 
 const VERSION = 1;
 
@@ -21,10 +21,7 @@ export class MissionQueueStore {
   }
 
   async save(missions) {
-    await mkdir(dirname(this.path), { recursive: true });
-    const temp = `${this.path}.tmp`;
     const payload = JSON.stringify({ version: VERSION, savedAt: Date.now(), missions }, null, 2);
-    await writeFile(temp, payload, { encoding: 'utf8', mode: 0o600 });
-    await rename(temp, this.path);
+    await durableAtomicWrite(this.path, payload);
   }
 }
