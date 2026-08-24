@@ -13,6 +13,7 @@ import { evaluateContentionQualification } from './mission-runtime-contention-qu
 import { evaluateContentionStability } from './mission-runtime-contention-stability.mjs';
 
 const worker = fileURLToPath(new URL('./mission-runtime-process-worker.mjs', import.meta.url));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function percentile(values, fraction) {
   if (!Array.isArray(values) || values.length === 0) throw new Error('percentile values are required');
@@ -164,8 +165,6 @@ test('spawned contention evidence qualifies terminal journal commit rather than 
   const journalCommit = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
   assert.equal(journalCommit.filter(item => item.status === 'committed').length, requestIds.length);
 
-  // These are integration safety ceilings tied to the 10s worker timeout, not production SLOs.
-  // Tighter budgets must come from repeated, host-bound measurements before Slice 1 is frozen.
   const qualification = evaluateContentionQualification({ enqueue, claim, journalCommit }, {
     minimumSamplesPerPath: 8,
     lockWaitP95Ms: 9_000,
@@ -250,4 +249,43 @@ test('dead lock owner is reclaimed by a separate process boundary', async t => {
   assert.equal(entered, true);
   assert.ok(Number.isFinite(observedWaitMs) && observedWaitMs >= 0);
   assert.ok(recoveryMs < 2_000, `stale lock recovery took ${recoveryMs}ms`);
+});
+
+test('crash between lock mkdir and owner publication is recovered only after ownerless grace', async t => {
+  const { lockPath } = await fixture(t);
+  const child = spawn(process.execPath, [worker, 'hold-ownerless-lock', lockPath, 'unused'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('ownerless lock holder did not reach publication window')), 5_000);
+    child.stdout.on('data', chunk => {
+      if (String(chunk).includes('OWNERLESS')) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+    child.on('error', reject);
+  });
+  child.kill('SIGKILL');
+  await new Promise(resolve => child.once('exit', resolve));
+
+  // Before the ownerless grace expires, another process must not steal the directory.
+  await assert.rejects(
+    () => withFileMutationLock(lockPath, async () => {}, {
+      timeoutMs: 40,
+      retryMs: 5,
+      orphanGraceMs: 100
+    }),
+    /timed out acquiring mutation lock/
+  );
+
+  await sleep(80);
+  let entered = false;
+  let observedWaitMs = null;
+  await withFileMutationLock(lockPath, async () => { entered = true; }, {
+    timeoutMs: 1_000,
+    retryMs: 5,
+    orphanGraceMs: 100,
+    onAcquired: ({ waitMs }) => { observedWaitMs = waitMs; }
+  });
+  assert.equal(entered, true);
+  assert.ok(Number.isFinite(observedWaitMs) && observedWaitMs >= 0);
 });
