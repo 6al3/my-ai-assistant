@@ -75,7 +75,13 @@ export async function runMissionRuntimeContentionCampaign({
     if (new Set(claim.map(item => item.id)).size !== claimCount) throw new Error('contention campaign detected double claim');
 
     const requestIds = Array.from({ length: journalCount }, (_, index) => `${runId}-request-${index}`);
-    const journal = await Promise.all(requestIds.map(requestId => run('journal-begin', journalFile, requestId)));
+    const journalBegin = await Promise.all(requestIds.map(requestId => run('journal-begin', journalFile, requestId)));
+    if (journalBegin.some(item => item.status !== 'pending')) throw new Error('contention campaign journal begin did not persist pending state');
+
+    // The qualification path intentionally measures terminal response commit contention,
+    // because committed-response reconciliation is the stronger reliability boundary.
+    const journal = await Promise.all(requestIds.map(requestId => run('journal-commit', journalFile, requestId)));
+    if (journal.some(item => item.status !== 'committed')) throw new Error('contention campaign journal commit did not persist terminal state');
 
     const evaluation = evaluateContentionQualification({ enqueue, claim, journal }, {
       minimumSamplesPerPath,
@@ -91,19 +97,28 @@ export async function runMissionRuntimeContentionCampaign({
 
     const reopenedJournal = await DurableRequestJournal.open(journalFile);
     for (const requestId of requestIds) {
-      if (reopenedJournal.get(requestId)?.requestId !== requestId) throw new Error(`lost durable request: ${requestId}`);
+      const entry = reopenedJournal.get(requestId);
+      if (entry?.requestId !== requestId) throw new Error(`lost durable request: ${requestId}`);
+      if (entry.status !== 'committed') throw new Error(`request did not remain committed after reopen: ${requestId}`);
+      if (entry.response?.requestId !== requestId) throw new Error(`committed response mismatch after reopen: ${requestId}`);
     }
 
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       runId,
-      counts: { enqueue: enqueueCount, claim: claimCount, journal: journalCount },
+      counts: { enqueue: enqueueCount, claim: claimCount, journalBegin: journalCount, journalCommit: journalCount },
       correctness: {
         lostMissions: 0,
         lostRequests: 0,
+        uncommittedResponses: 0,
         doubleClaims: 0,
         durableMissionTotal: stats.total,
         durableRunningTotal: stats.running
+      },
+      evidence: {
+        journalBeginCount: journalBegin.length,
+        journalCommitCount: journal.length,
+        qualifiedJournalPhase: 'commit'
       },
       evaluation
     };
