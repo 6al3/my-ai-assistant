@@ -82,15 +82,16 @@ async function runQualifiedContentionCampaign(t, runIndex, {
   const requestIds = Array.from({ length: journalCount }, (_, index) => `stability-${runIndex}-request-${index}`);
   const journalBegin = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
   assert.equal(journalBegin.filter(item => item.status === 'pending').length, requestIds.length);
-  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
-  assert.equal(journal.filter(item => item.status === 'committed').length, requestIds.length);
+  const journalCommit = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
+  assert.equal(journalCommit.filter(item => item.status === 'committed').length, requestIds.length);
 
-  const evaluation = evaluateContentionQualification({ enqueue, claim, journal }, {
+  const evaluation = evaluateContentionQualification({ enqueue, claim, journalCommit }, {
     minimumSamplesPerPath,
     lockWaitP95Ms: 9_000,
     durableCommitP95Ms: 9_500
   });
   assert.equal(evaluation.ready, true, `contention campaign ${runIndex} must be individually ready`);
+  assert.equal(evaluation.qualifiedJournalPhase, 'commit');
 
   const reopened = await MissionCoordinator.open({ store: new MissionQueueStore(missionFile) });
   assert.equal(reopened.stats().total, enqueueKeys.length);
@@ -160,24 +161,25 @@ test('spawned contention evidence qualifies terminal journal commit rather than 
   const requestIds = Array.from({ length: 12 }, (_, index) => `qualified-request-${index}`);
   const journalBegin = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
   assert.equal(journalBegin.filter(item => item.status === 'pending').length, requestIds.length);
-  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
-  assert.equal(journal.filter(item => item.status === 'committed').length, requestIds.length);
+  const journalCommit = await Promise.all(requestIds.map(id => runWorker(['journal-commit', journalFile, id])));
+  assert.equal(journalCommit.filter(item => item.status === 'committed').length, requestIds.length);
 
   // These are integration safety ceilings tied to the 10s worker timeout, not production SLOs.
   // Tighter budgets must come from repeated, host-bound measurements before Slice 1 is frozen.
-  const qualification = evaluateContentionQualification({ enqueue, claim, journal }, {
+  const qualification = evaluateContentionQualification({ enqueue, claim, journalCommit }, {
     minimumSamplesPerPath: 8,
     lockWaitP95Ms: 9_000,
     durableCommitP95Ms: 9_500
   });
 
   assert.equal(qualification.ready, true);
+  assert.equal(qualification.qualifiedJournalPhase, 'commit');
   assert.equal(qualification.summaries.enqueue.count, enqueue.length);
   assert.equal(qualification.summaries.claim.count, claim.length);
-  assert.equal(qualification.summaries.journal.count, journal.length);
+  assert.equal(qualification.summaries.journalCommit.count, journalCommit.length);
   assert.equal(qualification.checks.enqueueSampleCoverage, true);
   assert.equal(qualification.checks.claimSampleCoverage, true);
-  assert.equal(qualification.checks.journalSampleCoverage, true);
+  assert.equal(qualification.checks.journalCommitSampleCoverage, true);
 
   const reopened = await MissionCoordinator.open({ store: new MissionQueueStore(missionFile) });
   assert.equal(reopened.stats().total, enqueueKeys.length);
@@ -197,15 +199,13 @@ test('three real spawned contention campaigns feed the stability evaluator witho
     evaluations.push(await runQualifiedContentionCampaign(t, runIndex));
   }
 
-  // Integration wiring uses a permissive ceiling only to prove that three actual OS-process
-  // campaigns reach the stability evaluator deterministically. The qualification policy below
-  // remains 25%; its measured result is reported rather than made flaky before a host baseline exists.
   const integration = evaluateContentionStability(evaluations, {
     minimumRuns: 3,
     maxRelativeP95Spread: 1
   });
   assert.equal(integration.ready, true);
   assert.equal(integration.runCount, 3);
+  assert.equal(integration.qualifiedJournalPhase, 'commit');
 
   const qualificationPolicy = evaluateContentionStability(evaluations, {
     minimumRuns: 3,
@@ -213,7 +213,7 @@ test('three real spawned contention campaigns feed the stability evaluator witho
   });
   assert.equal(qualificationPolicy.runCount, 3);
   assert.equal(typeof qualificationPolicy.ready, 'boolean');
-  for (const pathName of ['enqueue', 'claim', 'journal']) {
+  for (const pathName of ['enqueue', 'claim', 'journalCommit']) {
     for (const metric of ['lockWaitP95Ms', 'durableCommitP95Ms']) {
       const spread = qualificationPolicy.spreads[pathName][metric];
       assert.ok(Number.isFinite(spread) && spread >= 0 && spread <= 1);
