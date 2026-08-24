@@ -9,6 +9,7 @@ import { MissionCoordinator } from './mission-coordinator.mjs';
 import { MissionQueueStore } from './mission-queue-store.mjs';
 import { DurableRequestJournal } from './durable-request-journal.mjs';
 import { withFileMutationLock } from './file-mutation-lock.mjs';
+import { evaluateContentionQualification } from './mission-runtime-contention-qualification.mjs';
 
 const worker = fileURLToPath(new URL('./mission-runtime-process-worker.mjs', import.meta.url));
 
@@ -94,6 +95,42 @@ test('spawned journals preserve concurrent request begins and expose contention 
 
   const reopened = await DurableRequestJournal.open(journalFile);
   for (const id of ids) assert.equal(reopened.get(id)?.requestId, id);
+});
+
+test('spawned contention evidence covers enqueue, claim, and journal paths before qualification', async t => {
+  const { missionFile, journalFile } = await fixture(t);
+  const enqueueKeys = Array.from({ length: 12 }, (_, index) => `qualified-enqueue-${index}`);
+  const enqueue = await Promise.all(enqueueKeys.map(key => runWorker(['enqueue', missionFile, key])));
+
+  const claimWorkers = Array.from({ length: 8 }, (_, index) => `qualified-worker-${index}`);
+  const claim = await Promise.all(claimWorkers.map(workerId => runWorker(['claim', missionFile, workerId])));
+  assert.equal(claim.filter(item => item.id).length, claimWorkers.length);
+  assert.equal(new Set(claim.map(item => item.id)).size, claimWorkers.length, 'spawned claims must remain distinct');
+
+  const requestIds = Array.from({ length: 12 }, (_, index) => `qualified-request-${index}`);
+  const journal = await Promise.all(requestIds.map(id => runWorker(['journal-begin', journalFile, id])));
+
+  // These are integration safety ceilings tied to the 10s worker timeout, not production SLOs.
+  // Tighter budgets must come from repeated, host-bound measurements before Slice 1 is frozen.
+  const qualification = evaluateContentionQualification({ enqueue, claim, journal }, {
+    minimumSamplesPerPath: 8,
+    lockWaitP95Ms: 9_000,
+    durableCommitP95Ms: 9_500
+  });
+
+  assert.equal(qualification.ready, true);
+  assert.equal(qualification.summaries.enqueue.count, enqueue.length);
+  assert.equal(qualification.summaries.claim.count, claim.length);
+  assert.equal(qualification.summaries.journal.count, journal.length);
+  assert.equal(qualification.checks.enqueueSampleCoverage, true);
+  assert.equal(qualification.checks.claimSampleCoverage, true);
+  assert.equal(qualification.checks.journalSampleCoverage, true);
+
+  const reopened = await MissionCoordinator.open({ store: new MissionQueueStore(missionFile) });
+  assert.equal(reopened.stats().total, enqueueKeys.length);
+  assert.equal(reopened.stats().running, claimWorkers.length);
+  const reopenedJournal = await DurableRequestJournal.open(journalFile);
+  for (const id of requestIds) assert.equal(reopenedJournal.get(id)?.requestId, id);
 });
 
 test('dead lock owner is reclaimed by a separate process boundary', async t => {
