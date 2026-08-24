@@ -95,8 +95,30 @@ export async function withFileMutationLock(lockPath, operation, {
       if (error?.code !== 'EEXIST') throw error;
 
       let reclaim = false;
+      let ownerText;
       try {
-        const owner = JSON.parse(await readFile(ownerPath, 'utf8'));
+        ownerText = await readFile(ownerPath, 'utf8');
+      } catch (ownerReadError) {
+        if (ownerReadError?.code !== 'ENOENT') {
+          throw new Error('unable to read mutation lock owner metadata', { cause: ownerReadError });
+        }
+        // A process can create the lock directory just before publishing owner.json.
+        // Only a genuinely ownerless directory may use age-based orphan recovery.
+        try {
+          const info = await stat(lockPath);
+          reclaim = now() - info.mtimeMs > orphanGraceMs;
+        } catch (statError) {
+          if (statError?.code !== 'ENOENT') throw statError;
+        }
+      }
+
+      if (ownerText !== undefined) {
+        let owner;
+        try {
+          owner = JSON.parse(ownerText);
+        } catch (parseError) {
+          throw new Error('invalid mutation lock owner metadata', { cause: parseError });
+        }
         if (!Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.token !== 'string' || !owner.token || typeof owner.processIdentity !== 'string' || !owner.processIdentity) {
           throw new Error('invalid mutation lock owner metadata');
         }
@@ -107,14 +129,6 @@ export async function withFileMutationLock(lockPath, operation, {
           reclaim = !isProcessAlive(owner.pid);
         } else {
           reclaim = liveIdentity !== owner.processIdentity;
-        }
-      } catch (ownerError) {
-        if (ownerError?.message === 'invalid mutation lock owner metadata') throw ownerError;
-        try {
-          const info = await stat(lockPath);
-          reclaim = now() - info.mtimeMs > orphanGraceMs;
-        } catch (statError) {
-          if (statError?.code !== 'ENOENT') throw statError;
         }
       }
 
