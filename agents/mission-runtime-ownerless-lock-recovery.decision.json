@@ -1,0 +1,30 @@
+{
+  "decision": "Exercise the real mkdir-to-owner-publication crash window with a bounded fault hook, and permit age-based recovery only for a genuinely ownerless lock directory after orphan grace.",
+  "problem": "The filesystem lock intentionally permits age-based recovery when the lock directory exists but owner.json is absent. That is necessary for a crash between mkdir(lock) and owner publication, but until now the OS-process campaign only tested crashes after owner metadata existed.",
+  "reviews": {
+    "correctness": "Preferred fault injection at the exact publication boundary so the test proves the production recovery branch rather than approximating it by manually creating a directory.",
+    "robustness_security": "Preferred a bounded ownerless grace: acquisition before grace must time out, while recovery after grace may proceed only when owner.json is genuinely absent. Corrupt or unreadable published metadata remains fail-closed and is not age-reclaimed.",
+    "latency_resources_regression": "Preferred an optional local callback used only for fault injection/observability. It adds no filesystem operation, network round trip, Qubes dependency, or production latency when unset, and avoids introducing a database or lock daemon into Slice 1."
+  },
+  "alternatives_rejected": [
+    "Create an ownerless lock directory directly in the test: cheaper, but does not prove the real mkdir-to-publication crash window in withFileMutationLock.",
+    "Disable ownerless age recovery entirely: fail-closed but can permanently wedge a durable store after a legitimate crash before owner publication.",
+    "Reclaim any unreadable owner metadata after a timeout: unsafe because corrupt metadata may still belong to a live writer and would turn metadata damage into an ownership bypass."
+  ],
+  "qa": [
+    "Spawn a separate Node process that creates the lock directory and pauses before owner.json publication.",
+    "Kill that process to leave the real ownerless crash artifact.",
+    "Verify acquisition before orphanGraceMs fails rather than stealing the lock.",
+    "Verify acquisition after orphanGraceMs succeeds and reports finite lock-wait telemetry.",
+    "Retain corrupt/unreadable owner metadata fail-closed tests and normal dead-owner/process-instance recovery tests."
+  ],
+  "failure_lessons": [
+    "A stale-lock policy needs separate rules for unpublished ownership and corrupt published ownership; treating both as 'missing metadata' weakens fencing.",
+    "Fault injection is most valuable at the exact durability/ownership boundary. Synthetic filesystem setup can miss ordering bugs in the production control flow."
+  ],
+  "remaining_risks": [
+    "orphanGraceMs is a same-host filesystem heuristic and still requires measured recovery/lock-wait latency on target storage.",
+    "The filesystem lock is not a distributed lock across multiple coordinator machines.",
+    "Slice 1 still requires green executable QA before Qubes transport/qualification is built on top of it."
+  ]
+}
