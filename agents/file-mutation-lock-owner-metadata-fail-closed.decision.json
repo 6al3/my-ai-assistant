@@ -1,0 +1,31 @@
+{
+  "decision": "Treat corrupt or unreadable owner metadata as fail-closed; reserve age-based orphan recovery only for an ownerless lock directory where owner.json is genuinely absent.",
+  "problem": "The lock recovery path previously caught JSON parse/read failures and could reclaim the lock based only on directory age. A corrupt owner.json could therefore be treated as an orphan after the grace period even when a live writer still owned the lock.",
+  "reviews": {
+    "correctness": "Preferred distinguishing owner.json absence from malformed/unreadable metadata. Absence can occur in the short mkdir-to-owner-publish window; corrupt metadata cannot safely prove ownership or death.",
+    "robustness_security": "Preferred fail-closed behavior for parse errors and non-ENOENT read failures so damaged metadata cannot become an ownership bypass. Existing PID liveness plus process-start identity remains the authority when valid metadata exists.",
+    "latency_resources_regression": "Preferred a control-flow fix in the existing filesystem lock over a database, lock daemon, or extra probes. It adds no network/Qubes round trips and negligible local overhead."
+  },
+  "alternatives_rejected": [
+    "Reclaim any unreadable owner after orphanGraceMs: can steal a live writer lock when metadata is corrupted or temporarily inaccessible.",
+    "Never use age-based recovery: leaves a crash between mkdir(lockPath) and publishing owner.json unrecoverable.",
+    "Move immediately to a database/lock daemon: larger operational and regression surface than required for the same-host Slice 1 contract."
+  ],
+  "qa": [
+    "Malformed structured owner metadata fails closed.",
+    "Corrupt JSON fails closed even when the lock directory is older than orphanGraceMs.",
+    "Live owner with unverifiable process identity is not stolen.",
+    "Dead owner with valid metadata and unavailable identity remains reclaimable via independent liveness.",
+    "A genuinely ownerless lock directory remains eligible for bounded age-based recovery."
+  ],
+  "failure_lessons": [
+    "A catch-all recovery branch can silently turn metadata corruption into an ownership bypass.",
+    "Orphan recovery must distinguish missing publication from untrusted/corrupt publication.",
+    "Fail-closed metadata handling is more important than aggressive stale-lock recovery before Qubes/process-per-call transport is layered on top."
+  ],
+  "remaining_risks": [
+    "The filesystem lock remains same-host only, not a distributed lock across coordinator machines.",
+    "Ownerless-directory recovery still depends on mtime/orphanGraceMs and should be exercised across real OS process crashes.",
+    "Hosted CI execution remains an independent blocker for executable proof of this Slice."
+  ]
+}
