@@ -83,13 +83,19 @@ export async function qualifyMissionRuntimeContention({
 
   const evaluations = runs.map(run => run.evaluation);
   const stability = evaluateContentionStability(evaluations, { minimumRuns: runCount, maxRelativeP95Spread });
-  const correctnessReady = runs.every(run => run.correctness?.lostMissions === 0 && run.correctness?.lostRequests === 0 && run.correctness?.doubleClaims === 0);
+  const correctnessReady = runs.every(run =>
+    run.correctness?.lostMissions === 0
+    && run.correctness?.lostRequests === 0
+    && run.correctness?.uncommittedResponses === 0
+    && run.correctness?.doubleClaims === 0
+    && run.evidence?.qualifiedJournalPhase === 'commit'
+  );
   const ready = correctnessReady && stability.ready;
   const generatedAtMs = now();
   const qualificationRunId = runIdFactory();
   if (typeof qualificationRunId !== 'string' || qualificationRunId.length < 8) throw new Error('qualification run ID is invalid');
   const evidence = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     qualificationRunId,
     generatedAt: new Date(generatedAtMs).toISOString(),
     gitSha: sha,
