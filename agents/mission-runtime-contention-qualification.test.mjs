@@ -3,6 +3,7 @@ import test from 'node:test';
 import { evaluateContentionQualification, summarizeContentionTimings } from './mission-runtime-contention-qualification.mjs';
 
 const sample = (lockWaitMs, durableCommitMs) => ({ lockWaitMs, durableCommitMs });
+const budgets = (overrides = {}) => ({ lockWaitP95Ms: 5, durableCommitP95Ms: 8, minimumSamplesPerPath: 5, ...overrides });
 
 function fixture() {
   return {
@@ -22,16 +23,17 @@ test('summarizes direct lock-wait and durable-commit timing evidence', () => {
   });
 });
 
-test('qualifies all mutation paths only when both p95 budgets pass', () => {
-  const result = evaluateContentionQualification(fixture(), { lockWaitP95Ms: 5, durableCommitP95Ms: 8 });
+test('qualifies all mutation paths only when sample coverage and both p95 budgets pass', () => {
+  const result = evaluateContentionQualification(fixture(), budgets());
   assert.equal(result.ready, true);
   assert.ok(Object.values(result.checks).every(Boolean));
+  assert.equal(result.checks.claimSampleCoverage, true);
 });
 
 test('fails closed when one path exceeds lock-wait budget', () => {
   const data = fixture();
   data.claim.push(sample(20, 21));
-  const result = evaluateContentionQualification(data, { lockWaitP95Ms: 10, durableCommitP95Ms: 30 });
+  const result = evaluateContentionQualification(data, budgets({ lockWaitP95Ms: 10, durableCommitP95Ms: 30 }));
   assert.equal(result.ready, false);
   assert.equal(result.checks.claimLockWaitWithinBudget, false);
 });
@@ -39,13 +41,20 @@ test('fails closed when one path exceeds lock-wait budget', () => {
 test('fails closed when durable commit exceeds budget despite acceptable lock wait', () => {
   const data = fixture();
   data.journal.push(sample(4, 50));
-  const result = evaluateContentionQualification(data, { lockWaitP95Ms: 10, durableCommitP95Ms: 20 });
+  const result = evaluateContentionQualification(data, budgets({ lockWaitP95Ms: 10, durableCommitP95Ms: 20 }));
   assert.equal(result.ready, false);
   assert.equal(result.checks.journalDurableCommitWithinBudget, false);
 });
 
-test('rejects missing, malformed, or unbounded evidence', () => {
-  assert.throws(() => evaluateContentionQualification({ enqueue: [], claim: [], journal: [] }, { lockWaitP95Ms: 5, durableCommitP95Ms: 10 }), /samples are required/);
+test('rejects under-sampled p95 evidence instead of qualifying a lucky small sample', () => {
+  const data = fixture();
+  data.claim = data.claim.slice(0, 2);
+  assert.throws(() => evaluateContentionQualification(data, budgets()), /requires at least 5 samples/);
+});
+
+test('rejects missing, malformed, or unbounded evidence and invalid coverage budgets', () => {
+  assert.throws(() => evaluateContentionQualification({ enqueue: [], claim: [], journal: [] }, budgets()), /samples are required/);
   assert.throws(() => summarizeContentionTimings([sample(Number.NaN, 1)]), /finite non-negative/);
-  assert.throws(() => evaluateContentionQualification(fixture(), { lockWaitP95Ms: Infinity, durableCommitP95Ms: 10 }), /budget/);
+  assert.throws(() => evaluateContentionQualification(fixture(), budgets({ lockWaitP95Ms: Infinity })), /budget/);
+  assert.throws(() => evaluateContentionQualification(fixture(), budgets({ minimumSamplesPerPath: 1 })), /integer >= 2/);
 });
