@@ -4,8 +4,9 @@ function percentile(values, fraction) {
   return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)];
 }
 
-function validateSamples(samples, label) {
+function validateSamples(samples, label, minimumSamples) {
   if (!Array.isArray(samples) || samples.length === 0) throw new Error(`${label} samples are required`);
+  if (samples.length < minimumSamples) throw new Error(`${label} requires at least ${minimumSamples} samples`);
   for (const sample of samples) {
     if (!Number.isFinite(sample) || sample < 0) throw new Error(`${label} samples must be finite non-negative numbers`);
   }
@@ -15,12 +16,17 @@ function validateBudget(value, label) {
   if (!Number.isFinite(value) || value < 0) throw new Error(`${label} budget must be a finite non-negative number`);
 }
 
-export function summarizeContentionTimings(results) {
+function validateMinimumSamples(value) {
+  if (!Number.isInteger(value) || value < 2) throw new Error('minimumSamplesPerPath must be an integer >= 2');
+}
+
+export function summarizeContentionTimings(results, { minimumSamples = 1 } = {}) {
+  if (!Number.isInteger(minimumSamples) || minimumSamples < 1) throw new Error('minimumSamples must be an integer >= 1');
   if (!Array.isArray(results) || results.length === 0) throw new Error('contention results are required');
   const lockWait = results.map(item => item?.lockWaitMs);
   const durableCommit = results.map(item => item?.durableCommitMs);
-  validateSamples(lockWait, 'lockWaitMs');
-  validateSamples(durableCommit, 'durableCommitMs');
+  validateSamples(lockWait, 'lockWaitMs', minimumSamples);
+  validateSamples(durableCommit, 'durableCommitMs', minimumSamples);
   return {
     count: results.length,
     lockWaitP50Ms: percentile(lockWait, 0.50),
@@ -33,14 +39,17 @@ export function summarizeContentionTimings(results) {
 export function evaluateContentionQualification({ enqueue, claim, journal }, budgets) {
   if (!budgets || typeof budgets !== 'object') throw new Error('contention budgets are required');
   for (const key of ['lockWaitP95Ms', 'durableCommitP95Ms']) validateBudget(budgets[key], key);
+  validateMinimumSamples(budgets.minimumSamplesPerPath);
 
+  const summaryOptions = { minimumSamples: budgets.minimumSamplesPerPath };
   const summaries = {
-    enqueue: summarizeContentionTimings(enqueue),
-    claim: summarizeContentionTimings(claim),
-    journal: summarizeContentionTimings(journal)
+    enqueue: summarizeContentionTimings(enqueue, summaryOptions),
+    claim: summarizeContentionTimings(claim, summaryOptions),
+    journal: summarizeContentionTimings(journal, summaryOptions)
   };
   const checks = {};
   for (const [name, summary] of Object.entries(summaries)) {
+    checks[`${name}SampleCoverage`] = summary.count >= budgets.minimumSamplesPerPath;
     checks[`${name}LockWaitWithinBudget`] = summary.lockWaitP95Ms <= budgets.lockWaitP95Ms;
     checks[`${name}DurableCommitWithinBudget`] = summary.durableCommitP95Ms <= budgets.durableCommitP95Ms;
   }
