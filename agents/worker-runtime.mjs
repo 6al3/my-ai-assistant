@@ -4,9 +4,12 @@ import { MissionCoordinator } from './mission-coordinator.mjs';
 export class WorkerRuntime {
   static async open({ store, workerId, capabilities = [], queueOptions = {}, sessionId = randomUUID(), heartbeatIntervalMs = null } = {}) {
     if (!workerId?.trim()) throw new Error('workerId is required');
-    const coordinator = await MissionCoordinator.open({ store, queueOptions });
     const leaseMs = Number.isFinite(queueOptions.leaseMs) && queueOptions.leaseMs > 0 ? queueOptions.leaseMs : 30_000;
     const resolvedHeartbeatIntervalMs = heartbeatIntervalMs ?? Math.max(10, Math.floor(leaseMs / 3));
+    if (!Number.isFinite(resolvedHeartbeatIntervalMs) || resolvedHeartbeatIntervalMs <= 0 || resolvedHeartbeatIntervalMs >= leaseMs) {
+      throw new Error('heartbeatIntervalMs must be positive and less than leaseMs');
+    }
+    const coordinator = await MissionCoordinator.open({ store, queueOptions });
     return new WorkerRuntime({ coordinator, workerId, capabilities, sessionId, heartbeatIntervalMs: resolvedHeartbeatIntervalMs });
   }
 
