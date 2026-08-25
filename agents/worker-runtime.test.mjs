@@ -115,6 +115,81 @@ test('automatic heartbeat keeps long-running work inside its lease', async t => 
   assert.deepEqual(outcome.mission.result, { completedAfterMultipleLeases: true });
 });
 
+test('runOnce renews lease immediately before terminal completion', async () => {
+  let heartbeatCalls = 0;
+  let completeCalls = 0;
+  const coordinator = {
+    claim: async () => ({ id: 'mission-terminal-complete', leaseToken: 'lease-terminal-complete' }),
+    heartbeat: async (id, workerId, leaseToken) => {
+      heartbeatCalls += 1;
+      assert.equal(id, 'mission-terminal-complete');
+      assert.equal(workerId, 'worker-terminal@session-terminal');
+      assert.equal(leaseToken, 'lease-terminal-complete');
+      return { id, leaseToken };
+    },
+    complete: async (id, workerId, result, leaseToken) => {
+      completeCalls += 1;
+      assert.equal(heartbeatCalls, 1, 'terminal completion must be preceded by a fresh lease renewal');
+      assert.equal(id, 'mission-terminal-complete');
+      assert.equal(workerId, 'worker-terminal@session-terminal');
+      assert.equal(leaseToken, 'lease-terminal-complete');
+      return { id, status: 'completed', result };
+    },
+    fail: async () => {
+      throw new Error('fail should not be called');
+    }
+  };
+  const runtime = new WorkerRuntime({
+    coordinator,
+    workerId: 'worker-terminal',
+    sessionId: 'session-terminal',
+    heartbeatIntervalMs: 1_000
+  });
+  const outcome = await runtime.runOnce(async () => ({ terminal: true }));
+  assert.equal(heartbeatCalls, 1);
+  assert.equal(completeCalls, 1);
+  assert.equal(outcome.status, 'completed');
+});
+
+test('execution failure renews lease before persisting terminal failure', async () => {
+  let heartbeatCalls = 0;
+  let failCalls = 0;
+  const coordinator = {
+    claim: async () => ({ id: 'mission-terminal-fail', leaseToken: 'lease-terminal-fail' }),
+    heartbeat: async (id, workerId, leaseToken) => {
+      heartbeatCalls += 1;
+      assert.equal(id, 'mission-terminal-fail');
+      assert.equal(workerId, 'worker-terminal@session-terminal');
+      assert.equal(leaseToken, 'lease-terminal-fail');
+      return { id, leaseToken };
+    },
+    complete: async () => {
+      throw new Error('complete should not be called');
+    },
+    fail: async (id, workerId, error, leaseToken) => {
+      failCalls += 1;
+      assert.equal(heartbeatCalls, 1, 'terminal failure persistence must be preceded by a fresh lease renewal');
+      assert.equal(id, 'mission-terminal-fail');
+      assert.equal(workerId, 'worker-terminal@session-terminal');
+      assert.equal(leaseToken, 'lease-terminal-fail');
+      assert.match(error, /synthetic execution failure/);
+      return { id, status: 'queued', attempts: 1 };
+    }
+  };
+  const runtime = new WorkerRuntime({
+    coordinator,
+    workerId: 'worker-terminal',
+    sessionId: 'session-terminal',
+    heartbeatIntervalMs: 1_000
+  });
+  const outcome = await runtime.runOnce(async () => {
+    throw new Error('synthetic execution failure');
+  });
+  assert.equal(heartbeatCalls, 1);
+  assert.equal(failCalls, 1);
+  assert.equal(outcome.status, 'queued');
+});
+
 test('event-loop starvation cannot commit after lease expiry and another worker can reclaim', async t => {
   const store = await fixture(t);
   const queueOptions = { requireLeaseToken: true, leaseMs: 25, maxAttempts: 3 };
