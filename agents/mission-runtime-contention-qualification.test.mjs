@@ -3,7 +3,7 @@ import test from 'node:test';
 import { evaluateContentionQualification, summarizeContentionTimings } from './mission-runtime-contention-qualification.mjs';
 
 const sample = (lockWaitMs, durableCommitMs, ownerPublicationMs = 1) => ({ lockWaitMs, ownerPublicationMs, durableCommitMs });
-const budgets = (overrides = {}) => ({ lockWaitP95Ms: 5, durableCommitP95Ms: 8, minimumSamplesPerPath: 5, ...overrides });
+const budgets = (overrides = {}) => ({ lockWaitP95Ms: 5, ownerPublicationP95Ms: 6, durableCommitP95Ms: 8, minimumSamplesPerPath: 5, ...overrides });
 
 function fixture() {
   return {
@@ -25,14 +25,16 @@ test('summarizes direct lock-wait, owner-publication, and durable-commit timing 
   });
 });
 
-test('qualifies all mutation paths only when sample coverage and both p95 budgets pass', () => {
+test('qualifies all mutation paths only when sample coverage and all p95 budgets pass', () => {
   const result = evaluateContentionQualification(fixture(), budgets());
   assert.equal(result.ready, true);
   assert.ok(Object.values(result.checks).every(Boolean));
   assert.equal(result.checks.claimSampleCoverage, true);
   assert.equal(result.checks.journalCommitSampleCoverage, true);
+  assert.equal(result.checks.enqueueOwnerPublicationWithinBudget, true);
   assert.equal(result.qualifiedJournalPhase, 'commit');
   assert.equal(result.summaries.enqueue.ownerPublicationP95Ms, 4);
+  assert.equal(result.budgets.ownerPublicationP95Ms, 6);
 });
 
 test('fails closed when one path exceeds lock-wait budget', () => {
@@ -41,6 +43,26 @@ test('fails closed when one path exceeds lock-wait budget', () => {
   const result = evaluateContentionQualification(data, budgets({ lockWaitP95Ms: 10, durableCommitP95Ms: 30 }));
   assert.equal(result.ready, false);
   assert.equal(result.checks.claimLockWaitWithinBudget, false);
+});
+
+test('fails readiness when durable owner publication exceeds its budget even if lock-wait and total commit remain acceptable', () => {
+  const data = fixture();
+  data.enqueue.push(sample(2, 9, 8));
+  const result = evaluateContentionQualification(data, budgets({ lockWaitP95Ms: 10, ownerPublicationP95Ms: 7, durableCommitP95Ms: 20 }));
+  assert.equal(result.ready, false);
+  assert.equal(result.checks.enqueueLockWaitWithinBudget, true);
+  assert.equal(result.checks.enqueueOwnerPublicationWithinBudget, false);
+  assert.equal(result.checks.enqueueDurableCommitWithinBudget, true);
+});
+
+test('uses durable-commit budget as a migration-safe owner-publication ceiling when the dedicated budget is omitted', () => {
+  const result = evaluateContentionQualification(fixture(), {
+    lockWaitP95Ms: 5,
+    durableCommitP95Ms: 8,
+    minimumSamplesPerPath: 5
+  });
+  assert.equal(result.ready, true);
+  assert.equal(result.budgets.ownerPublicationP95Ms, 8);
 });
 
 test('fails closed when terminal journal commit exceeds budget despite acceptable lock wait', () => {
@@ -73,5 +95,6 @@ test('rejects missing, malformed, or unbounded evidence and invalid coverage bud
   assert.throws(() => evaluateContentionQualification({ enqueue: [], claim: [], journalCommit: [] }, budgets()), /samples are required/);
   assert.throws(() => summarizeContentionTimings([sample(Number.NaN, 1)]), /finite non-negative/);
   assert.throws(() => evaluateContentionQualification(fixture(), budgets({ lockWaitP95Ms: Infinity })), /budget/);
+  assert.throws(() => evaluateContentionQualification(fixture(), budgets({ ownerPublicationP95Ms: Infinity })), /budget/);
   assert.throws(() => evaluateContentionQualification(fixture(), budgets({ minimumSamplesPerPath: 1 })), /integer >= 2/);
 });
