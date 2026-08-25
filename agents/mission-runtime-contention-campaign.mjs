@@ -45,6 +45,7 @@ export async function runMissionRuntimeContentionCampaign({
   journalCount = 12,
   minimumSamplesPerPath = 8,
   lockWaitP95Ms = 9_000,
+  ownerPublicationP95Ms = 9_000,
   durableCommitP95Ms = 9_500,
   timeoutMs = 10_000,
   workerPath = defaultWorker,
@@ -85,6 +86,7 @@ export async function runMissionRuntimeContentionCampaign({
     const evaluation = evaluateContentionQualification({ enqueue, claim, journalCommit }, {
       minimumSamplesPerPath,
       lockWaitP95Ms,
+      ownerPublicationP95Ms,
       durableCommitP95Ms
     });
     if (!evaluation.ready) throw new Error('contention campaign failed per-run qualification');
