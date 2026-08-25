@@ -15,7 +15,8 @@ function stableBudgetIdentity(budgets) {
     minimumSamplesPerPath: budgets?.minimumSamplesPerPath,
     lockWaitP95Ms: budgets?.lockWaitP95Ms,
     ownerPublicationP95Ms: budgets?.ownerPublicationP95Ms,
-    durableCommitP95Ms: budgets?.durableCommitP95Ms
+    durableCommitP95Ms: budgets?.durableCommitP95Ms,
+    terminalRenewalP95Ms: budgets?.terminalRenewalP95Ms
   });
 }
 
@@ -41,13 +42,14 @@ export function evaluateContentionStability(
   }
 
   const budgetIdentity = stableBudgetIdentity(evaluations[0]?.budgets);
-  const requiredPaths = ['enqueue', 'claim', 'journalCommit'];
+  const requiredPaths = ['enqueue', 'claim', 'terminalRenewal', 'journalCommit'];
   const requiredMetrics = ['lockWaitP95Ms', 'ownerPublicationP95Ms', 'durableCommitP95Ms'];
 
   for (const [index, evaluation] of evaluations.entries()) {
     if (!evaluation || typeof evaluation !== 'object') throw new Error(`evaluation ${index} is required`);
     if (evaluation.ready !== true) throw new Error(`evaluation ${index} is not contention-ready`);
     if (evaluation.qualifiedJournalPhase !== 'commit') throw new Error(`evaluation ${index} is not qualified on terminal journal commit`);
+    if (evaluation.qualifiedWorkerPhase !== 'terminalRenewal') throw new Error(`evaluation ${index} is not qualified on terminal worker renewal`);
     if (stableBudgetIdentity(evaluation.budgets) !== budgetIdentity) {
       throw new Error('contention evaluations must use identical budgets');
     }
@@ -82,6 +84,7 @@ export function evaluateContentionStability(
     minimumRuns,
     maxRelativeP95Spread,
     budgets: { ...evaluations[0].budgets },
-    qualifiedJournalPhase: 'commit'
+    qualifiedJournalPhase: 'commit',
+    qualifiedWorkerPhase: 'terminalRenewal'
   };
 }
