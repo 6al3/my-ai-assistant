@@ -1,0 +1,16 @@
+{
+  "decision": "require repeated benchmark stability evidence before using rollback timings to choose exact snapshot versus mutation-delta rollback",
+  "reviews": {
+    "correctness": "A single p95 run can be distorted by scheduler, GC, filesystem, or CPU noise. Compare repeated runs at identical queue sizes before treating timing as design evidence.",
+    "robustness_security": "Fail closed on missing, malformed, or incomparable benchmark runs. Do not weaken rollback invariants or persistence fencing to improve timing.",
+    "latency_resources_regression": "Use an offline relative-spread check over existing benchmark results. It adds no worker, Qubes, network, or production runtime overhead and avoids a higher-risk mutation-delta rewrite based on noisy data."
+  },
+  "winner": "repeatability gate over existing failure-path benchmark results",
+  "alternatives": [
+    { "approach": "trust one benchmark run", "rejected": "too sensitive to runtime noise to justify a production rollback redesign" },
+    { "approach": "switch to mutation-delta immediately", "rejected": "larger state-equivalence and regression surface without stable evidence of a bottleneck" },
+    { "approach": "external benchmark service", "rejected": "adds infrastructure and provenance complexity before Slice 1 has independent CI" }
+  ],
+  "qa": "Require at least two comparable runs, identical queue-size sets, finite non-negative p95 measurements, and relative p95 spread <= 25% for failed enqueue and failed claim at every measured queue size.",
+  "lesson": "Performance evidence should be reproducible before it is allowed to drive a correctness-sensitive rollback implementation change."
+}

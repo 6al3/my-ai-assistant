@@ -1,0 +1,47 @@
+{
+  "decision": "Enforce cooperative execution as the only WorkerRuntime execution mode in Slice 1.",
+  "status": "selected",
+  "problem": "Automatic heartbeats share the worker event loop. A blocking or CPU-bound executor can starve heartbeat timers past lease expiry. Coordinator fencing protects correctness after authority loss, but allowing blocking execution as a supported mode creates avoidable liveness loss and wasted work.",
+  "reviews": {
+    "correctness": {
+      "selected": "Fail closed on any execution mode other than cooperative before opening the coordinator or touching mission state.",
+      "reason": "Pre-claim rejection prevents an unsupported executor policy from acquiring authority it cannot reliably maintain. Lease expiry and fencing remain the final correctness boundary if a nominally cooperative executor still starves the event loop."
+    },
+    "robustness_security": {
+      "selected": "No silent fallback or lease extension for blocking modes.",
+      "reason": "Silent clamping or longer leases can hide starvation and delay recovery. Explicit rejection makes the supported authority/liveness contract auditable."
+    },
+    "latency_resources_regression": {
+      "selected": "A local enum-style validation with no extra worker process, thread, IPC channel, storage, or qrexec traffic.",
+      "reason": "A heartbeat supervisor could support CPU-bound work later, but it adds lifecycle, crash-reconciliation, RAM, CPU, and IPC surface before measured workloads justify it."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Increase lease duration for blocking workloads",
+      "why_rejected": "Masks starvation, increases stale-authority recovery time, and does not guarantee heartbeat progress."
+    },
+    {
+      "approach": "Silently coerce blocking or unknown modes to cooperative",
+      "why_rejected": "Creates configuration ambiguity and can give callers false confidence about executor behavior."
+    },
+    {
+      "approach": "Add isolated heartbeat supervisor now",
+      "why_rejected": "Potentially useful for measured CPU-bound workloads, but adds IPC/process or thread lifecycle and crash coordination without current evidence that Slice 1 requires it."
+    }
+  ],
+  "qa": [
+    "blocking, unknown, empty, or null execution modes are rejected before coordinator/storage access",
+    "cooperative mode opens normally and is exposed to the executor control context",
+    "long cooperative work continues to renew its lease",
+    "deliberate event-loop starvation cannot commit stale output and a replacement worker can reclaim",
+    "SIGKILL stops renewal and permits reclaim after lease expiry",
+    "existing durability, contention, idempotency, lease-token fencing, and recovery regressions remain green"
+  ],
+  "failure_lessons": [
+    "Heartbeat scheduling on the same event loop is a liveness mechanism, not the authority boundary.",
+    "Coordinator lease expiry plus fencing token validation remains authoritative when worker scheduling fails.",
+    "Unsupported execution policy should be rejected before acquiring mission authority rather than compensated for with weaker timing assumptions."
+  ],
+  "future_trigger": "Consider an isolated heartbeat supervisor only if real synthetic workload measurements show CPU-bound synchronous executors are required and cooperative execution cannot meet liveness goals within acceptable CPU/RAM/IPC and regression budgets."
+}

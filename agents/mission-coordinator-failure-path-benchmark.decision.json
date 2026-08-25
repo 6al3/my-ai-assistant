@@ -1,0 +1,14 @@
+{
+  "decision": "benchmark the real MissionCoordinator persistence-failure path before replacing exact snapshot rollback",
+  "reviews": {
+    "correctness": "Measure failed enqueue and failed claim through MissionCoordinator and assert exact rollback plus fail-closed poisoning; primitive snapshot timing alone is insufficient.",
+    "robustness": "Use a deterministic failing store and verify no ghost mission, idempotency entry, worker ownership, lease token, or attempt increment survives failure.",
+    "latency_resources_regression": "Keep exact snapshot rollback until measured end-to-end p95 proves it too expensive. This adds benchmark-only CPU/memory cost and no runtime network or Qubes dependency."
+  },
+  "alternatives": [
+    { "approach": "snapshot/restore primitive benchmark only", "rejected": "does not include coordinator serialization, mutation bookkeeping, persistence failure handling, or poisoning" },
+    { "approach": "mutation-delta rollback now", "rejected": "larger correctness and regression surface without evidence that exact rollback misses the target budget" }
+  ],
+  "qa": "Measure failed enqueue and failed claim at 10/100/1000 missions; verify exact state rollback and fail-closed behavior; compare p95 against explicit lab budgets.",
+  "lesson": "Optimize rollback representation only after the full failure path, not an isolated clone primitive, demonstrates a material bottleneck."
+}

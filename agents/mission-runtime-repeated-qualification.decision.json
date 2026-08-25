@@ -1,0 +1,49 @@
+{
+  "decision": "Require repeated stable benchmark runs inside mission-runtime qualification before performance evidence can produce LAB READY.",
+  "problem": "A single benchmark execution can be distorted by scheduler, GC, and CPU noise. The repository already had a standalone stability evaluator, but the operational qualification path still used one benchmark run, so a noisy run could drive rollback design decisions.",
+  "independent_reviews": {
+    "correctness": {
+      "preferred": "Run the identical failure-path benchmark multiple times, require every run to satisfy absolute/scaling budgets, then require cross-run p95 stability.",
+      "reason": "This prevents a single lucky run from qualifying the design and a single noisy run from forcing an unnecessary production rewrite."
+    },
+    "robustness_security": {
+      "preferred": "Fail closed on invalid run counts, any failed budget evaluation, or unstable p95 measurements.",
+      "reason": "Evidence quality must be a readiness gate rather than advisory metadata."
+    },
+    "latency_resources_regression": {
+      "preferred": "Three sequential benchmark runs with a 25% maximum relative p95 spread.",
+      "reason": "Sequential runs avoid self-contention, add no runtime/Qubes overhead, and are much lower regression risk than implementing mutation-delta rollback before measurements justify it."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Keep one benchmark run in qualification",
+      "reason": "Too sensitive to transient local runtime noise for a performance-sensitive design decision."
+    },
+    {
+      "approach": "Switch immediately to mutation-delta rollback",
+      "reason": "Adds state-equivalence, idempotency, lease, and rollback complexity without evidence that exact snapshot rollback violates the target budget."
+    },
+    {
+      "approach": "Parallel benchmark repetitions",
+      "reason": "Introduces CPU/memory self-contention and makes stability measurements less representative."
+    }
+  ],
+  "selected_defaults": {
+    "benchmarkRuns": 3,
+    "maxRelativeP95Spread": 0.25,
+    "execution": "sequential"
+  },
+  "qa_requirements": [
+    "Every repeated run must pass the existing coordinator failure-path budget evaluator.",
+    "Cross-run p95 relative spread must be <= 25% for failed enqueue and failed claim at every queue size.",
+    "Qualification must return NOT READY when budgets pass but stability fails.",
+    "Evidence digest must cover all repeated runs, evaluations, and stability output.",
+    "Invalid benchmark run count must fail before mission-runtime tests or benchmarks execute."
+  ],
+  "lessons": [
+    "A benchmark primitive is not a release gate until the operational qualification path consumes it.",
+    "Performance evidence should be reproducible before it is used to justify a production state-machine rewrite.",
+    "Sequential repeated measurements trade wall-clock time for cleaner resource attribution and lower false-positive risk."
+  ]
+}

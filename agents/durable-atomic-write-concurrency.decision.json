@@ -1,0 +1,22 @@
+{
+  "decision": "Use a unique same-directory staging file for every durable write, created exclusively, then fsync file, atomically rename, and fsync the directory.",
+  "problem": "The previous durable writer used a shared `${path}.tmp` staging path. Two processes writing the same destination could truncate, rename, or clean up each other's staging file before either durable commit completed.",
+  "reviews": {
+    "correctness": "Preferred one staging file per write so each writer owns its uncommitted bytes and the destination is always replaced by one complete payload. Same-directory staging preserves atomic rename semantics.",
+    "robustness_security": "Preferred exclusive creation (`wx`), 0600 mode, writer-specific cleanup, and no cross-writer deletion. This avoids a failed writer removing another writer's staging file and reduces accidental exposure of durable state.",
+    "latency_resources_regression": "Preferred unique local staging over a database, lock daemon, or inter-process lock. UUID generation and one extra filename are negligible compared with fsync cost, add no network/Qubes latency, and preserve the existing JSON format and APIs."
+  },
+  "alternatives_rejected": [
+    "Keep a fixed `${path}.tmp`: safe only under a single-writer assumption and becomes fragile at process/Qubes boundaries.",
+    "Serialize all writers with an inter-process lock: adds lock lifecycle, stale-lock recovery, and cross-platform complexity when atomic replacement already resolves final-writer ordering.",
+    "Move persistence to a transactional database now: stronger multi-writer semantics but substantially larger operational and regression surface for Slice 1."
+  ],
+  "qa": [
+    "Concurrent writers to one destination all complete without staging collisions.",
+    "The destination equals one complete submitted payload, never mixed or torn content.",
+    "No writer-specific staging files remain after success.",
+    "A failed write removes only its own staging file and does not create the destination.",
+    "POSIX destination mode remains 0600."
+  ],
+  "failure_lesson": "Atomic rename protects the final replacement, but a shared staging pathname reintroduces a race before rename. Durable multi-process safety requires ownership of the staging object as well as atomic replacement of the destination."
+}

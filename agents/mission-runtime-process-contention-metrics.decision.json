@@ -1,0 +1,29 @@
+{
+  "decision": "Measure lock-wait at the filesystem lock acquisition boundary and durable-commit latency around the real coordinator/journal mutation in spawned OS processes.",
+  "problem": "The process-boundary campaign proved no lost updates and stale-owner recovery, but it did not produce contention latency evidence. End-to-end child-process time mixes Node startup, lock wait, JSON serialization, fsync, and shutdown and cannot support a reliable lock-budget decision.",
+  "reviews": {
+    "correctness": "Preferred instrumenting the existing lock onAcquired callback and timing the real durable mutation. This preserves the exact persistence path and separates lock wait from the larger durable commit envelope.",
+    "robustness_security": "Preferred metrics that expose only non-negative durations. No owner token, process identity, request digest, mission payload, or lock metadata is emitted.",
+    "latency_resources_regression": "Preferred reusing existing spawned workers and lock instrumentation. It adds no production network/Qubes round trips, no daemon/database, and negligible test-only timing overhead."
+  },
+  "alternatives_rejected": [
+    "Use child-process wall-clock duration: includes process startup/shutdown noise and overstates lock contention.",
+    "Add a separate telemetry daemon: adds lifecycle, credentials, IPC and resource overhead before Slice 2 requires it.",
+    "Move to a database/lock service before measuring the filesystem design: materially larger regression surface without evidence that the current lock misses the latency budget."
+  ],
+  "qa": [
+    "Spawned concurrent coordinator enqueues preserve every mission and return finite lock-wait/durable-commit metrics.",
+    "Spawned claims remain distinct while exposing timing metrics.",
+    "Spawned journal begins preserve every request and use the current begin({requestId,digest}) contract.",
+    "Killed lock-owner recovery reports a finite observed lock wait and completes within the bounded timeout."
+  ],
+  "failure_lessons": [
+    "The process worker still used an obsolete DurableRequestJournal.begin(requestId, command) call shape after the journal API moved to begin({requestId,digest}); the process-boundary test would fail once it actually executed. Contract tests at process boundaries must track the production API, not a historical helper signature.",
+    "Contention must be measured at the ownership boundary; whole-process duration is not a useful proxy for lock wait."
+  ],
+  "remaining_risks": [
+    "No numeric latency budget is enforced until measurements execute on a stable target host.",
+    "The filesystem lock remains a same-host coordination primitive, not a distributed lock across coordinator machines.",
+    "Hosted runner execution is still required for independent QA evidence."
+  ]
+}

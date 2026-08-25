@@ -1,0 +1,23 @@
+{
+  "decision": "Treat durable owner publication latency as an explicit per-run readiness budget in addition to lock-wait and durable-commit latency.",
+  "problem": "The contention pipeline measured ownerPublicationP95Ms and checked its cross-run stability, but per-run readiness did not enforce a ceiling for it. A slow owner.json fsync path could therefore remain individually ready as long as lock-wait and total durable-commit budgets passed.",
+  "reviews": {
+    "correctness": "Preferred an explicit owner-publication readiness check because durable lock ownership is a distinct commit boundary. Measuring it without gating it leaves a false-ready path.",
+    "robustness_security": "Preferred fail-closed validation of owner-publication timing on every enqueue, claim, and terminal journal-commit path. Stability comparison must also include the owner-publication budget identity so runs qualified under different limits cannot be mixed.",
+    "latency_resources_regression": "Preferred reusing the existing timing samples. The change adds no filesystem operations, processes, network traffic, Qubes round trips, or production mutation work; it is local evaluation only."
+  },
+  "alternatives_rejected": [
+    "Rely on durableCommitP95Ms alone: total commit time can hide which persistence boundary regressed and does not independently constrain owner publication.",
+    "Use stability-only detection: stable but consistently slow owner publication would still qualify.",
+    "Add a new probe or telemetry service: unnecessary because the lock already reports ownerPublicationMs directly."
+  ],
+  "compatibility": "Existing callers that omit ownerPublicationP95Ms inherit durableCommitP95Ms as a migration-safe ceiling. Operational campaigns now pass an explicit ownerPublicationP95Ms budget and returned evaluation evidence always records the resolved budget.",
+  "qa": [
+    "A path with acceptable lock-wait and total durable commit but excessive owner publication is NOT READY.",
+    "Missing or non-finite owner-publication evidence remains fail-closed.",
+    "Cross-run stability rejects otherwise identical runs qualified with different owner-publication budgets.",
+    "Legacy callers without the dedicated budget retain a bounded owner-publication ceiling through the durable-commit budget."
+  ],
+  "failure_lesson": "Collecting a metric is not equivalent to gating on it. Every persistence boundary used to justify readiness needs both measurement and an explicit acceptance policy.",
+  "remaining_risk": "The current 9s operational ceiling is an integration safety limit, not a production SLO. A tighter owner-publication budget must be set only after repeated same-SHA/same-host process-boundary measurements are executable and stable."
+}

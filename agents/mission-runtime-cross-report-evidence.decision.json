@@ -1,0 +1,47 @@
+{
+  "decision": "Use a fail-closed cross-report comparator for mission-runtime qualification evidence before performance conclusions are trusted across executions.",
+  "problem": "Single qualification reports are SHA-bound and integrity-protected, but there was no authority preventing mixed SHAs, mixed host fingerprints, tampered reports, or cross-execution p95 drift from being treated as comparable evidence.",
+  "independent_reviews": {
+    "correctness": {
+      "preferred": "Verify every evidence digest, require one Git SHA, require identical queue sizes, and compare p95 across reports.",
+      "reason": "A single stable run is insufficient evidence for a performance-sensitive rollback design decision."
+    },
+    "robustness_security": {
+      "preferred": "Fail closed on invalid digests, dirty-worktree evidence, non-LAB-READY reports, or runtime-fingerprint mismatch.",
+      "reason": "Prevents accidental or deliberate mixing of evidence generated from different code or materially different hosts."
+    },
+    "latency_resources_regression": {
+      "preferred": "Offline comparison only; no worker, Qubes, network, database, or runtime changes.",
+      "reason": "Adds negligible local CPU/memory cost and zero production overhead while reducing the risk of an unnecessary rollback rewrite."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Trust each qualification report independently",
+      "why_rejected": "Does not detect cross-execution drift or mixed environments."
+    },
+    {
+      "approach": "Immediately replace exact snapshot rollback with mutation-delta rollback",
+      "why_rejected": "Expands correctness and regression surface without stable comparative measurements."
+    },
+    {
+      "approach": "Add a centralized benchmark telemetry service",
+      "why_rejected": "Introduces network/storage lifecycle and operational attack surface that Slice 1 does not require."
+    }
+  ],
+  "selected_gate": {
+    "minimum_reports": 2,
+    "same_git_sha": true,
+    "valid_evidence_digest": true,
+    "clean_worktree": true,
+    "lab_ready_reports": true,
+    "same_runtime_fingerprint_by_default": true,
+    "identical_queue_sizes": true,
+    "default_max_cross_report_relative_p95_spread": 0.25
+  },
+  "failures_lessons": [
+    "Integrity of one report is not the same as comparability across reports.",
+    "Host fingerprint must remain part of performance evidence because CPU and memory materially affect rollback timing.",
+    "Local evidence remains laboratory evidence and does not replace independent hosted CI."
+  ]
+}

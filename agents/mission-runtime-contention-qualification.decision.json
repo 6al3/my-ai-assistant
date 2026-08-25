@@ -1,0 +1,21 @@
+{
+  "decision": "Keep direct filesystem-lock instrumentation and add a fail-closed p95 contention qualification evaluator before considering a database or lock daemon.",
+  "reviews": {
+    "correctness": "Use lock acquisition telemetry and durable mutation elapsed time from the real coordinator/journal paths. Reject missing or malformed samples and require every mutation path to pass.",
+    "robustness_security": "Keep telemetry duration-only; do not expose lock owner tokens, process identities, mission payloads, or journal command contents. Require explicit finite budgets rather than implicit readiness.",
+    "latency_resources_regression": "Offline percentile evaluation adds no production, Qubes, or network round trips and negligible CPU/memory. A database or daemon would add operational state and a larger regression surface before measurements justify it."
+  },
+  "winner": "direct timing evidence plus explicit p95 budget gate",
+  "why": "It separates lock contention from durable commit latency using existing instrumentation, fails closed, and provides the evidence needed to decide whether same-host filesystem locking remains acceptable before Slice 2.",
+  "rejected": [
+    "Infer contention from child-process wall clock: contaminated by process startup and unrelated scheduling.",
+    "Move to a database now: higher migration and operational risk without measured need.",
+    "Use a lock daemon now: adds lifecycle, IPC, and failure modes before same-host lock budgets are known."
+  ],
+  "failures_lessons": [
+    "A timing metric without an explicit budget cannot gate readiness.",
+    "Lock-wait and durable-commit latency must be evaluated separately because fsync cost can dominate even when contention is low.",
+    "Synthetic unit fixtures validate the evaluator only; real p50/p95 values must come from the spawned process campaign before setting target-host budgets."
+  ],
+  "qa": "Unit tests cover pass, lock-wait failure, durable-commit failure, missing samples, malformed samples, and invalid budgets. Real budgets remain intentionally unset until process-boundary measurements execute on the target host."
+}

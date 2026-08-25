@@ -1,0 +1,30 @@
+{
+  "decision": "Extract mission/runtime reliability first, keep exact snapshot rollback on persistence failure, and measure its queue-size cost with a deterministic local benchmark gate before scaling the queue.",
+  "scope": {
+    "included": ["mission queue persistence and idempotency","atomic queue store","serialized fail-closed coordinator","exact in-memory rollback when persistence fails","durable request reconciliation journal","worker session fencing and restart recovery","rollback snapshot benchmark and focused regression tests"],
+    "excluded": ["Qubes/qrexec transport and qualification","resource calibration/topology selection","iPhone control plane","financial side effects"]
+  },
+  "reviews": [
+    {"lens":"correctness","preferred":"snapshot-before-mutation plus exact rollback","reason":"failed durable mutations must never remain visible in memory"},
+    {"lens":"robustness-security","preferred":"rollback then poison coordinator","reason":"restores the last durable state while preventing later writes after persistence failure"},
+    {"lens":"latency-resources-regression","preferred":"retain local snapshot rollback but add queue-size p95 measurement","reason":"snapshot cloning has the smallest infrastructure/regression surface, but its O(queue-size) cost must be measured before large queues are allowed"}
+  ],
+  "alternatives": [
+    {"approach":"leave mutated memory in place and only poison later writes","rejectedBecause":"reads can expose state the durable store rejected"},
+    {"approach":"reload storage after failed save","rejectedBecause":"adds failure-path I/O and a second failure mode exactly when storage is unhealthy"},
+    {"approach":"external transactional database now","rejectedBecause":"adds latency, operational resources and migration risk before multi-process scale requires it"},
+    {"approach":"replace full snapshots with mutation deltas immediately","rejectedBecause":"reduces clone cost but substantially increases rollback complexity and regression risk before benchmark evidence shows the optimization is needed"}
+  ],
+  "qa": {
+    "command":"npm run test:mission-runtime",
+    "gates":["queue idempotency and restart recovery","atomic store corruption rejection","serialized persistence and exact rollback","request journal reconciliation","worker session fencing","rollback snapshot benchmark at 10/100/1000 missions","benchmark budget evaluator fails closed when a queue-size budget is absent or exceeded"]
+  },
+  "benchmark": {
+    "method":"warm in-memory MissionQueue, snapshot repeatedly, report p50/p95/max by queue size",
+    "queueSizes":[10,100,1000],
+    "defaultP95BudgetsMs":{"10":2,"100":5,"1000":25},
+    "interpretation":"planning/lab budgets, not production SLOs; revise only from measured evidence on the target runtime"
+  },
+  "failuresAndLessons": ["The first fail-closed design poisoned later writes but did not roll back the failed mutation.","Restart recovery semantics cannot be reused blindly for rollback because running work may be requeued.","Full snapshot rollback is simple and robust but scales linearly with queue size, so performance must be measured rather than assumed."],
+  "lessons": ["Keep Qubes transport out of this dependency-root slice.","Retain the original regression suite in extracted slices.","Fail-closed includes visibility of failed mutations, not only rejection of later writes.","Do not optimize rollback into deltas until benchmark evidence demonstrates the clone cost is material."]
+}

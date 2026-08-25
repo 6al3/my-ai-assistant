@@ -1,0 +1,35 @@
+{
+  "decision": "Add a clean-worktree, exact-SHA local mission-runtime qualification gate while keeping independent hosted CI as the release authority.",
+  "winner": "local exact-SHA qualification + hosted CI remains mandatory",
+  "reviews": {
+    "correctness": "Runs the same mission-runtime suite before benchmarking the real coordinator failure path; refuses dirty or wrong-SHA evidence.",
+    "robustness_security": "Fail-closed on test failure, SHA mismatch, dirty worktree, missing benchmark measurements or budget failure. It does not weaken persistence, fencing, idempotency or fail-closed coordinator controls.",
+    "latency_resources_regression": "Runs sequentially and locally, adds no worker/Qubes traffic and no production runtime overhead. Smaller regression surface than changing rollback semantics while CI is unavailable."
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Wait indefinitely for hosted runners",
+      "reason": "Produces no new engineering evidence and leaves agents idle."
+    },
+    {
+      "approach": "Treat local qualification as release CI",
+      "reason": "Not independent; unacceptable as the final release authority."
+    },
+    {
+      "approach": "Switch to mutation-delta rollback now",
+      "reason": "Increases state-equivalence and regression complexity without measured evidence that exact rollback exceeds budgets."
+    },
+    {
+      "approach": "Start Qubes transport slice before Slice 1 evidence",
+      "reason": "Builds distributed reliability on an unqualified dependency root."
+    }
+  ],
+  "qa": [
+    "exact git SHA required when DIG_GIT_SHA is provided",
+    "clean worktree required",
+    "npm run test:mission-runtime must pass before benchmark starts",
+    "failed enqueue/claim benchmark budgets and 1k-to-5k growth gates must pass",
+    "qualification emits LAB READY only; never REAL-WORKER READY"
+  ],
+  "lesson": "A local evidence path can keep reliability work moving during hosted-runner outages, but it must remain explicitly subordinate to independent CI and real Qubes qualification."
+}

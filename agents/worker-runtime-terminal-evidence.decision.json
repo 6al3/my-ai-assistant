@@ -1,0 +1,30 @@
+{
+  "decision": "qualify terminal lease renewal using evidence emitted by the WorkerRuntime production path",
+  "reviews": {
+    "correctness": {
+      "winner": "WorkerRuntime terminal-renewal telemetry",
+      "reason": "A coordinator-only heartbeat benchmark measures the same mutation but does not prove that runOnce executed renewal after periodic-heartbeat shutdown and before complete/fail. Production-path evidence closes that causal gap."
+    },
+    "robustness_security": {
+      "winner": "fenced production path with exact mission, worker-session and lease token",
+      "reason": "The renewal remains subject to coordinator lease expiry and fencing. Missing or stale authority fails closed; telemetry does not create new authority."
+    },
+    "latency_resources_regression": {
+      "winner": "reuse existing heartbeat mutation and lock telemetry",
+      "reason": "No extra persistence mutation, daemon, IPC channel, Qubes round-trip, or database is added. Measurement wraps work already required by terminal authority."
+    }
+  },
+  "rejected": [
+    "coordinator-only terminal heartbeat as final readiness evidence",
+    "synthetic probe writes that add measurement overhead",
+    "heartbeat supervisor process before measured need"
+  ],
+  "qa": [
+    "successful WorkerRuntime terminal path emits terminalRenewal evidence before complete",
+    "failure WorkerRuntime terminal path emits terminalRenewal evidence before fail",
+    "spawned contention campaign uses only source=worker-runtime renewal evidence",
+    "terminal renewal mission identities are unique and reopen as durably completed",
+    "stale or missing lease authority remains fail-closed"
+  ],
+  "lesson": "Mutation equivalence is not execution-path equivalence. Readiness evidence must prove the production control-flow boundary that owns terminal authority."
+}

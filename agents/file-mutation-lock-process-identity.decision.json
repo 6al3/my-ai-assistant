@@ -1,0 +1,45 @@
+{
+  "decision": "process-instance mutation lock identity",
+  "problem": "PID-only stale-owner detection cannot distinguish a dead owner from a later process that reused the same PID.",
+  "reviews": {
+    "correctness": {
+      "winner": "pid + random owner token + process-start identity",
+      "reason": "A lock is reclaimed only when the current process instance for the recorded PID is absent or differs from the recorded start identity."
+    },
+    "robustness_security": {
+      "winner": "fail closed on malformed owner metadata",
+      "reason": "Legacy or partial ownership records are not silently reclaimed; live matching process instances are never stolen."
+    },
+    "latency_resources_regression": {
+      "winner": "local process identity lookup with existing filesystem lock",
+      "reason": "Adds no network or Qubes round trips, preserves the storage format outside lock metadata, and avoids a database or lock daemon."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "PID-only liveness",
+      "reason": "PID reuse creates ambiguous ownership and can block safe stale-owner reclamation."
+    },
+    {
+      "approach": "database or lock daemon",
+      "reason": "Larger operational, credential, migration, and regression surface for a same-host lock."
+    },
+    {
+      "approach": "age-only stale lock reclamation",
+      "reason": "Can steal a legitimately long-running live lock."
+    }
+  ],
+  "qa": [
+    "current process has a stable start identity",
+    "matching live process instance is never reclaimed",
+    "reused PID with different process identity is reclaimable",
+    "malformed owner metadata fails closed",
+    "existing serialization and release-on-error tests remain green",
+    "spawned process-boundary campaign must still prove zero lost missions, zero lost requests, and zero double claims"
+  ],
+  "known_limits": [
+    "The lock is same-host, not a distributed multi-machine lock.",
+    "Non-Linux process identity uses ps start-time text and must remain fail-closed if identity cannot be established.",
+    "Lock contention and stale-owner recovery latency still require measured p50/p95 evidence before freezing Slice 1."
+  ]
+}

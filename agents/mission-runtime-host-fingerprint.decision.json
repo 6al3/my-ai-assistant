@@ -1,0 +1,34 @@
+{
+  "decision": "Bind mission-runtime benchmark evidence to a bounded host fingerprint",
+  "winner": "Node/platform/arch + CPU model/logical CPU count + total memory, included in canonical evidence digest",
+  "reviews": {
+    "correctness": "Benchmark timings are not comparable from Git SHA and Node version alone; CPU and memory class materially affect rollback latency.",
+    "robustness_security": "Fail closed on malformed host fingerprints and cover the fingerprint with the existing canonical SHA-256 evidence digest. This is integrity/comparability metadata, not trusted-origin authentication.",
+    "latency_resources_regression": "Reading os.cpus() and os.totalmem() is local and negligible, adds no worker/Qubes traffic, and avoids changing MissionQueue/Coordinator semantics while CI is unavailable."
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Keep runtime fingerprint at Node/platform/arch only",
+      "reason": "Allows benchmark evidence from materially different host capacity to appear comparable."
+    },
+    {
+      "approach": "Sign local evidence with a new private key",
+      "reason": "Adds key lifecycle and does not solve host comparability by itself; independent CI remains the release authority."
+    },
+    {
+      "approach": "Switch to mutation-delta rollback now",
+      "reason": "Raises correctness and regression surface without stable measurements proving exact snapshot rollback misses budgets."
+    }
+  ],
+  "qa": [
+    "Schema v4 requires cpuModel, logicalCpus, and totalMemoryMiB.",
+    "Canonical evidence digest changes when host fingerprint changes.",
+    "Malformed or implausible host fingerprints fail closed.",
+    "Existing repeated-run budget and stability gates remain unchanged."
+  ],
+  "lessons": [
+    "Performance evidence needs both code identity and execution-environment identity.",
+    "A SHA-256 evidence digest provides tamper detection, not source authentication.",
+    "Do not optimize rollback semantics until stable, comparable measurements justify it."
+  ]
+}

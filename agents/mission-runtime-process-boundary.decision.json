@@ -1,0 +1,25 @@
+{
+  "decision": "Use spawned Node processes against the real file-backed MissionCoordinator and DurableRequestJournal, plus kill/reclaim testing of the real filesystem mutation lock.",
+  "problem": "Same-process independent instances exercise reload-before-mutate but do not prove OS-process isolation, dead lock-owner recovery, or preservation of concurrent durable mutations across separate runtimes.",
+  "reviews": {
+    "correctness": "Preferred real child processes sharing the same durable files. This exercises the actual lock, reload-before-mutate, atomic writer, queue serialization, journal persistence, and claim ownership contracts together.",
+    "robustness_security": "Preferred killing a lock-owning child and requiring a new process boundary to reclaim the dead owner. The campaign remains synthetic and never performs external side effects.",
+    "latency_resources_regression": "Preferred bounded short-lived child processes over a daemon, database, or Qubes dependency in Slice 1. It adds test-only process startup cost, zero production latency, and keeps Slice 1 independent of transport concerns."
+  },
+  "alternatives_rejected": [
+    "Same-process Promise concurrency only: cannot validate OS-process ownership or crash cleanup.",
+    "Move immediately to a transactional database: larger operational and migration surface before the file-backed design is disproven.",
+    "Use Qubes/qrexec for this gate: inverts the slice dependency and mixes transport failures with core persistence failures."
+  ],
+  "qa": [
+    "Multiple spawned coordinators concurrently enqueue unique missions with lost missions = 0.",
+    "Two spawned coordinators claim distinct missions with double claims = 0.",
+    "Multiple spawned journals concurrently begin unique requests with lost requests = 0.",
+    "A killed process that owns the mutation lock is reclaimed within a bounded timeout by a separate process boundary."
+  ],
+  "failure_lessons": [
+    "Atomic replacement and same-process serialization are insufficient evidence for process-per-call worker transports.",
+    "Crash recovery must be exercised at the lock-owner boundary, not inferred from normal release tests.",
+    "Keep this campaign transport-agnostic so Slice 2 can reuse a proven persistence core."
+  ]
+}

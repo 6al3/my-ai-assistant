@@ -1,0 +1,25 @@
+{
+  "decision": "Instrument the existing same-host filesystem mutation lock with optional acquisition-wait telemetry before changing the locking design.",
+  "problem": "Slice 1 now has process-instance fencing and cross-process mutation serialization, but it lacks direct evidence for lock-wait latency under contention. Without that measurement, changing to a database, daemon, or optimistic scheme would be speculative.",
+  "reviews": {
+    "correctness": "Keep the existing critical-section semantics unchanged and report timing only after ownership is established. Telemetry must never cause an unowned operation to run.",
+    "robustness_security": "Use an optional local callback with validated type and no lock metadata or tokens exposed. Preserve fail-closed owner validation, PID-reuse fencing, bounded acquisition, and owner-only cleanup.",
+    "latency_resources_regression": "Prefer one local timestamp/callback over extra files, processes, databases, or Qubes traffic. This adds negligible overhead and gives the evidence needed to decide whether the same-host lock remains acceptable."
+  },
+  "alternatives_rejected": [
+    "Infer contention only from end-to-end mutation latency: cannot separate lock wait from fsync/serialization cost.",
+    "Replace the filesystem lock with a database or lock daemon now: larger operational and regression surface without measured contention evidence.",
+    "Add a separate telemetry service: unnecessary network/process lifecycle and new failure modes for Slice 1."
+  ],
+  "qa": [
+    "Two contending callers remain strictly serialized.",
+    "Both acquisitions emit finite non-negative wait measurements and the contended acquisition shows measurable wait.",
+    "Invalid telemetry callbacks fail closed before lock acquisition.",
+    "Existing live-owner, reused-PID, malformed-owner, and release-after-error tests remain unchanged in semantics."
+  ],
+  "failure_lessons": [
+    "Correct cross-process locking is not sufficient for readiness; contention cost must be measured separately from durable commit cost.",
+    "Observability should be added at the existing ownership boundary rather than inferred from unrelated end-to-end timing."
+  ],
+  "next": "Extend the spawned process-boundary campaign to collect p50/p95 lock-wait and durable mutation latency under bounded contention, then gate Slice 1 on zero lost updates/double claims plus explicit latency budgets."
+}

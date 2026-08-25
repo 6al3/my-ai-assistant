@@ -1,0 +1,29 @@
+{
+  "decision": "Reject worker heartbeat intervals that are non-positive or greater than or equal to the mission lease before opening coordinator storage.",
+  "problem": "WorkerRuntime.open previously accepted a heartbeat interval that could be equal to or longer than leaseMs. In that configuration the first automatic heartbeat could occur only after authority had already expired, creating avoidable stale-worker failures before any Qubes transport is involved.",
+  "reviews": {
+    "correctness": "Preferred fail-before-claim validation tied directly to leaseMs. A worker configuration that cannot renew before expiry is invalid by construction and should never touch durable state.",
+    "robustness_security": "Preferred fail-closed validation rather than silently clamping the requested interval. Silent clamping hides deployment mistakes and makes the effective authority policy differ from configuration.",
+    "latency_resources_regression": "Preferred one local numeric check over an external watchdog, heartbeat daemon, longer leases, or extra coordinator round trips. The selected approach adds no worker network/Qubes traffic and negligible CPU or memory cost."
+  },
+  "alternatives_rejected": [
+    "Silently clamp heartbeatIntervalMs below leaseMs: masks unsafe configuration and creates configuration/runtime drift.",
+    "Lengthen leaseMs automatically: changes failure detection and reclaim latency globally instead of fixing the invalid heartbeat policy.",
+    "Add a separate heartbeat daemon now: stronger isolation from event-loop stalls but materially larger lifecycle, IPC, credential, and regression surface for Slice 1."
+  ],
+  "qa": [
+    "heartbeatIntervalMs == leaseMs is rejected before coordinator storage I/O.",
+    "heartbeatIntervalMs > leaseMs is rejected fail-closed.",
+    "Existing automatic-heartbeat long-running worker and stale-token fencing regressions remain in test:mission-runtime.",
+    "The new regression test is included in full mission-runtime QA and is a workflow path trigger."
+  ],
+  "failure_lessons": [
+    "Lease fencing is only useful if the renewal schedule is itself valid relative to the lease lifetime.",
+    "Configuration validation should occur before durable state is opened or claimed whenever invalid policy can be determined locally.",
+    "Event-loop starvation remains a separate risk; this change prevents misconfiguration but does not claim to make synchronous CPU-bound execution heartbeat-safe."
+  ],
+  "remaining_risks": [
+    "A JavaScript event-loop stall longer than the lease can still delay the automatic heartbeat even with a valid interval.",
+    "Real-worker readiness still requires executable QA plus Qubes transport qualification using the same lease-token semantics."
+  ]
+}

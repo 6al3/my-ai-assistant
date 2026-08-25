@@ -1,0 +1,28 @@
+{
+  "decision": "Promote repeated OS-process contention measurement from diagnostic-only test output into a separate SHA/host-bound operational qualification command that requires three individually-ready campaigns and enforces <=25% cross-run p95 spread.",
+  "problem": "The process-boundary suite already ran three real contention campaigns, but its 25% stability result was diagnostic-only to avoid flaky CI. That left no operational authority capable of proving contention stability before freezing Slice 1.",
+  "reviews": {
+    "correctness": "Preferred a real campaign runner that reopens durable stores after each run, requires lost missions=0, lost requests=0, double claims=0, and feeds actual enqueue/claim/journal timings into the existing contention and stability evaluators.",
+    "robustness_security": "Preferred clean-worktree + exact-SHA binding, unique run identities, host/runtime fingerprinting, canonical SHA-256 evidence integrity, and fail-closed handling for copied run IDs, dirty trees, malformed timing evidence, or unstable p95. No payloads, lock owner tokens, or secrets are added to the report.",
+    "latency_resources_regression": "Preferred a separate sequential qualification command rather than a hard 25% assertion inside ordinary CI. Sequential runs avoid self-contention; the change is test/qualification-only, adds no production worker or Qubes traffic, and preserves MissionQueue/Coordinator/Journal semantics."
+  },
+  "alternatives_rejected": [
+    "Keep 25% stability diagnostic-only: useful for observation but cannot gate readiness.",
+    "Make the 25% threshold a hard assertion in the normal process-boundary test: simpler, but risks host-noise-driven CI flakiness before a stable execution baseline exists.",
+    "Move contention measurement to a database/telemetry daemon: adds operational state, credentials, IPC/network failure modes, and resource overhead before Slice 2 needs them."
+  ],
+  "qa": [
+    "Three independent campaign run IDs are required.",
+    "Each campaign must independently pass sample coverage and lock-wait/durable-commit budgets.",
+    "Each campaign reopens MissionQueueStore and DurableRequestJournal to prove durable totals and request retention.",
+    "Cross-run enqueue/claim/journal lockWaitP95Ms and durableCommitP95Ms must have relative spread <=25% for LAB READY.",
+    "Dirty worktree and Git SHA mismatch fail before running campaigns.",
+    "Post-qualification evidence tampering invalidates the SHA-256 digest."
+  ],
+  "failure_lessons": [
+    "A diagnostic metric is not a readiness gate until there is an operational authority that fails closed on it.",
+    "Performance-sensitive gates should not be hidden inside ordinary CI when host scheduling noise can make them flaky; separate evidence qualification preserves both signal and CI reliability.",
+    "Repeated process-boundary measurements must be sequential and independently identified to avoid self-contention and copied-evidence false confidence."
+  ],
+  "readiness_effect": "No upgrade beyond LAB READY. The new command can produce stronger contention evidence once executed on a clean checkout, but independent CI and later Qubes transport qualification remain required before REAL-WORKER readiness."
+}

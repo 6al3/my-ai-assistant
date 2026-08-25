@@ -1,0 +1,29 @@
+{
+  "decision": "Use the existing spawned OS-process durability campaign as the source of balanced enqueue, claim, and journal contention evidence, then feed those real path measurements directly into the contention qualification evaluator.",
+  "problem": "The contention evaluator required minimum sample coverage for every mutation path, but the process-boundary campaign produced only two claim samples and did not exercise the evaluator end-to-end. This left a gap where the evaluator could pass unit tests while real spawned-process evidence remained under-sampled or contract-incompatible.",
+  "reviews": {
+    "correctness": "Preferred expanding the real spawned-process campaign to collect at least eight samples for enqueue, claim, and journal paths and then invoking the same qualification evaluator. This verifies no lost missions/requests, no double claims, valid timing evidence, and sample coverage in one path.",
+    "robustness_security": "Preferred keeping all work synthetic and local, retaining fail-closed validation, unique worker/request identities, process-instance lock fencing, and exact durable reload semantics. No production security control is weakened and no external side effect is introduced.",
+    "latency_resources_regression": "Preferred reusing the existing short-lived Node process harness rather than adding a benchmark daemon, database, or Qubes dependency. The added cost is test-only process fan-out. Integration ceilings remain deliberately loose and timeout-derived so they detect hangs without pretending to be production SLOs. Tighter limits must come from repeated host-bound measurements."
+  },
+  "alternatives_rejected": [
+    "Keep evaluator and process-boundary tests separate: lower test cost, but allows contract drift and under-sampled real paths to escape qualification coverage.",
+    "Use only two claim samples: insufficient for a meaningful p95 and explicitly conflicts with the minimum-sample gate.",
+    "Introduce fixed production latency budgets now: unsupported because hosted execution is still unavailable and no stable repeated host-bound measurements exist.",
+    "Move contention measurement to Qubes immediately: higher fidelity but inverts the dependency order; Slice 1 must be proven before Qubes transport is layered on top."
+  ],
+  "qa": [
+    "Collect at least 8 spawned-process samples for enqueue, claim, and journal paths.",
+    "Require every spawned claim to return a distinct mission ID.",
+    "Feed the three result sets into evaluateContentionQualification and require all sample-coverage checks to pass.",
+    "Use only loose integration ceilings derived from the 10-second process timeout; do not treat them as production SLOs.",
+    "Reopen the durable mission store and journal after contention and verify durable totals/running ownership/request presence."
+  ],
+  "failure_lessons": [
+    "A quantitative gate is only useful when the real execution campaign supplies enough samples on every path.",
+    "p95 from two claim samples is not meaningful readiness evidence.",
+    "Unit-testing the evaluator separately from the spawned campaign can miss schema and coverage drift.",
+    "Latency budgets should be measured and host-bound; timeout-derived ceilings are only integration safety rails."
+  ],
+  "next_gate": "Run test:mission-runtime on the new head. Once executable CI is restored, collect repeated host-bound spawned-process results, evaluate stability across runs, and replace loose integration ceilings with measured contention budgets before freezing Slice 1."
+}

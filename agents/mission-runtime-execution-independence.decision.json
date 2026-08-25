@@ -1,0 +1,46 @@
+{
+  "decision": "Bind every mission-runtime qualification report to a unique execution identity and freshness window, and reject duplicate/replayed evidence before cross-report stability evaluation.",
+  "problem": "The cross-report comparator could treat copied evidence as multiple executions, and it read enqueue/claim fields that do not match the real failure-path benchmark schema (failedEnqueue/failedClaim).",
+  "reviews": {
+    "correctness": {
+      "winner": "execution-bound evidence plus real-schema comparison",
+      "reason": "Multiple-execution qualification must prove distinct runs and consume the same benchmark schema produced by qualify:mission-runtime."
+    },
+    "robustness_security": {
+      "winner": "unique UUID run IDs, digest uniqueness, generatedAt freshness, fail-closed legacy rejection",
+      "reason": "Prevents replay/copy evidence and rejects stale or materially future-dated reports without adding trusted-key lifecycle."
+    },
+    "latency_resources_regression": {
+      "winner": "offline metadata validation",
+      "reason": "Adds no worker, Qubes, network, or persistence overhead; only local UUID/timestamp generation and set comparisons."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Compare evidence digests only",
+      "reason": "Different regenerated reports could still lack explicit execution identity/freshness, and legacy copied reports are ambiguous."
+    },
+    {
+      "approach": "Cryptographically sign local qualification reports",
+      "reason": "Would add key lifecycle and still would not fix benchmark schema mismatch; independent CI remains the trusted external gate."
+    },
+    {
+      "approach": "Ignore cross-report comparison until hosted CI returns",
+      "reason": "Would preserve a known false-independence bug in the evidence layer."
+    }
+  ],
+  "qa": [
+    "real failedEnqueue/failedClaim schema is accepted",
+    "duplicate qualificationRunId is rejected",
+    "copied evidence report is rejected",
+    "stale report is rejected",
+    "future-dated report beyond skew is rejected",
+    "mixed SHA/runtime and tampered digest remain rejected",
+    "noisy cross-report p95 remains NOT READY"
+  ],
+  "failures_lessons": [
+    "A fixture using enqueue/claim hid a contract mismatch with production benchmark output failedEnqueue/failedClaim.",
+    "Multiple files do not imply multiple executions; execution identity must be explicit and replay-resistant at the evidence layer.",
+    "Local evidence integrity is not independent CI authentication, so LAB READY remains the maximum classification."
+  ]
+}

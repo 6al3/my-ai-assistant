@@ -1,0 +1,37 @@
+{
+  "decision": "fail-closed-on-live-unverifiable-lock-owner",
+  "problem": "processStartIdentity can return null for a live owner when /proc or ps identity lookup is unavailable; treating null as dead can reclaim a live mutation lock and violate single-writer durability",
+  "reviews": [
+    {
+      "lens": "correctness",
+      "options": ["reclaim on null identity", "never reclaim on null identity", "separate liveness from identity verification"],
+      "winner": "separate liveness from identity verification",
+      "why": "A null identity is ambiguous. Reclaim only when independent PID liveness proves the process is gone; preserve PID-reuse reclamation when a verifiable identity differs."
+    },
+    {
+      "lens": "robustness-security",
+      "options": ["optimistic reclaim", "fail closed for live unverifiable owners", "central lock service"],
+      "winner": "fail closed for live unverifiable owners",
+      "why": "Stealing a live lock can create concurrent writers and lost updates. Timing out is safer than violating the single-writer invariant."
+    },
+    {
+      "lens": "latency-resources-regression",
+      "options": ["database or daemon lock", "additional remote health checks", "local liveness callback plus existing identity check"],
+      "winner": "local liveness callback plus existing identity check",
+      "why": "Adds no Qubes/network round-trips, no new service, and only one local process-liveness check on the ambiguous identity path."
+    }
+  ],
+  "qa": [
+    "live owner with matching identity is never reclaimed",
+    "live owner with unavailable identity is not reclaimed and acquisition times out",
+    "dead owner with unavailable identity is reclaimed",
+    "reused PID with a different verifiable process identity is reclaimed",
+    "malformed owner metadata remains fail-closed"
+  ],
+  "failures_lessons": [
+    "Process identity lookup failure is not equivalent to process death.",
+    "Stale-lock recovery needs separate answers for liveness and identity equality.",
+    "Fail-closed lock contention is preferable to silent concurrent durable writers."
+  ],
+  "scope": "Mission/runtime Slice 1 only; no Qubes transport, iPhone, calibration, or financial side effects"
+}

@@ -1,0 +1,32 @@
+{
+  "decision": "Feed three real spawned OS-process contention campaigns into the existing stability evaluator, while separating integration wiring from the measured 25% qualification threshold until a stable host baseline exists.",
+  "problem": "The contention stability evaluator existed, but the process-boundary suite only qualified one real spawned campaign at a time. That left a gap between unit-tested stability math and actual multi-process execution evidence.",
+  "reviews": {
+    "correctness": "Preferred three independently seeded mission/journal stores and real spawned enqueue/claim/journal operations. Each campaign must independently satisfy lost-state and distinct-claim invariants before its timing summary can enter the stability evaluator.",
+    "robustness_security": "Preferred Fail-Closed per-run qualification and fresh request/idempotency identities. No payloads, owner tokens, or lock metadata are exposed; only duration summaries reach stability evaluation.",
+    "latency_resources_regression": "Rejected forcing the 25% spread threshold as a hard CI assertion before a host-specific baseline exists because scheduler/fsync noise can create flaky failures. The selected approach runs three campaigns sequentially, proves evaluator wiring with a permissive integration ceiling, and still computes and reports the unchanged 25% qualification decision for later host-bound evidence."
+  },
+  "alternatives_rejected": [
+    "Unit-test the stability evaluator only: does not prove real spawned-process evidence reaches it correctly.",
+    "Make 25% spread a hard CI assertion immediately: risks flaky CI before a measured host baseline exists and can incentivize weakening the threshold later.",
+    "Run the three campaigns in parallel: creates artificial self-contention and contaminates the very lock/fsync stability being measured.",
+    "Introduce external telemetry or a database: unnecessary operational and attack surface for Slice 1."
+  ],
+  "qa": [
+    "Run three sequential spawned campaigns, each with at least 8 enqueue, 8 claim, and 8 journal samples.",
+    "Require every campaign to be individually contention-ready and preserve all missions/requests with distinct claims.",
+    "Feed the three real evaluations into evaluateContentionStability.",
+    "Assert the integration path accepts all three runs and emits finite spreads for every lock-wait and durable-commit metric.",
+    "Compute and report the unchanged 25% qualification result without turning unbaselined host noise into a flaky test."
+  ],
+  "failure_lessons": [
+    "A stability policy that is only unit-tested is not the same as a stability gate fed by real OS-process evidence.",
+    "Performance thresholds should not be weakened to make CI green; integration correctness and host-qualified performance policy should remain separate until measurements justify a hard gate.",
+    "Sequential repeated campaigns reduce self-contention and make cross-run comparisons more meaningful."
+  ],
+  "remaining_risks": [
+    "The 25% spread result is diagnostic until repeated evidence from a known host is collected and retained.",
+    "GitHub-hosted runner provisioning remains an external execution blocker, so the new spawned campaign still needs executable Green evidence.",
+    "The filesystem lock remains a same-host primitive and is not a distributed lock across coordinator machines."
+  ]
+}
