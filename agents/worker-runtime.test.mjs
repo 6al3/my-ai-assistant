@@ -92,15 +92,16 @@ test('lease token fences a stale runtime even when worker session identity is re
   assert.deepEqual(completed.result, { fresh: true });
 });
 
-test('execution failure is persisted and retryable under queue policy', async t => {
+test('execution failure is persisted and retryable under fenced queue policy', async t => {
   const store = await fixture(t);
-  const first = await WorkerRuntime.open({ store, workerId: 'worker-a', sessionId: 'a', queueOptions: { maxAttempts: 2 } });
+  const queueOptions = { maxAttempts: 2, requireLeaseToken: true };
+  const first = await WorkerRuntime.open({ store, workerId: 'worker-a', sessionId: 'a', queueOptions });
   const mission = await first.coordinator.enqueue({ task: 'synthetic fault' });
   const failedAttempt = await first.runOnce(async () => { throw new Error('synthetic worker failure'); });
   assert.equal(failedAttempt.status, 'queued');
   assert.equal(failedAttempt.mission.attempts, 1);
 
-  const second = await WorkerRuntime.open({ store, workerId: 'worker-a', sessionId: 'b', queueOptions: { maxAttempts: 2 } });
+  const second = await WorkerRuntime.open({ store, workerId: 'worker-a', sessionId: 'b', queueOptions });
   const recovered = await second.runOnce(async () => ({ ok: true }));
   assert.equal(recovered.status, 'completed');
   assert.equal(recovered.mission.id, mission.id);
