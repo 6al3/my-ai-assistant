@@ -14,6 +14,7 @@ function stableBudgetIdentity(budgets) {
   return JSON.stringify({
     minimumSamplesPerPath: budgets?.minimumSamplesPerPath,
     lockWaitP95Ms: budgets?.lockWaitP95Ms,
+    ownerPublicationP95Ms: budgets?.ownerPublicationP95Ms,
     durableCommitP95Ms: budgets?.durableCommitP95Ms
   });
 }
