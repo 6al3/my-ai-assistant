@@ -41,7 +41,37 @@ async function main() {
     const started = performance.now();
     const mission = await coordinator.claim({ id: value });
     const durableCommitMs = performance.now() - started;
-    process.stdout.write(JSON.stringify({ ok: true, id: mission?.id ?? null, workerId: value, ...metrics, durableCommitMs }));
+    process.stdout.write(JSON.stringify({
+      ok: true,
+      id: mission?.id ?? null,
+      workerId: value,
+      leaseToken: mission?.leaseToken ?? null,
+      ...metrics,
+      durableCommitMs
+    }));
+    return;
+  }
+  if (op === 'terminal-renewal') {
+    const [workerId, leaseToken] = rest;
+    if (!value) throw new Error('terminal-renewal mission id is required');
+    if (!workerId) throw new Error('terminal-renewal worker id is required');
+    if (!leaseToken) throw new Error('terminal-renewal lease token is required');
+    const metrics = timingMetrics();
+    const coordinator = await MissionCoordinator.open({
+      store: new MissionQueueStore(target, { lockOptions: timedLockOptions(metrics) }),
+      queueOptions: { requireLeaseToken: true, preserveRunningLeasesOnRestore: true }
+    });
+    const started = performance.now();
+    const mission = await coordinator.heartbeat(value, workerId, leaseToken);
+    const durableCommitMs = performance.now() - started;
+    process.stdout.write(JSON.stringify({
+      ok: true,
+      id: mission.id,
+      workerId,
+      phase: 'terminalRenewal',
+      ...metrics,
+      durableCommitMs
+    }));
     return;
   }
   if (op === 'worker-run-long') {
