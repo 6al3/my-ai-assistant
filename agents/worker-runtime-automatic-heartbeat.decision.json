@@ -1,0 +1,43 @@
+{
+  "decision": "Use a bounded automatic lease-heartbeat loop inside WorkerRuntime.runOnce and fail closed before completion if heartbeat authority is lost.",
+  "problem": "WorkerRuntime now carries per-claim fencing tokens, but long-running execute callbacks can still outlive the queue lease unless every executor remembers to call the manual heartbeat control. That makes correct long-running work vulnerable to lease expiry/reclaim and stale completion conflicts.",
+  "reviews": {
+    "correctness": {
+      "preferred": "automatic lease renewal tied to the claimed mission lifecycle",
+      "reason": "lease ownership remains valid independently of executor-specific heartbeat discipline, and completion is blocked if automatic renewal fails"
+    },
+    "robustness_security": {
+      "preferred": "fail closed on heartbeat failure while retaining the original fencing token",
+      "reason": "a worker must never report success after lease authority becomes uncertain; stale/fenced failure remains visible instead of silently committing"
+    },
+    "latency_resources_regression": {
+      "preferred": "local timer with one serialized coordinator heartbeat per interval, defaulting to roughly one third of lease duration",
+      "reason": "no new network, Qubes, daemon, store, or protocol dependency; quick tasks usually complete before the first timer fires, while long tasks pay bounded durable-heartbeat cost"
+    }
+  },
+  "alternatives": [
+    {
+      "name": "manual heartbeat only",
+      "rejected": "correctness depends on every executor remembering lease maintenance; omission causes avoidable lease expiry"
+    },
+    {
+      "name": "extend leases to very large fixed durations",
+      "rejected": "reduces recovery responsiveness after crashes and weakens stale-worker fencing"
+    },
+    {
+      "name": "external heartbeat daemon",
+      "rejected": "adds lifecycle, IPC/network, resource, and regression surface before Qubes transport is introduced"
+    }
+  ],
+  "qa": [
+    "long synthetic execution spans multiple lease periods and still completes under requireLeaseToken=true",
+    "synthetic automatic-heartbeat failure prevents complete() from being called and routes the mission through fail-closed failure handling",
+    "existing manual heartbeat, restart/session fencing, same-session stale-token fencing, retry, and capability tests remain in the Mission Runtime suite"
+  ],
+  "resource_notes": "Default heartbeat interval is approximately leaseMs/3 with a 10ms floor. The timer is unref'd so it does not keep a worker process alive. No extra durable mutation occurs for tasks that finish before the first interval.",
+  "failure_lessons": [
+    "A fencing token is necessary but not sufficient for long work: the worker must also maintain lease liveness.",
+    "Heartbeat failure must be treated as lost authority, not as telemetry noise.",
+    "Automatic renewal should be stopped and awaited before terminal completion to avoid a heartbeat racing with completion."
+  ]
+}
