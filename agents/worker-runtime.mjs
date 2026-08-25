@@ -81,7 +81,6 @@ export class WorkerRuntime {
         missionId,
         workerId: this.workerId,
         workerSessionId: this.workerSessionId,
-        leaseToken: this.#leaseToken(missionId),
         durationMs
       });
     }
