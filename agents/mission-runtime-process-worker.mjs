@@ -3,8 +3,9 @@ import { MissionCoordinator } from './mission-coordinator.mjs';
 import { MissionQueueStore } from './mission-queue-store.mjs';
 import { DurableRequestJournal, digestWorkerCommand } from './durable-request-journal.mjs';
 import { withFileMutationLock } from './file-mutation-lock.mjs';
+import { WorkerRuntime } from './worker-runtime.mjs';
 
-const [op, target, value] = process.argv.slice(2);
+const [op, target, value, ...rest] = process.argv.slice(2);
 
 function timedLockOptions(metrics) {
   return {
@@ -41,6 +42,30 @@ async function main() {
     const mission = await coordinator.claim({ id: value });
     const durableCommitMs = performance.now() - started;
     process.stdout.write(JSON.stringify({ ok: true, id: mission?.id ?? null, workerId: value, ...metrics, durableCommitMs }));
+    return;
+  }
+  if (op === 'worker-run-long') {
+    const durationMs = Number(rest[0]);
+    const leaseMs = Number(rest[1]);
+    const heartbeatIntervalMs = Number(rest[2]);
+    if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error('worker-run-long durationMs must be positive');
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('worker-run-long leaseMs must be positive');
+    if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0 || heartbeatIntervalMs >= leaseMs) {
+      throw new Error('worker-run-long heartbeatIntervalMs must be positive and less than leaseMs');
+    }
+    const runtime = await WorkerRuntime.open({
+      store: new MissionQueueStore(target),
+      workerId: value,
+      sessionId: `${value}-session`,
+      queueOptions: { requireLeaseToken: true, preserveRunningLeasesOnRestore: true, leaseMs },
+      heartbeatIntervalMs
+    });
+    const outcome = await runtime.runOnce(async mission => {
+      process.stdout.write(`CLAIMED:${mission.id}\n`);
+      await new Promise(resolve => setTimeout(resolve, durationMs));
+      return { completedBy: value, durationMs };
+    });
+    process.stdout.write(`RESULT:${JSON.stringify({ ok: true, status: outcome.status, id: outcome.mission?.id ?? null })}\n`);
     return;
   }
   if (op === 'journal-begin') {
