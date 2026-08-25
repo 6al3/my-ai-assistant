@@ -112,6 +112,7 @@ export class WorkerRuntime {
     const mission = await this.claim();
     if (!mission) return { status: 'idle', mission: null };
     const automaticHeartbeat = this.#startAutomaticHeartbeat(mission.id);
+    let terminalLeaseRefreshed = false;
     try {
       const result = await execute(mission, {
         heartbeat: () => this.heartbeat(mission.id),
@@ -121,20 +122,35 @@ export class WorkerRuntime {
       });
       await automaticHeartbeat.stop();
       automaticHeartbeat.assertHealthy();
+      await this.heartbeat(mission.id);
+      terminalLeaseRefreshed = true;
       const completed = await this.complete(mission.id, result);
       return { status: 'completed', mission: completed };
     } catch (error) {
       await automaticHeartbeat.stop();
-      const heartbeatAwareError = (() => {
+      let heartbeatHealthy = true;
+      let heartbeatAwareError = (() => {
         try {
           automaticHeartbeat.assertHealthy();
           return error;
         } catch (heartbeatError) {
+          heartbeatHealthy = false;
           return heartbeatError === error
             ? error
             : new AggregateError([error, heartbeatError], 'worker execution and automatic heartbeat both failed');
         }
       })();
+      if (heartbeatHealthy && !terminalLeaseRefreshed) {
+        try {
+          await this.heartbeat(mission.id);
+          terminalLeaseRefreshed = true;
+        } catch (terminalHeartbeatError) {
+          heartbeatAwareError = new AggregateError(
+            [heartbeatAwareError, terminalHeartbeatError],
+            'worker execution failed and terminal lease renewal failed'
+          );
+        }
+      }
       try {
         const failed = await this.fail(mission.id, heartbeatAwareError instanceof Error ? heartbeatAwareError.message : String(heartbeatAwareError));
         return { status: failed.status, mission: failed, error: heartbeatAwareError };
