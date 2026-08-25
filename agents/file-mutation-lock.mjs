@@ -83,6 +83,7 @@ export async function withFileMutationLock(lockPath, operation, {
   const startedAt = now();
   const processIdentity = await getProcessIdentity(process.pid);
   if (!processIdentity) throw new Error('unable to establish mutation lock process identity');
+  let ownerPublicationMs = null;
 
   while (true) {
     let createdDirectory = false;
@@ -95,12 +96,14 @@ export async function withFileMutationLock(lockPath, operation, {
       // Publish owner metadata with the same durable atomic primitive used by mission state.
       // Contenders therefore observe either no owner.json yet or one complete JSON document,
       // never a partially-written owner identity that could create a false fail-closed error.
+      const publicationStartedAt = now();
       await durableAtomicWrite(ownerPath, JSON.stringify({
         pid: process.pid,
         token: ownerToken,
         processIdentity,
         createdAt: now()
       }), { mode: 0o600 });
+      ownerPublicationMs = Math.max(0, now() - publicationStartedAt);
       break;
     } catch (error) {
       if (error?.code !== 'EEXIST') {
@@ -157,7 +160,11 @@ export async function withFileMutationLock(lockPath, operation, {
 
   try {
     const acquiredAt = now();
-    if (onAcquired) await onAcquired({ waitMs: Math.max(0, acquiredAt - startedAt), acquiredAt });
+    if (onAcquired) await onAcquired({
+      waitMs: Math.max(0, acquiredAt - startedAt),
+      ownerPublicationMs,
+      acquiredAt
+    });
     return await operation();
   } finally {
     try {
