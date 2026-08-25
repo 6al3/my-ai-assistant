@@ -45,7 +45,12 @@ export function evaluateContentionQualification({ enqueue, claim, journalCommit,
     throw new Error('legacy journal contention evidence is ambiguous; provide terminal journalCommit evidence');
   }
   if (!budgets || typeof budgets !== 'object') throw new Error('contention budgets are required');
-  for (const key of ['lockWaitP95Ms', 'durableCommitP95Ms']) validateBudget(budgets[key], key);
+  validateBudget(budgets.lockWaitP95Ms, 'lockWaitP95Ms');
+  validateBudget(budgets.durableCommitP95Ms, 'durableCommitP95Ms');
+  // Migration-safe default: existing callers that already bound total durable commit
+  // also bound owner publication. Callers can tighten this independently.
+  const ownerPublicationP95Ms = budgets.ownerPublicationP95Ms ?? budgets.durableCommitP95Ms;
+  validateBudget(ownerPublicationP95Ms, 'ownerPublicationP95Ms');
   validateMinimumSamples(budgets.minimumSamplesPerPath);
 
   const summaryOptions = { minimumSamples: budgets.minimumSamplesPerPath };
@@ -58,13 +63,14 @@ export function evaluateContentionQualification({ enqueue, claim, journalCommit,
   for (const [name, summary] of Object.entries(summaries)) {
     checks[`${name}SampleCoverage`] = summary.count >= budgets.minimumSamplesPerPath;
     checks[`${name}LockWaitWithinBudget`] = summary.lockWaitP95Ms <= budgets.lockWaitP95Ms;
+    checks[`${name}OwnerPublicationWithinBudget`] = summary.ownerPublicationP95Ms <= ownerPublicationP95Ms;
     checks[`${name}DurableCommitWithinBudget`] = summary.durableCommitP95Ms <= budgets.durableCommitP95Ms;
   }
   return {
     ready: Object.values(checks).every(Boolean),
     checks,
     summaries,
-    budgets: { ...budgets },
+    budgets: { ...budgets, ownerPublicationP95Ms },
     qualifiedJournalPhase: 'commit'
   };
 }
