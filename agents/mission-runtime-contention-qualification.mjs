@@ -24,13 +24,17 @@ export function summarizeContentionTimings(results, { minimumSamples = 1 } = {})
   if (!Number.isInteger(minimumSamples) || minimumSamples < 1) throw new Error('minimumSamples must be an integer >= 1');
   if (!Array.isArray(results) || results.length === 0) throw new Error('contention results are required');
   const lockWait = results.map(item => item?.lockWaitMs);
+  const ownerPublication = results.map(item => item?.ownerPublicationMs);
   const durableCommit = results.map(item => item?.durableCommitMs);
   validateSamples(lockWait, 'lockWaitMs', minimumSamples);
+  validateSamples(ownerPublication, 'ownerPublicationMs', minimumSamples);
   validateSamples(durableCommit, 'durableCommitMs', minimumSamples);
   return {
     count: results.length,
     lockWaitP50Ms: percentile(lockWait, 0.50),
     lockWaitP95Ms: percentile(lockWait, 0.95),
+    ownerPublicationP50Ms: percentile(ownerPublication, 0.50),
+    ownerPublicationP95Ms: percentile(ownerPublication, 0.95),
     durableCommitP50Ms: percentile(durableCommit, 0.50),
     durableCommitP95Ms: percentile(durableCommit, 0.95)
   };
