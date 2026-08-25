@@ -21,6 +21,45 @@ function blockEventLoop(ms) {
   }
 }
 
+test('unsupported execution modes fail before coordinator or storage access', async () => {
+  let storageTouched = false;
+  const store = {
+    load: async () => {
+      storageTouched = true;
+      throw new Error('storage should not be touched');
+    }
+  };
+
+  for (const executionMode of ['blocking', 'threaded', '', null]) {
+    await assert.rejects(
+      () => WorkerRuntime.open({
+        store,
+        workerId: 'mode-guard-worker',
+        sessionId: 'mode-guard-session',
+        executionMode
+      }),
+      /executionMode must be cooperative/
+    );
+  }
+  assert.equal(storageTouched, false, 'invalid execution mode must fail before coordinator/storage open');
+
+  const cooperativeStore = {
+    load: async () => {
+      storageTouched = true;
+      return { version: 1, missions: [], idempotency: [] };
+    },
+    save: async () => {}
+  };
+  const runtime = await WorkerRuntime.open({
+    store: cooperativeStore,
+    workerId: 'cooperative-worker',
+    sessionId: 'cooperative-session',
+    executionMode: 'cooperative'
+  });
+  assert.equal(runtime.executionMode, 'cooperative');
+  assert.equal(storageTouched, true);
+});
+
 test('runOnce claims, executes and durably completes a mission', async t => {
   const store = await fixture(t);
   const runtime = await WorkerRuntime.open({ store, workerId: 'qa-1', capabilities: ['qa'], sessionId: 'boot-a' });
@@ -46,6 +85,7 @@ test('runOnce carries lease fencing tokens through heartbeat and completion', as
   const outcome = await runtime.runOnce(async (claimed, control) => {
     assert.equal(typeof claimed.leaseToken, 'string');
     assert.ok(claimed.leaseToken.length > 0);
+    assert.equal(control.executionMode, 'cooperative');
     const heartbeat = await control.heartbeat();
     assert.equal(heartbeat.id, claimed.id);
     assert.equal(heartbeat.leaseToken, claimed.leaseToken);
