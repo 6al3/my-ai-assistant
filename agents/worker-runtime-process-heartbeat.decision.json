@@ -1,0 +1,25 @@
+{
+  "decision": "Qualify automatic lease maintenance across a real OS-process boundary with a competing coordinator process and a crash/reclaim control.",
+  "problem": "WorkerRuntime automatic heartbeat was covered inside one Node process, but Slice 1 lacked evidence that a long-running worker keeps a fenced lease against an independent process, and that authority becomes reclaimable after the worker process dies and heartbeats stop.",
+  "reviews": {
+    "correctness": "Preferred a spawned WorkerRuntime using the production MissionQueueStore/Coordinator contract, then a separate spawned contender after the original lease duration. This tests the exact lease-token and durable-store semantics needed before qrexec process boundaries.",
+    "robustness_security": "Preferred a crash control that SIGKILLs the worker process, waits beyond the bounded lease window, and requires a separate process to reclaim. Healthy-heartbeat contention must return no mission; stale ownership after crash must not remain indefinitely.",
+    "latency_resources_regression": "Preferred two short deterministic process-boundary tests over a daemon, external scheduler, or Qubes dependency. The tests add no production traffic or runtime state and reuse the existing process worker harness."
+  },
+  "alternatives_rejected": [
+    "In-process timer tests only: validate heartbeat code but not persistence/reload behavior across process boundaries.",
+    "Very long leases instead of automatic heartbeats: reduce renewal traffic but materially slow crash recovery and stale-owner reclamation.",
+    "Start Slice 2 qrexec testing immediately: higher fidelity, but it would mix transport failures with an unqualified Mission/runtime lease-liveness contract."
+  ],
+  "qa": [
+    "A spawned long-running worker remains authoritative beyond the original lease duration while automatic heartbeats succeed.",
+    "A separate spawned contender cannot reclaim the healthy worker's mission.",
+    "After SIGKILL, heartbeats stop and the same mission becomes reclaimable only after lease expiry.",
+    "The healthy path ends in exactly one durable completed mission."
+  ],
+  "failure_lessons": [
+    "Per-claim fencing prevents stale terminal writes, but without process-boundary lease-liveness evidence it does not prove a real worker can safely execute tasks longer than one lease.",
+    "Crash recovery and healthy-heartbeat protection are complementary requirements: a lease must neither expire too early nor remain owned forever."
+  ],
+  "remaining_gate": "Run the new process-boundary heartbeat campaign green under test:mission-runtime on the exact head, then keep Slice 1 frozen before extracting Qubes transport/qualification."
+}
