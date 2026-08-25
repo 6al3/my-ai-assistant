@@ -69,8 +69,53 @@ async function main() {
       id: mission.id,
       workerId,
       phase: 'terminalRenewal',
+      source: 'coordinator-heartbeat-benchmark',
       ...metrics,
       durableCommitMs
+    }));
+    return;
+  }
+  if (op === 'worker-run-terminal') {
+    const leaseMs = Number(rest[0] ?? 2_000);
+    const heartbeatIntervalMs = Number(rest[1] ?? 500);
+    const shouldFail = rest[2] === 'fail';
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('worker-run-terminal leaseMs must be positive');
+    if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0 || heartbeatIntervalMs >= leaseMs) {
+      throw new Error('worker-run-terminal heartbeatIntervalMs must be positive and less than leaseMs');
+    }
+    const metrics = timingMetrics();
+    let terminalRenewal = null;
+    const runtime = await WorkerRuntime.open({
+      store: new MissionQueueStore(target, { lockOptions: timedLockOptions(metrics) }),
+      workerId: value,
+      sessionId: `${value}-terminal-session`,
+      queueOptions: { requireLeaseToken: true, preserveRunningLeasesOnRestore: true, leaseMs },
+      heartbeatIntervalMs,
+      onLeaseTelemetry: event => {
+        if (event.phase !== 'terminalRenewal') return;
+        terminalRenewal = {
+          ok: true,
+          id: event.missionId,
+          workerId: event.workerId,
+          workerSessionId: event.workerSessionId,
+          phase: event.phase,
+          source: 'worker-runtime',
+          lockWaitMs: metrics.lockWaitMs,
+          ownerPublicationMs: metrics.ownerPublicationMs,
+          durableCommitMs: event.durationMs
+        };
+      }
+    });
+    const outcome = await runtime.runOnce(async mission => {
+      if (shouldFail) throw new Error(`synthetic terminal failure for ${mission.id}`);
+      return { completedBy: value, terminalPath: true };
+    });
+    if (!terminalRenewal) throw new Error('worker-run-terminal did not emit terminal renewal telemetry');
+    process.stdout.write(JSON.stringify({
+      ok: true,
+      status: outcome.status,
+      id: outcome.mission?.id ?? null,
+      terminalRenewal
     }));
     return;
   }
