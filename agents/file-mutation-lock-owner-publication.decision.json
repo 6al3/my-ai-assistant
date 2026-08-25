@@ -1,0 +1,29 @@
+{
+  "decision": "Publish mutation-lock owner metadata with the existing durable atomic writer after mkdir, so contenders observe either no owner.json or one complete owner document.",
+  "problem": "The lock directory is created before owner.json is published. A direct write to owner.json can be observed mid-write by a competing process, which can turn a healthy live owner into an apparent corrupt-owner fail-closed error. Publication failure could also leave an unnecessary ownerless lock until orphan grace elapsed.",
+  "reviews": {
+    "correctness": "Preferred atomic owner publication. It preserves the existing ownerless grace window while removing partially visible ownership documents from the state machine.",
+    "robustness_security": "Preferred reuse of durableAtomicWrite with mode 0600 and fail-closed parsing. Corrupt published metadata remains non-reclaimable by age; only genuinely absent owner metadata enters ownerless recovery. A local publication/setup failure cleans the just-created ownerless directory immediately.",
+    "latency_resources_regression": "Preferred reuse of the local atomic writer over retrying malformed JSON, adding a database, or adding a lock daemon. It adds no network/Qubes round trip and keeps the public lock API and ownership format unchanged. The extra fsync is local and occurs only on mutation-lock acquisition."
+  },
+  "alternatives_rejected": [
+    "Retry malformed owner JSON: weakens the distinction between corruption and an in-progress publication and can hide real metadata damage.",
+    "Keep direct writeFile publication: smallest code change but leaves a partial-read race at the ownership boundary.",
+    "Move ownership to a database or daemon: stronger centralized coordination but materially larger operational, security, and regression surface for a same-host Slice-1 lock."
+  ],
+  "qa": [
+    "Pause the first acquirer after mkdir but before owner publication; a contender must tolerate the ownerless window and serialize behind it.",
+    "After publication, owner.json must parse as a complete document containing token and process identity.",
+    "If owner publication setup fails after mkdir, the failed attempt must remove its ownerless directory and allow immediate reacquisition.",
+    "Existing corrupt/malformed owner metadata tests remain fail-closed, preserving the security boundary between missing publication and corrupt publication."
+  ],
+  "failure_lessons": [
+    "Atomic directory acquisition does not imply atomic publication of ownership metadata stored in a separate file.",
+    "Fail-closed parsing is only robust when healthy writers cannot expose transient partial state to readers.",
+    "The ownerless grace path should represent only the mkdir-to-publish window or a crash in that window, not ordinary local publication failures."
+  ],
+  "remaining_risks": [
+    "The filesystem mutation lock remains a same-host coordination primitive, not a distributed lock across coordinator machines.",
+    "Owner publication now performs fsync-backed local persistence, so lock-acquisition latency should remain part of the existing contention measurements before Slice 1 is frozen."
+  ]
+}
