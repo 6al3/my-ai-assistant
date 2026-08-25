@@ -1,9 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { processStartIdentity, withFileMutationLock } from './file-mutation-lock.mjs';
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function missing(target) {
+  try {
+    await stat(target);
+    return false;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return true;
+    throw error;
+  }
+}
 
 test('mutation lock serializes competing callers and reports acquisition wait', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-'));
@@ -174,4 +186,64 @@ test('mutation lock fails closed on corrupt owner JSON even after orphan grace',
     retryMs: 1,
     timeoutMs: 10
   }), /invalid mutation lock owner metadata/);
+});
+
+test('contenders tolerate the ownerless publication window and only observe complete owner metadata', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-owner-publication-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+  const ownerPath = path.join(lock, 'owner.json');
+  const events = [];
+
+  let releasePublication;
+  const publicationGate = new Promise(resolve => { releasePublication = resolve; });
+  let directoryCreated;
+  const directoryReady = new Promise(resolve => { directoryCreated = resolve; });
+
+  const first = withFileMutationLock(lock, async () => {
+    events.push('first');
+    await sleep(15);
+  }, {
+    retryMs: 1,
+    timeoutMs: 500,
+    orphanGraceMs: 1_000,
+    onDirectoryCreated: async () => {
+      directoryCreated();
+      await publicationGate;
+    }
+  });
+
+  await directoryReady;
+  assert.equal(await missing(ownerPath), true, 'owner metadata must remain absent before atomic publication');
+
+  const contender = withFileMutationLock(lock, async () => {
+    events.push('contender');
+    const owner = JSON.parse(await readFile(ownerPath, 'utf8'));
+    assert.equal(typeof owner.token, 'string');
+    assert.equal(typeof owner.processIdentity, 'string');
+  }, {
+    retryMs: 1,
+    timeoutMs: 500,
+    orphanGraceMs: 1_000
+  });
+
+  await sleep(10);
+  releasePublication();
+  await Promise.all([first, contender]);
+  assert.deepEqual(events, ['first', 'contender']);
+});
+
+test('owner publication setup failure removes the ownerless lock attempt immediately', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dig-mutation-lock-owner-publication-error-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const lock = path.join(root, 'state.lock');
+
+  await assert.rejects(() => withFileMutationLock(lock, async () => 'must-not-run', {
+    onDirectoryCreated: async () => {
+      throw new Error('owner publication setup failed');
+    }
+  }), /owner publication setup failed/);
+
+  assert.equal(await missing(lock), true, 'failed publication must not leave an ownerless lock directory');
+  assert.equal(await withFileMutationLock(lock, async () => 'reacquired'), 'reacquired');
 });
