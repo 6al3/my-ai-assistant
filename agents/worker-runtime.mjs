@@ -1,29 +1,41 @@
 import { randomUUID } from 'node:crypto';
 import { MissionCoordinator } from './mission-coordinator.mjs';
 
+const SUPPORTED_EXECUTION_MODE = 'cooperative';
+
+function validateExecutionMode(executionMode) {
+  if (executionMode !== SUPPORTED_EXECUTION_MODE) {
+    throw new Error(`executionMode must be ${SUPPORTED_EXECUTION_MODE}`);
+  }
+  return executionMode;
+}
+
 export class WorkerRuntime {
-  static async open({ store, workerId, capabilities = [], queueOptions = {}, sessionId = randomUUID(), heartbeatIntervalMs = null } = {}) {
+  static async open({ store, workerId, capabilities = [], queueOptions = {}, sessionId = randomUUID(), heartbeatIntervalMs = null, executionMode = SUPPORTED_EXECUTION_MODE } = {}) {
     if (!workerId?.trim()) throw new Error('workerId is required');
+    validateExecutionMode(executionMode);
     const leaseMs = Number.isFinite(queueOptions.leaseMs) && queueOptions.leaseMs > 0 ? queueOptions.leaseMs : 30_000;
     const resolvedHeartbeatIntervalMs = heartbeatIntervalMs ?? Math.max(10, Math.floor(leaseMs / 3));
     if (!Number.isFinite(resolvedHeartbeatIntervalMs) || resolvedHeartbeatIntervalMs <= 0 || resolvedHeartbeatIntervalMs >= leaseMs) {
       throw new Error('heartbeatIntervalMs must be positive and less than leaseMs');
     }
     const coordinator = await MissionCoordinator.open({ store, queueOptions });
-    return new WorkerRuntime({ coordinator, workerId, capabilities, sessionId, heartbeatIntervalMs: resolvedHeartbeatIntervalMs });
+    return new WorkerRuntime({ coordinator, workerId, capabilities, sessionId, heartbeatIntervalMs: resolvedHeartbeatIntervalMs, executionMode });
   }
 
-  constructor({ coordinator, workerId, capabilities = [], sessionId, heartbeatIntervalMs = 10_000 }) {
+  constructor({ coordinator, workerId, capabilities = [], sessionId, heartbeatIntervalMs = 10_000, executionMode = SUPPORTED_EXECUTION_MODE }) {
     if (!coordinator) throw new Error('coordinator is required');
     if (!workerId?.trim()) throw new Error('workerId is required');
     if (!sessionId?.trim()) throw new Error('sessionId is required');
     if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0) throw new Error('heartbeatIntervalMs must be positive');
+    validateExecutionMode(executionMode);
     this.coordinator = coordinator;
     this.workerId = workerId.trim();
     this.capabilities = [...new Set(capabilities)];
     this.sessionId = sessionId.trim();
     this.workerSessionId = `${this.workerId}@${this.sessionId}`;
     this.heartbeatIntervalMs = heartbeatIntervalMs;
+    this.executionMode = executionMode;
     this.activeLeases = new Map();
   }
 
@@ -104,7 +116,8 @@ export class WorkerRuntime {
       const result = await execute(mission, {
         heartbeat: () => this.heartbeat(mission.id),
         workerId: this.workerId,
-        workerSessionId: this.workerSessionId
+        workerSessionId: this.workerSessionId,
+        executionMode: this.executionMode
       });
       await automaticHeartbeat.stop();
       automaticHeartbeat.assertHealthy();
