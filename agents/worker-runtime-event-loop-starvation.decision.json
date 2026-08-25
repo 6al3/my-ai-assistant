@@ -1,0 +1,29 @@
+{
+  "decision": "Keep lease authority enforced by coordinator-side expiry and fencing, add an explicit event-loop-starvation regression now, and require cooperative/non-blocking executors for Slice 1. Evaluate an isolated heartbeat supervisor only if real workloads require synchronous CPU-bound execution.",
+  "problem": "Automatic heartbeat timers run on the worker event loop. A synchronous CPU-bound executor can starve the timer past lease expiry. The worker must never commit a result after authority expires, and another worker must be able to reclaim the mission.",
+  "reviews": {
+    "correctness": "Preferred proving the existing coordinator lease-expiry/fencing boundary under deliberate event-loop starvation before adding a second heartbeat authority. A stale worker must fail to complete/fail with its expired lease, and a fresh worker must reclaim and complete.",
+    "robustness_security": "Preferred fail-closed stale completion rejection over extending leases or silently accepting late work. Coordinator-side fencing remains authoritative even when the worker runtime cannot schedule its heartbeat timer.",
+    "latency_resources_regression": "Preferred a regression test plus cooperative executor contract for Slice 1. A worker-thread/process heartbeat supervisor would preserve liveness for blocking executors but adds IPC, lifecycle, shutdown, crash-reconciliation and resource overhead; defer it until a measured workload demonstrates the need."
+  },
+  "alternatives_rejected": [
+    "Increase lease duration to tolerate CPU blocking: masks starvation, increases stale-owner recovery latency, and does not establish a correctness bound.",
+    "Silently clamp heartbeat/lease timing: hides invalid execution assumptions and weakens operator visibility.",
+    "Immediately add a heartbeat supervisor thread/process: stronger liveness for blocking executors but materially larger IPC/lifecycle/regression surface before Slice 1 has executable green QA."
+  ],
+  "qa": [
+    "Block the worker event loop longer than leaseMs while automatic heartbeat is configured safely.",
+    "Assert the starved worker cannot durably complete its stale result.",
+    "Assert stale failure persistence is also fenced when authority has expired.",
+    "Open a replacement worker on the same durable store, reclaim the mission, and complete it successfully."
+  ],
+  "failure_lessons": [
+    "A valid heartbeat interval does not guarantee heartbeat liveness when user execution blocks the event loop.",
+    "Lease correctness must be enforced at the durable coordinator boundary, not trusted to worker timers.",
+    "Heartbeat supervision is a liveness optimization, not the authority boundary; adding it should not weaken fencing."
+  ],
+  "remaining_risks": [
+    "Synchronous CPU-bound executors lose their lease and may waste work; Slice 1 should treat such executors as unsupported until isolated supervision is justified by measurements.",
+    "The new regression still requires executable CI evidence before Slice 1 can be frozen."
+  ]
+}
