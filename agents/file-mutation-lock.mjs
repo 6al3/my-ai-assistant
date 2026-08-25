@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { durableAtomicWrite } from './durable-atomic-write.mjs';
 
 const execFileAsync = promisify(execFile);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -84,12 +85,17 @@ export async function withFileMutationLock(lockPath, operation, {
   if (!processIdentity) throw new Error('unable to establish mutation lock process identity');
 
   while (true) {
+    let createdDirectory = false;
     try {
       await mkdir(lockPath, { mode: 0o700 });
+      createdDirectory = true;
       // Fault-injection/observability hook for the only legitimate ownerless-lock window:
       // the directory exists, but owner metadata has not yet been published.
       if (onDirectoryCreated) await onDirectoryCreated({ lockPath, ownerPath });
-      await writeFile(ownerPath, JSON.stringify({
+      // Publish owner metadata with the same durable atomic primitive used by mission state.
+      // Contenders therefore observe either no owner.json yet or one complete JSON document,
+      // never a partially-written owner identity that could create a false fail-closed error.
+      await durableAtomicWrite(ownerPath, JSON.stringify({
         pid: process.pid,
         token: ownerToken,
         processIdentity,
@@ -97,7 +103,13 @@ export async function withFileMutationLock(lockPath, operation, {
       }), { mode: 0o600 });
       break;
     } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
+      if (error?.code !== 'EEXIST') {
+        // If this acquisition created the directory but failed before publishing ownership,
+        // no other writer can legitimately own it yet. Remove only this ownerless attempt so
+        // callers do not have to wait for orphanGraceMs after a local publication failure.
+        if (createdDirectory) await rm(lockPath, { recursive: true, force: true }).catch(() => {});
+        throw error;
+      }
 
       let reclaim = false;
       let ownerText;
@@ -107,7 +119,7 @@ export async function withFileMutationLock(lockPath, operation, {
         if (ownerReadError?.code !== 'ENOENT') {
           throw new Error('unable to read mutation lock owner metadata', { cause: ownerReadError });
         }
-        // A process can create the lock directory just before publishing owner.json.
+        // A process can create the lock directory just before atomically publishing owner.json.
         // Only a genuinely ownerless directory may use age-based orphan recovery.
         try {
           const info = await stat(lockPath);
