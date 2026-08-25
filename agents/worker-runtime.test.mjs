@@ -14,6 +14,13 @@ async function fixture(t) {
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function blockEventLoop(ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    // Intentionally synchronous: models CPU-bound executor starvation.
+  }
+}
+
 test('runOnce claims, executes and durably completes a mission', async t => {
   const store = await fixture(t);
   const runtime = await WorkerRuntime.open({ store, workerId: 'qa-1', capabilities: ['qa'], sessionId: 'boot-a' });
@@ -66,6 +73,48 @@ test('automatic heartbeat keeps long-running work inside its lease', async t => 
   assert.equal(outcome.status, 'completed');
   assert.equal(outcome.mission.id, mission.id);
   assert.deepEqual(outcome.mission.result, { completedAfterMultipleLeases: true });
+});
+
+test('event-loop starvation cannot commit after lease expiry and another worker can reclaim', async t => {
+  const store = await fixture(t);
+  const queueOptions = { requireLeaseToken: true, leaseMs: 25, maxAttempts: 3 };
+  const starved = await WorkerRuntime.open({
+    store,
+    workerId: 'cpu-bound-worker',
+    sessionId: 'starved-session',
+    heartbeatIntervalMs: 5,
+    queueOptions
+  });
+  const mission = await starved.coordinator.enqueue({ task: 'cpu-bound synthetic work' });
+
+  await assert.rejects(
+    () => starved.runOnce(async () => {
+      blockEventLoop(60);
+      return { staleResultMustNotCommit: true };
+    }),
+    error => {
+      assert.ok(error instanceof AggregateError);
+      assert.match(error.message, /mission failure could not be persisted/);
+      return true;
+    }
+  );
+
+  const observer = await WorkerRuntime.open({
+    store,
+    workerId: 'replacement-worker',
+    sessionId: 'replacement-session',
+    heartbeatIntervalMs: 5,
+    queueOptions
+  });
+  const durableBeforeReclaim = observer.coordinator.get(mission.id);
+  assert.notEqual(durableBeforeReclaim.status, 'completed', 'starved worker must never commit a stale result');
+
+  const reclaimed = await observer.claim();
+  assert.equal(reclaimed.id, mission.id);
+  assert.equal(reclaimed.workerId, observer.workerSessionId);
+  const completed = await observer.complete(mission.id, { recovered: true });
+  assert.equal(completed.status, 'completed');
+  assert.deepEqual(completed.result, { recovered: true });
 });
 
 test('automatic heartbeat failure prevents successful completion and fails closed', async () => {
