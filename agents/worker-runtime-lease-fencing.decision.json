@@ -1,0 +1,46 @@
+{
+  "decision": "Make WorkerRuntime retain the exact per-claim lease fencing token and require it for heartbeat, complete, and fail mutations.",
+  "problem": "MissionQueue supports requireLeaseToken=true, but WorkerRuntime previously discarded the token returned by claim and called heartbeat/complete/fail without it. That made the normal worker abstraction incompatible with the fencing contract required before distributed/Qubes workers.",
+  "independent_reviews": {
+    "correctness": {
+      "preferred": "Runtime-owned per-mission lease token state, captured from claim and supplied on every owned mutation.",
+      "reason": "Worker/session identity alone cannot distinguish an old execution from a later reclaim using the same identity. The claim token is the actual fencing authority."
+    },
+    "robustness_security": {
+      "preferred": "Fail closed when the runtime does not hold a token; prove an old runtime is rejected after the same worker/session identity reclaims the mission with a new token.",
+      "reason": "This prevents stale completions, heartbeats, or failures from being accepted merely because a worker name/session string was reused."
+    },
+    "latency_resources_regression": {
+      "preferred": "Keep the token in an in-memory Map scoped to the WorkerRuntime instance and reuse the existing coordinator mutation calls.",
+      "reason": "Adds no filesystem, network, qrexec, or Qubes round trips and only constant-size local state per active mission. It has a smaller regression surface than adding a second durable worker-session store."
+    }
+  },
+  "alternatives_rejected": [
+    "Worker/session identity only: insufficient fencing when the same identity is reused after reclaim.",
+    "Pass lease tokens manually through every caller instead of WorkerRuntime owning them: makes the abstraction easy to misuse and leaves runOnce unable to enforce the contract centrally.",
+    "Disable requireLeaseToken in WorkerRuntime paths: weakens the security/reliability control needed for distributed workers.",
+    "Persist runtime lease tokens in a new database/store: unnecessary for Slice 1; process restart should lose local authority and reacquire through the durable coordinator."
+  ],
+  "qa": [
+    "runOnce under requireLeaseToken=true carries the exact claim token through heartbeat and completion.",
+    "Execution failure under requireLeaseToken=true persists through fail using the held token and remains retryable under queue policy.",
+    "Two runtimes using the same workerId and same sessionId receive different tokens after restart/reclaim; the old runtime is rejected and the new runtime completes.",
+    "Missing local lease authority fails closed rather than falling back to identity-only mutation."
+  ],
+  "failure_lessons": [
+    "Adding fencing to MissionQueue is insufficient if the higher-level WorkerRuntime silently drops the fencing credential.",
+    "A stable worker identity is useful for observability, not for stale-execution fencing; ownership generations need a per-claim token.",
+    "Process restart should not preserve local lease authority by default. A restarted worker must recover/reclaim through durable state and receive a fresh token."
+  ],
+  "resource_impact": {
+    "additional_network_or_qrexec_round_trips": 0,
+    "additional_persistent_io": 0,
+    "memory": "one lease-token entry per active mission in the WorkerRuntime instance",
+    "production_latency": "negligible local map lookup"
+  },
+  "remaining_risks": [
+    "The filesystem persistence/lock remains same-host only.",
+    "Slice 1 still needs independent executable QA; hosted runner provisioning remains a separate blocker.",
+    "Qubes transport must preserve these lease-token semantics end-to-end in Slice 2 before REAL-WORKER readiness."
+  ]
+}
