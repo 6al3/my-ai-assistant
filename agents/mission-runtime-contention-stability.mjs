@@ -41,7 +41,7 @@ export function evaluateContentionStability(
 
   const budgetIdentity = stableBudgetIdentity(evaluations[0]?.budgets);
   const requiredPaths = ['enqueue', 'claim', 'journalCommit'];
-  const requiredMetrics = ['lockWaitP95Ms', 'durableCommitP95Ms'];
+  const requiredMetrics = ['lockWaitP95Ms', 'ownerPublicationP95Ms', 'durableCommitP95Ms'];
 
   for (const [index, evaluation] of evaluations.entries()) {
     if (!evaluation || typeof evaluation !== 'object') throw new Error(`evaluation ${index} is required`);
