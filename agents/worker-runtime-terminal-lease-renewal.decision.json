@@ -1,0 +1,56 @@
+{
+  "decision": "renew-before-terminal",
+  "scope": "WorkerRuntime runOnce terminal complete/fail persistence",
+  "problem": "Automatic heartbeat was stopped before terminal complete/fail, leaving the remaining lease headroom dependent on the timing of the last periodic heartbeat while terminal persistence may wait on serialization/fsync contention.",
+  "independent_reviews": [
+    {
+      "perspective": "correctness",
+      "preferred": "renew-before-terminal",
+      "reason": "Refreshes authority immediately before terminal persistence while preserving lease-token fencing as the coordinator authority."
+    },
+    {
+      "perspective": "robustness-security",
+      "preferred": "renew-before-terminal",
+      "reason": "Fails closed if final renewal fails and avoids accepting terminal mutations after authority is uncertain."
+    },
+    {
+      "perspective": "latency-resources-regression",
+      "preferred": "renew-before-terminal",
+      "reason": "Adds one existing heartbeat mutation per terminal path, with no new process, daemon, database, IPC, or Qubes dependency and a smaller regression surface than concurrent terminal-heartbeat coordination."
+    }
+  ],
+  "alternatives": [
+    {
+      "name": "keep-current-ordering",
+      "rejected_because": "Terminal persistence inherits arbitrary residual lease headroom from the previous periodic heartbeat."
+    },
+    {
+      "name": "keep-heartbeat-running-during-terminal-mutation",
+      "rejected_because": "A heartbeat racing after successful completion can observe terminal state and report an error, creating ambiguous success/failure ordering without additional coordinator protocol."
+    },
+    {
+      "name": "terminal-reservation-or-supervisor-protocol",
+      "rejected_because": "Stronger but materially expands coordinator/runtime protocol and regression surface before measured evidence shows it is necessary."
+    }
+  ],
+  "tradeoffs": {
+    "correctness": "Improves terminal authority headroom and remains fenced by lease token.",
+    "robustness": "Final renewal failure prevents terminal success and is surfaced through existing fail-closed handling.",
+    "latency": "Adds one durable heartbeat mutation before terminal complete/fail.",
+    "resource_use": "No new long-lived resource; one additional mutation and persistence cycle per terminal path.",
+    "regression_risk": "Localized to WorkerRuntime terminal ordering and covered by mock-contract regressions."
+  },
+  "qa": [
+    "Quick successful execution with no periodic heartbeat must perform exactly one renewal before complete.",
+    "Execution failure with no periodic heartbeat must perform exactly one renewal before fail persistence.",
+    "Existing automatic-heartbeat-loss test must still prevent completion.",
+    "Existing event-loop-starvation fencing test must still reject stale terminal authority.",
+    "Full test:mission-runtime remains required before Slice 1 can be frozen."
+  ],
+  "lessons": [
+    "Periodic heartbeat health and terminal persistence authority are related but distinct concerns.",
+    "Stopping periodic renewal is safe only after deliberately restoring terminal lease headroom or after introducing a stronger atomic terminal protocol.",
+    "Do not keep heartbeat racing blindly through completion without defining terminal-state heartbeat semantics."
+  ],
+  "readiness_impact": "LAB READY only until independent executable QA is green."
+}
