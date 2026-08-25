@@ -51,16 +51,10 @@ async function defaultGitRead(commandArgs, cwd) {
 }
 
 export async function qualifyMissionRuntimeContention({
-  cwd = process.cwd(),
-  expectedSha = null,
-  runCount = 3,
-  maxRelativeP95Spread = 0.25,
-  campaignOptions = {},
-  campaign = runMissionRuntimeContentionCampaign,
-  gitRead = defaultGitRead,
-  runtimeFingerprint = defaultRuntimeFingerprint,
-  now = () => Date.now(),
-  runIdFactory = randomUUID
+  cwd = process.cwd(), expectedSha = null, runCount = 3, maxRelativeP95Spread = 0.25,
+  campaignOptions = {}, campaign = runMissionRuntimeContentionCampaign,
+  gitRead = defaultGitRead, runtimeFingerprint = defaultRuntimeFingerprint,
+  now = () => Date.now(), runIdFactory = randomUUID
 } = {}) {
   if (!Number.isInteger(runCount) || runCount < 3 || runCount > 10) throw new Error('runCount must be an integer between 3 and 10');
   if (!Number.isFinite(maxRelativeP95Spread) || maxRelativeP95Spread < 0 || maxRelativeP95Spread > 1) throw new Error('maxRelativeP95Spread must be between 0 and 1');
@@ -83,19 +77,25 @@ export async function qualifyMissionRuntimeContention({
 
   const evaluations = runs.map(run => run.evaluation);
   const stability = evaluateContentionStability(evaluations, { minimumRuns: runCount, maxRelativeP95Spread });
-  const correctnessReady = runs.every(run =>
-    run.correctness?.lostMissions === 0
-    && run.correctness?.lostRequests === 0
-    && run.correctness?.uncommittedResponses === 0
-    && run.correctness?.doubleClaims === 0
-    && run.evidence?.qualifiedJournalPhase === 'commit'
-  );
+  const correctnessReady = runs.every(run => {
+    const minimumSamples = run.evaluation?.budgets?.minimumSamplesPerPath;
+    return run.correctness?.lostMissions === 0
+      && run.correctness?.lostRequests === 0
+      && run.correctness?.uncommittedResponses === 0
+      && run.correctness?.doubleClaims === 0
+      && run.evidence?.qualifiedJournalPhase === 'commit'
+      && run.evidence?.qualifiedWorkerPhase === 'terminalRenewal'
+      && run.evidence?.terminalRenewalSource === 'worker-runtime'
+      && Number.isInteger(run.evidence?.terminalRenewalCount)
+      && Number.isInteger(minimumSamples)
+      && run.evidence.terminalRenewalCount >= minimumSamples;
+  });
   const ready = correctnessReady && stability.ready;
   const generatedAtMs = now();
   const qualificationRunId = runIdFactory();
   if (typeof qualificationRunId !== 'string' || qualificationRunId.length < 8) throw new Error('qualification run ID is invalid');
   const evidence = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     qualificationRunId,
     generatedAt: new Date(generatedAtMs).toISOString(),
     gitSha: sha,
