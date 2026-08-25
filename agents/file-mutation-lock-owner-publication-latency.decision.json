@@ -1,0 +1,49 @@
+{
+  "decision": "Measure durable owner publication latency separately from lock wait and durable commit, and require its p95 stability across repeated contention runs before treating timing evidence as stable.",
+  "context": "The lock now publishes owner.json with a durable atomic write (file fsync + atomic rename + directory fsync). Existing contention evidence measured total lock wait and durable mutation commit latency but could not isolate owner-publication fsync cost or detect instability in that sub-path.",
+  "independent_reviews": {
+    "correctness": {
+      "preferred": "Measure owner publication at the ownership boundary and propagate the observed duration through the real spawned-process campaign.",
+      "reason": "It attributes fsync-backed ownership publication cost directly instead of inferring it from end-to-end mutation latency."
+    },
+    "robustness_security": {
+      "preferred": "Fail closed when ownerPublicationMs is missing or malformed, and compare p95 stability across runs.",
+      "reason": "Missing publication telemetry must not silently produce apparently complete contention evidence, and unstable filesystem publication behavior should not be hidden by stable aggregate commit latency."
+    },
+    "latency_resources_regression": {
+      "preferred": "Reuse the existing onAcquired callback and process campaign; do not add extra filesystem operations, qrexec calls, daemons, or databases.",
+      "reason": "The measurement uses timestamps around the durable write already required for correctness, so production I/O behavior is unchanged."
+    }
+  },
+  "alternatives_rejected": [
+    {
+      "approach": "Infer owner publication cost from durableCommitMs or lockWaitMs only",
+      "why_rejected": "Those metrics combine contention, ownership publication, queue/journal mutation, serialization, and persistence and cannot isolate the new fsync-backed ownership boundary."
+    },
+    {
+      "approach": "Add a separate owner-publication benchmark that does not use the real process contention path",
+      "why_rejected": "It is easier to run but weaker evidence because it can drift from the actual Coordinator/Journal mutation path."
+    },
+    {
+      "approach": "Introduce a database or lock daemon to obtain richer lock timing",
+      "why_rejected": "It adds migration, lifecycle, attack surface, and network/IPC overhead without solving a demonstrated correctness problem in the current same-host slice."
+    }
+  ],
+  "qa_contract": [
+    "Every enqueue, claim, and terminal journal-commit contention sample must include finite non-negative ownerPublicationMs.",
+    "Contention summaries must report ownerPublicationP50Ms and ownerPublicationP95Ms per mutation path.",
+    "Repeated contention qualification must require ownerPublicationP95Ms stability using the same maxRelativeP95Spread policy as lock wait and durable commit.",
+    "A missing owner-publication measurement must fail closed rather than degrade to legacy timing evidence."
+  ],
+  "failures_lessons": [
+    "After owner metadata publication became fsync-backed, total mutation latency was no longer sufficient to explain lock-acquisition cost.",
+    "Performance evidence should be collected at the boundary whose durability semantics changed, otherwise aggregate timings can hide a filesystem-specific regression.",
+    "Do not set a new absolute owner-publication SLO until repeated host-bound measurements exist; first require complete evidence and stability."
+  ],
+  "resource_impact": {
+    "additional_io": "none",
+    "additional_qrexec_or_network_round_trips": 0,
+    "additional_memory": "constant-size timing fields per sample",
+    "production_semantics": "unchanged"
+  }
+}
