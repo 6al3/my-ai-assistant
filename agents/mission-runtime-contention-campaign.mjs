@@ -47,6 +47,7 @@ export async function runMissionRuntimeContentionCampaign({
   lockWaitP95Ms = 9_000,
   ownerPublicationP95Ms = 9_000,
   durableCommitP95Ms = 9_500,
+  terminalRenewalP95Ms = durableCommitP95Ms,
   timeoutMs = 10_000,
   workerPath = defaultWorker,
   root = null,
@@ -73,7 +74,18 @@ export async function runMissionRuntimeContentionCampaign({
     const claimWorkers = Array.from({ length: claimCount }, (_, index) => `${runId}-worker-${index}`);
     const claim = await Promise.all(claimWorkers.map(workerId => run('claim', missionFile, workerId)));
     if (claim.some(item => !item.id)) throw new Error('contention campaign did not claim enough missions');
+    if (claim.some(item => !item.leaseToken)) throw new Error('contention campaign claim did not return lease fencing evidence');
     if (new Set(claim.map(item => item.id)).size !== claimCount) throw new Error('contention campaign detected double claim');
+
+    // Exercise the same fenced heartbeat mutation used immediately before WorkerRuntime complete/fail.
+    // Each process reopens durable state and renews exactly the lease it acquired above, so these
+    // timings isolate terminal authority renewal under real inter-process lock contention.
+    const terminalRenewal = await Promise.all(claim.map(item => run(
+      'terminal-renewal', missionFile, item.id, item.workerId, item.leaseToken
+    )));
+    if (terminalRenewal.some(item => item.phase !== 'terminalRenewal' || item.id == null)) {
+      throw new Error('contention campaign terminal renewal evidence is incomplete');
+    }
 
     const requestIds = Array.from({ length: journalCount }, (_, index) => `${runId}-request-${index}`);
     const journalBegin = await Promise.all(requestIds.map(requestId => run('journal-begin', journalFile, requestId)));
@@ -83,11 +95,12 @@ export async function runMissionRuntimeContentionCampaign({
     const journalCommit = await Promise.all(requestIds.map(requestId => run('journal-commit', journalFile, requestId)));
     if (journalCommit.some(item => item.status !== 'committed')) throw new Error('contention campaign journal commit did not persist terminal state');
 
-    const evaluation = evaluateContentionQualification({ enqueue, claim, journalCommit }, {
+    const evaluation = evaluateContentionQualification({ enqueue, claim, terminalRenewal, journalCommit }, {
       minimumSamplesPerPath,
       lockWaitP95Ms,
       ownerPublicationP95Ms,
-      durableCommitP95Ms
+      durableCommitP95Ms,
+      terminalRenewalP95Ms
     });
     if (!evaluation.ready) throw new Error('contention campaign failed per-run qualification');
 
@@ -105,9 +118,15 @@ export async function runMissionRuntimeContentionCampaign({
     }
 
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
       runId,
-      counts: { enqueue: enqueueCount, claim: claimCount, journalBegin: journalCount, journalCommit: journalCount },
+      counts: {
+        enqueue: enqueueCount,
+        claim: claimCount,
+        terminalRenewal: terminalRenewal.length,
+        journalBegin: journalCount,
+        journalCommit: journalCount
+      },
       correctness: {
         lostMissions: 0,
         lostRequests: 0,
@@ -117,6 +136,8 @@ export async function runMissionRuntimeContentionCampaign({
         durableRunningTotal: stats.running
       },
       evidence: {
+        terminalRenewalCount: terminalRenewal.length,
+        qualifiedWorkerPhase: 'terminalRenewal',
         journalBeginCount: journalBegin.length,
         journalCommitCount: journalCommit.length,
         qualifiedJournalPhase: 'commit'
