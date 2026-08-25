@@ -12,6 +12,8 @@ async function fixture(t) {
   return new MissionQueueStore(path.join(root, 'missions.json'));
 }
 
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 test('runOnce claims, executes and durably completes a mission', async t => {
   const store = await fixture(t);
   const runtime = await WorkerRuntime.open({ store, workerId: 'qa-1', capabilities: ['qa'], sessionId: 'boot-a' });
@@ -45,6 +47,65 @@ test('runOnce carries lease fencing tokens through heartbeat and completion', as
   assert.equal(outcome.status, 'completed');
   assert.equal(outcome.mission.id, mission.id);
   assert.deepEqual(outcome.mission.result, { fenced: true });
+});
+
+test('automatic heartbeat keeps long-running work inside its lease', async t => {
+  const store = await fixture(t);
+  const runtime = await WorkerRuntime.open({
+    store,
+    workerId: 'long-worker',
+    sessionId: 'long-session',
+    heartbeatIntervalMs: 5,
+    queueOptions: { requireLeaseToken: true, leaseMs: 25 }
+  });
+  const mission = await runtime.coordinator.enqueue({ task: 'long synthetic work' });
+  const outcome = await runtime.runOnce(async () => {
+    await delay(80);
+    return { completedAfterMultipleLeases: true };
+  });
+  assert.equal(outcome.status, 'completed');
+  assert.equal(outcome.mission.id, mission.id);
+  assert.deepEqual(outcome.mission.result, { completedAfterMultipleLeases: true });
+});
+
+test('automatic heartbeat failure prevents successful completion and fails closed', async () => {
+  let heartbeatCalls = 0;
+  let completeCalls = 0;
+  let failCalls = 0;
+  const coordinator = {
+    claim: async () => ({ id: 'mission-1', leaseToken: 'lease-1' }),
+    heartbeat: async () => {
+      heartbeatCalls += 1;
+      throw new Error('synthetic heartbeat failure');
+    },
+    complete: async () => {
+      completeCalls += 1;
+      return { id: 'mission-1', status: 'completed' };
+    },
+    fail: async (id, workerId, error, leaseToken) => {
+      failCalls += 1;
+      assert.equal(id, 'mission-1');
+      assert.equal(workerId, 'worker-1@session-1');
+      assert.equal(leaseToken, 'lease-1');
+      assert.match(error, /automatic mission heartbeat failed/);
+      return { id, status: 'queued', attempts: 1 };
+    }
+  };
+  const runtime = new WorkerRuntime({
+    coordinator,
+    workerId: 'worker-1',
+    sessionId: 'session-1',
+    heartbeatIntervalMs: 1
+  });
+  const outcome = await runtime.runOnce(async () => {
+    await delay(15);
+    return { shouldNotCommit: true };
+  });
+  assert.ok(heartbeatCalls >= 1);
+  assert.equal(completeCalls, 0, 'completion must not happen after heartbeat authority is lost');
+  assert.equal(failCalls, 1);
+  assert.equal(outcome.status, 'queued');
+  assert.match(outcome.error.message, /automatic mission heartbeat failed/);
 });
 
 test('same logical worker gets a distinct ownership identity after restart', async t => {
