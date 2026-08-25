@@ -63,6 +63,7 @@ export async function runMissionRuntimeContentionCampaign({
   const ownsRoot = !root;
   const campaignRoot = root ?? await mkdtemp(path.join(os.tmpdir(), 'dig-contention-campaign-'));
   const missionFile = path.join(campaignRoot, 'missions.json');
+  const terminalMissionFile = path.join(campaignRoot, 'terminal-missions.json');
   const journalFile = path.join(campaignRoot, 'requests.json');
   const run = (...args) => runWorker(workerPath, args, { timeoutMs });
 
@@ -77,14 +78,23 @@ export async function runMissionRuntimeContentionCampaign({
     if (claim.some(item => !item.leaseToken)) throw new Error('contention campaign claim did not return lease fencing evidence');
     if (new Set(claim.map(item => item.id)).size !== claimCount) throw new Error('contention campaign detected double claim');
 
-    // Exercise the same fenced heartbeat mutation used immediately before WorkerRuntime complete/fail.
-    // Each process reopens durable state and renews exactly the lease it acquired above, so these
-    // timings isolate terminal authority renewal under real inter-process lock contention.
-    const terminalRenewal = await Promise.all(claim.map(item => run(
-      'terminal-renewal', missionFile, item.id, item.workerId, item.leaseToken
+    // Measure the actual WorkerRuntime production sequence instead of a coordinator-only heartbeat proxy.
+    // Each spawned worker performs claim -> execute -> stop periodic heartbeat -> terminal renewal -> complete.
+    const terminalKeys = Array.from({ length: claimCount }, (_, index) => `${runId}-terminal-${index}`);
+    await Promise.all(terminalKeys.map(key => run('enqueue', terminalMissionFile, key)));
+    const terminalWorkers = Array.from({ length: claimCount }, (_, index) => `${runId}-terminal-worker-${index}`);
+    const terminalRuns = await Promise.all(terminalWorkers.map(workerId => run(
+      'worker-run-terminal', terminalMissionFile, workerId, '2000', '500', 'success'
     )));
-    if (terminalRenewal.some(item => item.phase !== 'terminalRenewal' || item.id == null)) {
-      throw new Error('contention campaign terminal renewal evidence is incomplete');
+    if (terminalRuns.some(item => item.status !== 'completed' || !item.terminalRenewal)) {
+      throw new Error('contention campaign WorkerRuntime terminal path did not complete with renewal evidence');
+    }
+    const terminalRenewal = terminalRuns.map(item => item.terminalRenewal);
+    if (terminalRenewal.some(item => item.phase !== 'terminalRenewal' || item.source !== 'worker-runtime' || item.id == null)) {
+      throw new Error('contention campaign terminal renewal evidence is not production-path WorkerRuntime evidence');
+    }
+    if (new Set(terminalRenewal.map(item => item.id)).size !== claimCount) {
+      throw new Error('contention campaign terminal renewal evidence reused a mission identity');
     }
 
     const requestIds = Array.from({ length: journalCount }, (_, index) => `${runId}-request-${index}`);
@@ -109,6 +119,15 @@ export async function runMissionRuntimeContentionCampaign({
     if (stats.total !== enqueueCount) throw new Error(`lost missions after reopen: expected ${enqueueCount}, got ${stats.total}`);
     if (stats.running !== claimCount) throw new Error(`claim durability mismatch: expected ${claimCount}, got ${stats.running}`);
 
+    const reopenedTerminal = await MissionCoordinator.open({
+      store: new MissionQueueStore(terminalMissionFile),
+      queueOptions: { requireLeaseToken: true, preserveRunningLeasesOnRestore: true, leaseMs: 2_000 }
+    });
+    const terminalStats = reopenedTerminal.stats();
+    if (terminalStats.total !== claimCount || terminalStats.completed !== claimCount) {
+      throw new Error(`WorkerRuntime terminal path durability mismatch: ${JSON.stringify(terminalStats)}`);
+    }
+
     const reopenedJournal = await DurableRequestJournal.open(journalFile);
     for (const requestId of requestIds) {
       const entry = reopenedJournal.get(requestId);
@@ -118,7 +137,7 @@ export async function runMissionRuntimeContentionCampaign({
     }
 
     return {
-      schemaVersion: 4,
+      schemaVersion: 5,
       runId,
       counts: {
         enqueue: enqueueCount,
@@ -133,10 +152,13 @@ export async function runMissionRuntimeContentionCampaign({
         uncommittedResponses: 0,
         doubleClaims: 0,
         durableMissionTotal: stats.total,
-        durableRunningTotal: stats.running
+        durableRunningTotal: stats.running,
+        terminalPathMissionTotal: terminalStats.total,
+        terminalPathCompletedTotal: terminalStats.completed
       },
       evidence: {
         terminalRenewalCount: terminalRenewal.length,
+        terminalRenewalSource: 'worker-runtime',
         qualifiedWorkerPhase: 'terminalRenewal',
         journalBeginCount: journalBegin.length,
         journalCommitCount: journalCommit.length,
