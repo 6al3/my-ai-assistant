@@ -40,23 +40,24 @@ export function summarizeContentionTimings(results, { minimumSamples = 1 } = {})
   };
 }
 
-export function evaluateContentionQualification({ enqueue, claim, journalCommit, journal }, budgets) {
+export function evaluateContentionQualification({ enqueue, claim, terminalRenewal, journalCommit, journal }, budgets) {
   if (journal !== undefined) {
     throw new Error('legacy journal contention evidence is ambiguous; provide terminal journalCommit evidence');
   }
   if (!budgets || typeof budgets !== 'object') throw new Error('contention budgets are required');
   validateBudget(budgets.lockWaitP95Ms, 'lockWaitP95Ms');
   validateBudget(budgets.durableCommitP95Ms, 'durableCommitP95Ms');
-  // Migration-safe default: existing callers that already bound total durable commit
-  // also bound owner publication. Callers can tighten this independently.
   const ownerPublicationP95Ms = budgets.ownerPublicationP95Ms ?? budgets.durableCommitP95Ms;
   validateBudget(ownerPublicationP95Ms, 'ownerPublicationP95Ms');
+  const terminalRenewalP95Ms = budgets.terminalRenewalP95Ms ?? budgets.durableCommitP95Ms;
+  validateBudget(terminalRenewalP95Ms, 'terminalRenewalP95Ms');
   validateMinimumSamples(budgets.minimumSamplesPerPath);
 
   const summaryOptions = { minimumSamples: budgets.minimumSamplesPerPath };
   const summaries = {
     enqueue: summarizeContentionTimings(enqueue, summaryOptions),
     claim: summarizeContentionTimings(claim, summaryOptions),
+    terminalRenewal: summarizeContentionTimings(terminalRenewal, summaryOptions),
     journalCommit: summarizeContentionTimings(journalCommit, summaryOptions)
   };
   const checks = {};
@@ -64,13 +65,14 @@ export function evaluateContentionQualification({ enqueue, claim, journalCommit,
     checks[`${name}SampleCoverage`] = summary.count >= budgets.minimumSamplesPerPath;
     checks[`${name}LockWaitWithinBudget`] = summary.lockWaitP95Ms <= budgets.lockWaitP95Ms;
     checks[`${name}OwnerPublicationWithinBudget`] = summary.ownerPublicationP95Ms <= ownerPublicationP95Ms;
-    checks[`${name}DurableCommitWithinBudget`] = summary.durableCommitP95Ms <= budgets.durableCommitP95Ms;
+    checks[`${name}DurableCommitWithinBudget`] = summary.durableCommitP95Ms <= (name === 'terminalRenewal' ? terminalRenewalP95Ms : budgets.durableCommitP95Ms);
   }
   return {
     ready: Object.values(checks).every(Boolean),
     checks,
     summaries,
-    budgets: { ...budgets, ownerPublicationP95Ms },
-    qualifiedJournalPhase: 'commit'
+    budgets: { ...budgets, ownerPublicationP95Ms, terminalRenewalP95Ms },
+    qualifiedJournalPhase: 'commit',
+    qualifiedWorkerPhase: 'terminalRenewal'
   };
 }
