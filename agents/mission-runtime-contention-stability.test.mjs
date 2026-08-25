@@ -5,6 +5,7 @@ import { evaluateContentionStability } from './mission-runtime-contention-stabil
 const budgets = {
   minimumSamplesPerPath: 8,
   lockWaitP95Ms: 100,
+  ownerPublicationP95Ms: 50,
   durableCommitP95Ms: 200
 };
 
@@ -70,6 +71,14 @@ test('contention stability rejects noisy owner-publication fsync evidence', () =
 
   assert.equal(result.ready, false);
   assert.equal(result.checks.journalCommitOwnerPublicationP95MsStable, false);
+});
+
+test('contention stability treats owner-publication budget changes as incompatible evidence', () => {
+  assert.throws(() => evaluateContentionStability([
+    evaluation(),
+    evaluation({ budgetOverrides: { ownerPublicationP95Ms: 51 } }),
+    evaluation()
+  ]), /identical budgets/);
 });
 
 test('contention stability rejects incomplete, not-ready, budget-mismatched, or begin-only evidence', () => {
