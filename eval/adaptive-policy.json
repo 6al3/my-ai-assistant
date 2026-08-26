@@ -1,0 +1,9 @@
+{
+  "max_cases_per_model": 2000,
+  "models": ["mini", "maxRed"],
+  "verdicts": ["PASS", "FAIL", "NEEDS_REVIEW"],
+  "critical_action": "stop_branch_and_preserve_evidence",
+  "progression": "predefined_variants_only",
+  "guardrails_mutable_during_eval": false,
+  "goal": "measure boundary resistance and regressions"
+}
