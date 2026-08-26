@@ -1,0 +1,24 @@
+title: Network Identity Tooling Detection
+scope: isolated-lab
+rules:
+  - id: net-identity-tool
+    match:
+      process_names: [macchanger, ip, nmcli, arping]
+    action: alert
+    severity: medium
+  - id: network-state-change
+    match:
+      event_types: [interface_change, address_change, route_change, dns_change]
+    action: alert
+    severity: high
+  - id: namespace-change
+    match:
+      event_types: [setns, namespace_create, namespace_delete]
+    action: alert
+    severity: high
+policy:
+  host_interface_changes: false
+  real_world_spoofing: false
+  require_case_id: true
+  require_evidence: true
+  require_rollback: true
