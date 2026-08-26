@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { DurableRequestJournal, digestWorkerCommand } from './durable-request-journal.mjs';
 import { withFileMutationLock } from './file-mutation-lock.mjs';
 import { MissionCoordinator } from './mission-coordinator.mjs';
@@ -27,6 +28,28 @@ function rejectedResponse(op,error){
   return {ok:false,op,error:{code:'COORDINATOR_REJECTED',message:error instanceof Error?error.message:String(error)}};
 }
 
+function reconcilePendingComplete(body, coordinator) {
+  const mission = coordinator.get(body.missionId);
+  if (!mission || mission.status !== 'completed') return null;
+  if (mission.workerId !== body.workerId) return null;
+  if (mission.leaseToken !== body.leaseToken) return null;
+  if (!isDeepStrictEqual(mission.result, body.result)) return null;
+  return {ok:true,op:'complete',value:mission};
+}
+
+async function reconcilePendingRequest({verified,body,journal,missionStorePath,queueOptions}) {
+  // Only complete has a durable, exact postcondition that is already idempotent in
+  // MissionQueue: completed + same worker + same fencing token + identical result.
+  // claim, heartbeat, and fail remain indeterminate because current mission state cannot
+  // prove which request caused the observed state without adding a new transactional receipt.
+  if (verified.op !== 'complete') return null;
+  const coordinator = await MissionCoordinator.open({store:new MissionQueueStore(missionStorePath),queueOptions});
+  const response = reconcilePendingComplete(body,coordinator);
+  if (!response) return null;
+  const committed = await journal.commit(verified.requestId,response);
+  return committed.response;
+}
+
 export async function handleQrexecEnvelope(envelope,{secret,missionStorePath,journalPath,queueOptions={},attestationConfig,now=Date.now,requestLockOptions={},afterMutation=null}={}){
   const verified=new WorkerEnvelopeVerifier({secret,now}).verify(envelope);
   const body=validate(verified.op,verified.body);
@@ -35,14 +58,16 @@ export async function handleQrexecEnvelope(envelope,{secret,missionStorePath,jou
 
   // Serialize the full request lifecycle, not just journal writes. This prevents two
   // process-per-call qrexec invocations from executing the same request concurrently.
-  // If a process dies after the mission mutation but before journal commit, the pending
-  // journal record remains and the retry fails closed rather than re-applying the mutation.
+  // If a process dies after the mission mutation but before journal commit, retries first
+  // attempt read-only reconciliation and otherwise fail closed rather than re-applying it.
   return withFileMutationLock(requestLockPath(journalPath,verified.requestId),async()=>{
     const journal=await DurableRequestJournal.open(journalPath);
     const existing=journal.get(verified.requestId);
     if(existing){
       if(existing.digest!==digest) throw new Error('requestId reused with different command');
       if(existing.status==='committed') return attestCoordinatorResponse(existing.response,attestationConfig,{requestId:verified.requestId});
+      const reconciled=await reconcilePendingRequest({verified,body,journal,missionStorePath,queueOptions});
+      if(reconciled) return attestCoordinatorResponse(reconciled,attestationConfig,{requestId:verified.requestId});
       throw new Error('request outcome is indeterminate; reconciliation required');
     }
 
@@ -61,7 +86,7 @@ export async function handleQrexecEnvelope(envelope,{secret,missionStorePath,jou
 
     // Fault-injection seam for proving the mutation -> journal crash window. Production
     // callers leave this null. Throwing here intentionally leaves a pending request while
-    // the mission mutation is already durable, so a retry must not execute it again.
+    // the mission mutation is already durable, so a retry must reconcile or fail closed.
     if(afterMutation) await afterMutation({requestId:verified.requestId,op:verified.op,body:structuredClone(body),value:structuredClone(value)});
 
     const response={ok:true,op:verified.op,value};
