@@ -1,0 +1,19 @@
+{
+  "scope": "isolated lab / container / network namespace",
+  "tools": [
+    {"name":"macchanger","purpose":"MAC identity testing and detection validation","mode":"lab-only"},
+    {"name":"iproute2","purpose":"interfaces, addresses, routes and namespaces","mode":"lab-only"},
+    {"name":"iputils-arping","purpose":"ARP visibility and detection tests","mode":"lab-only"},
+    {"name":"nmap","purpose":"network inventory and detection validation","mode":"lab-only"},
+    {"name":"tcpdump","purpose":"packet evidence collection","mode":"lab-only"},
+    {"name":"dnsutils","purpose":"DNS telemetry and resolution checks","mode":"lab-only"},
+    {"name":"network-manager","purpose":"interface state telemetry","mode":"lab-only"}
+  ],
+  "policy": {
+    "host_interface_changes": false,
+    "real_world_source_spoofing": false,
+    "namespace_or_container_only": true,
+    "rollback_required": true,
+    "evidence_required": true
+  }
+}
