@@ -7,8 +7,11 @@ on:
     paths:
       - 'agents/worker-transport-envelope.mjs'
       - 'agents/qrexec-response-attestation.mjs'
+      - 'agents/qrexec-coordinator-adapter.mjs'
+      - 'agents/qrexec-coordinator-adapter.test.mjs'
       - 'agents/qubes-transport-contract.test.mjs'
       - 'agents/qubes-transport-contract.decision.json'
+      - 'agents/qrexec-crash-window.decision.json'
       - 'package.json'
       - '.github/workflows/dig-qubes-transport-qa.yml'
   workflow_dispatch:
@@ -31,6 +34,8 @@ jobs:
         run: |
           node --check agents/worker-transport-envelope.mjs
           node --check agents/qrexec-response-attestation.mjs
+          node --check agents/qrexec-coordinator-adapter.mjs
+          node --check agents/qrexec-coordinator-adapter.test.mjs
           node --check agents/qubes-transport-contract.test.mjs
       - name: Run Qubes transport contract QA
         run: npm run test:qubes-transport
