@@ -14,11 +14,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if security.isUnlocked {
-                    chatView
-                } else {
-                    lockedView
-                }
+                if security.isUnlocked { chatView } else { lockedView }
             }
             .navigationTitle("DIG Assistant")
             .toolbar {
@@ -34,19 +30,15 @@ struct ContentView: View {
             }
         }
         .task {
-            if let url = chat.boxURL {
-                boxURL = url.absoluteString
-            }
+            if let url = chat.boxURL { boxURL = url.absoluteString }
             audit.record("app_open")
         }
     }
 
     private var lockedView: some View {
         VStack(spacing: 20) {
-            Image(systemName: "faceid")
-                .font(.system(size: 56))
-            Text("التطبيق مقفول")
-                .font(.title2.bold())
+            Image(systemName: "faceid").font(.system(size: 56))
+            Text("التطبيق مقفول").font(.title2.bold())
             Button("فتح بـ Face ID / رمز الجهاز") {
                 Task {
                     let ok = await security.authenticateOwner()
@@ -61,17 +53,28 @@ struct ContentView: View {
     private var chatView: some View {
         VStack(spacing: 12) {
             HStack {
-                Circle()
-                    .frame(width: 9, height: 9)
-                Text(ownerMode.isActive ? "Owner Mode" : "Private Mode")
-                    .font(.caption.bold())
+                Circle().frame(width: 9, height: 9)
+                Text(ownerMode.isActive ? "Owner Mode" : "Private Mode").font(.caption.bold())
                 Spacer()
                 Button("مسح المحادثة") {
                     chat.clear()
                     audit.record("chat_cleared")
-                }
-                .font(.caption)
+                }.font(.caption)
             }
+
+            Picker("الموديل", selection: $chat.selectedModelId) {
+                ForEach(chat.models) { model in
+                    Text(model.name).tag(model.id)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: chat.selectedModelId) { _, value in
+                audit.record("model_selected", detail: value)
+            }
+
+            Text("المحدد: \(chat.models.first(where: { $0.id == chat.selectedModelId })?.name ?? chat.selectedModelId)")
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             TextField("عنوان الـBox مثل https://box.example", text: $boxURL)
                 .textInputAutocapitalization(.never)
@@ -79,18 +82,14 @@ struct ContentView: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(saveBoxURL)
 
-            if ownerMode.isActive {
-                ownerPanel
-            }
+            if ownerMode.isActive { ownerPanel }
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(chat.messages) { item in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(item.role == "user" ? "أنت" : "DIG")
-                                .font(.caption.bold())
-                            Text(item.content)
-                                .textSelection(.enabled)
+                            Text(item.role == "user" ? "أنت" : "DIG").font(.caption.bold())
+                            Text(item.content).textSelection(.enabled)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
@@ -100,13 +99,9 @@ struct ContentView: View {
             }
 
             HStack(alignment: .bottom) {
-                TextField("اكتب أمرك...", text: $input, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-
-                Button("إرسال") {
-                    send()
-                }
-                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat.isSending)
+                TextField("اكتب أمرك...", text: $input, axis: .vertical).textFieldStyle(.roundedBorder)
+                Button("إرسال") { send() }
+                    .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || chat.isSending)
             }
         }
         .padding()
@@ -118,23 +113,16 @@ struct ContentView: View {
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
                 .textFieldStyle(.roundedBorder)
-
-            SecureField("Owner pairing token", text: $ownerToken)
-                .textFieldStyle(.roundedBorder)
-
+            SecureField("Owner pairing token", text: $ownerToken).textFieldStyle(.roundedBorder)
             HStack {
                 Button("حفظ إعدادات المالك") {
                     UserDefaults.standard.set(fileBoxURL, forKey: "fileBoxURL")
                     OwnerSecretStore.shared.saveToken(ownerToken)
                     audit.record("owner_settings_saved")
                 }
-
                 Spacer()
-
                 if let fileURL = URL(string: fileBoxURL), !ownerToken.isEmpty {
-                    NavigationLink("ملفات النظام") {
-                        FileEditorView(boxURL: fileURL, ownerToken: ownerToken)
-                    }
+                    NavigationLink("ملفات النظام") { FileEditorView(boxURL: fileURL, ownerToken: ownerToken) }
                 }
             }
             .font(.caption.bold())
@@ -158,14 +146,12 @@ struct ContentView: View {
         input = ""
 
         let activated = ownerMode.inspect(message: text, ownerVerified: security.ownerVerified)
-        if activated {
-            audit.record("owner_mode_activated")
-        }
+        if activated { audit.record("owner_mode_activated") }
 
         Task {
             do {
                 _ = try await chat.send(text, ownerMode: ownerMode.isActive)
-                audit.record("message_sent", detail: ownerMode.isActive ? "owner_mode" : "private_mode")
+                audit.record("message_sent", detail: "model=\(chat.selectedModelId),owner_mode=\(ownerMode.isActive)")
             } catch {
                 audit.record("message_failed", detail: error.localizedDescription)
             }
