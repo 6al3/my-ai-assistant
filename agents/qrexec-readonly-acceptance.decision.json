@@ -1,0 +1,64 @@
+{
+  "decision": "Use a dedicated read-only qrexec probe service that authenticates one bounded envelope and returns a deployment-bound Ed25519-attested response without opening MissionQueue, MissionStore, or DurableRequestJournal.",
+  "scope": "Synthetic/defensive acceptance only. No real transactions, payment data, fraud workflows, or weakened controls.",
+  "independentReviews": {
+    "correctness": {
+      "winner": "dedicated read-only probe service",
+      "reason": "Proves qrexec framing/authentication/deployment identity independently from mission mutation semantics and makes zero-mutation auditable by construction."
+    },
+    "robustnessSecurity": {
+      "winner": "dedicated read-only probe service",
+      "reason": "The process has no MissionStore or request-journal dependency, rejects stale service/git/key identity, uses constant non-diagnostic stderr, and keeps HMAC plus Ed25519 verification fail-closed."
+    },
+    "latencyResourceRegression": {
+      "winner": "dedicated read-only probe service",
+      "reason": "One process, one request, one response, 16 KiB/32 KiB default bounds, no daemon/database/fsync/qrexec round trip beyond the probe itself, and no changes to MissionQueue/WorkerRuntime."
+    }
+  },
+  "alternatives": [
+    {
+      "name": "Reuse mutable coordinator service with a no-op operation",
+      "correctness": "medium",
+      "robustness": "medium-low",
+      "latency": "good",
+      "resourceUse": "good",
+      "regressionRisk": "medium",
+      "qa": "Harder to prove zero mission-state interaction because service configuration and coordinator restore paths remain reachable.",
+      "result": "rejected"
+    },
+    {
+      "name": "Dedicated read-only probe service",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "good",
+      "resourceUse": "good",
+      "regressionRisk": "low",
+      "qa": "Clear fault isolation and zero MissionQueue dependencies by construction.",
+      "result": "selected"
+    },
+    {
+      "name": "Persistent qrexec probe daemon",
+      "correctness": "high",
+      "robustness": "medium",
+      "latency": "very good",
+      "resourceUse": "medium-low",
+      "regressionRisk": "medium-high",
+      "qa": "Adds lifecycle/state/IPC surface with no value for the first acceptance gate.",
+      "result": "rejected"
+    }
+  ],
+  "qaAdded": [
+    "valid authenticated probe returns request-bound Ed25519 attestation for exact service/git SHA/key ID",
+    "probe configuration does not require MissionStore or DurableRequestJournal paths",
+    "stale deployment identity fails closed before stdout",
+    "authentication failure and malformed framing fail closed",
+    "input limits fail closed and stderr does not reflect transport secret or request marker"
+  ],
+  "knownLimit": "Node-level tests cannot prove Qubes policy routing/denial itself. That remains a real-Qubes phase-1 acceptance item and must be demonstrated before any synthetic mission mutation across VMs.",
+  "failureLessons": [
+    "A no-op added to a mutable coordinator service is weaker evidence than a service that cannot reach mission state at all.",
+    "Identity must bind service, exact Git SHA, and attestation key ID; transport authentication alone does not prove deployment freshness.",
+    "Policy denial is an external Qubes property and must not be falsely claimed from local process tests."
+  ],
+  "nextTask": "Create the real-Qubes phase-1 invocation/policy evidence harness around the dedicated probe and require allow-only-intended-service plus deny-wrong-service evidence before synthetic claim/heartbeat/complete across VMs."
+}
