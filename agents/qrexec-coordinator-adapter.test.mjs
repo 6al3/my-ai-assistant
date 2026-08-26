@@ -53,7 +53,7 @@ test('coordinator rejection is durably committed as an attested response', async
  } finally {await rm(dir,{recursive:true,force:true});}
 });
 
-test('crash after durable mission mutation leaves pending request and retry fails closed without second claim', async()=>{
+test('crash after durable claim mutation remains indeterminate and retry does not claim twice', async()=>{
  const dir=await mkdtemp(join(tmpdir(),'dig-qrexec-')); try {
   const storePath=join(dir,'missions.json'), journalPath=join(dir,'requests.json'), k=keys();
   const c=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true}}); await c.enqueue({task:'one',requiredCapabilities:['coder']}); await c.enqueue({task:'two',requiredCapabilities:['coder']});
@@ -66,5 +66,26 @@ test('crash after durable mission mutation leaves pending request and retry fail
   await assert.rejects(()=>handleQrexecEnvelope(env,opts),/indeterminate|reconciliation required/i);
   const afterRetry=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,preserveRunningLeasesOnRestore:true}});
   assert.equal(afterRetry.list({status:'running'}).length,1); assert.equal(afterRetry.list({status:'queued'}).length,1);
+ } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('pending complete is reconciled read-only from exact durable terminal postcondition', async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'dig-qrexec-')); try {
+  const storePath=join(dir,'missions.json'), journalPath=join(dir,'requests.json'), k=keys();
+  const c=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true}});
+  await c.enqueue({task:'synthetic defensive job',requiredCapabilities:['coder']});
+  const claimed=await c.claim({workerId:'worker-a',capabilities:['coder'],sessionId:'s1'});
+  const result={status:'ok',details:{count:2,label:'synthetic'}};
+  const env=signWorkerEnvelope({requestId:'req-complete-crash',issuedAt:1800000000000,op:'complete',body:{missionId:claimed.id,workerId:'worker-a',leaseToken:claimed.leaseToken,result},secret:SECRET});
+  const opts={secret:SECRET,missionStorePath:storePath,journalPath,queueOptions:{requireLeaseToken:true},attestationConfig:k.attestationConfig,now:()=>1800000000000};
+  await assert.rejects(()=>handleQrexecEnvelope(env,{...opts,afterMutation:()=>{throw new Error('synthetic crash after complete');}}),/synthetic crash after complete/);
+  const pending=await DurableRequestJournal.open(journalPath); assert.equal(pending.get('req-complete-crash').status,'pending');
+  const beforeRetry=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true}});
+  const completedBefore=beforeRetry.get(claimed.id); assert.equal(completedBefore.status,'completed'); assert.deepEqual(completedBefore.result,result);
+  const reconciled=verify(await handleQrexecEnvelope(env,opts),k,'req-complete-crash');
+  assert.equal(reconciled.ok,true); assert.equal(reconciled.op,'complete'); assert.equal(reconciled.value.status,'completed'); assert.deepEqual(reconciled.value.result,result);
+  const after=await DurableRequestJournal.open(journalPath); assert.equal(after.get('req-complete-crash').status,'committed');
+  const reopened=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true}});
+  assert.equal(reopened.list({status:'completed'}).length,1); assert.equal(reopened.stats().total,1);
  } finally {await rm(dir,{recursive:true,force:true});}
 });
