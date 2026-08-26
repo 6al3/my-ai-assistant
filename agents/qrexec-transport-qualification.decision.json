@@ -1,0 +1,49 @@
+{
+  "task": "Turn spawned qrexec crash-boundary evidence into a bounded, SHA-bound transport qualification artifact without overstating exactly-once semantics.",
+  "independentReviews": {
+    "correctness": {
+      "attempts": [
+        "Treat test pass/fail alone as the qualification authority.",
+        "Summarize only successful crash cases and infer transport readiness.",
+        "Require a fixed complete scenario set with explicit postconditions and duplicate-mutation counters."
+      ],
+      "winner": "fixed complete scenario set",
+      "reason": "Readiness becomes a deterministic function of all required crash boundaries. Before-mutation, post-claim, post-heartbeat, post-fail, post-complete, and post-journal-commit outcomes cannot be omitted or silently reclassified."
+    },
+    "robustnessSecurity": {
+      "attempts": [
+        "Store raw request/response payloads in the qualification report.",
+        "Store only boolean outcome/attestation facts and crash-safety counters in a canonical digest-bound report.",
+        "Sign the local report with a new private key."
+      ],
+      "winner": "minimal canonical digest-bound evidence",
+      "reason": "The report avoids lease tokens, request MACs, private-key material, mission payloads, and stack traces. SHA-256 provides tamper/comparison integrity without introducing another key lifecycle. Ed25519 authenticity remains verified at each protocol response before the report records attestationVerified=true."
+    },
+    "latencyResourcesRegression": {
+      "attempts": [
+        "Add a new transport telemetry daemon or persistent database.",
+        "Re-run extra qrexec probes solely to populate the report.",
+        "Build the report from existing spawned crash-campaign outputs offline."
+      ],
+      "winner": "offline qualification report over existing evidence",
+      "reason": "Adds zero production qrexec round trips, zero coordinator mutations, no daemon/database, and negligible local CPU/memory. It preserves current crash semantics instead of widening MissionQueue or WorkerRuntime behavior."
+    }
+  },
+  "winner": "Schema-v1 offline transport qualification artifact bound to exact Git SHA, runtime fingerprint, complete crash scenario set, zero duplicate-mutation counters, response-attestation verification, and canonical SHA-256 evidence digest.",
+  "qa": [
+    "All six required crash scenarios must be present; missing or extra scenarios fail closed.",
+    "beforeMutation requires zero durable effects and a clean retry-once outcome.",
+    "claim/heartbeat/fail post-mutation deaths require exactly one durable effect, pending journal, attested REQUEST_OUTCOME_INDETERMINATE, and zero duplicate mutation.",
+    "complete post-mutation death requires exactly one durable effect and read-only reconciled committed completion.",
+    "post-journal-commit death requires replay of the committed result without a second mutation.",
+    "Every protocol response used by qualification must already have a verified request-bound Ed25519 attestation.",
+    "Report tampering or Git SHA substitution is detected by verification."
+  ],
+  "failuresLessons": [
+    "A green transport test suite is necessary but not enough to summarize crash semantics for later Qubes qualification; a fixed evidence contract prevents omissions.",
+    "The report must not convert claim/heartbeat/fail indeterminate outcomes into success. Those operations remain not-exactly-once after unknown post-mutation death.",
+    "A local SHA-256 report digest proves integrity/comparability, not trusted origin. Protocol-origin authentication remains the Ed25519 response attestation.",
+    "Adding a new report-signing key now would add operational/key-management risk without closing the underlying transaction gap."
+  ],
+  "safety": "Synthetic/defensive transport qualification only. No real financial transactions, payment data, fraud workflows, or weakened security controls."
+}
