@@ -12,10 +12,16 @@ struct ChatMessage: Codable, Identifiable {
     }
 }
 
+struct ModelOption: Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
 private struct ChatRequest: Encodable {
     let message: String
     let history: [HistoryItem]
     let ownerMode: Bool
+    let modelId: String
 }
 
 private struct HistoryItem: Encodable {
@@ -26,6 +32,8 @@ private struct HistoryItem: Encodable {
 private struct ChatResponse: Decodable {
     let reply: String
     let model: String?
+    let modelId: String?
+    let modelName: String?
 }
 
 @MainActor
@@ -33,6 +41,12 @@ final class ChatService: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isSending = false
     @Published var lastError: String?
+    @Published var selectedModelId = "mini"
+
+    let models: [ModelOption] = [
+        ModelOption(id: "mini", name: "GPT-5 mini"),
+        ModelOption(id: "maxRed", name: "GPT-5 MAX Red")
+    ]
 
     var boxURL: URL? {
         get {
@@ -45,12 +59,10 @@ final class ChatService: ObservableObject {
     }
 
     func send(_ text: String, ownerMode: Bool) async throws -> String {
-        guard let base = boxURL else {
-            throw URLError(.badURL)
-        }
+        guard let base = boxURL else { throw URLError(.badURL) }
 
         let history = messages.suffix(32).map { HistoryItem(role: $0.role, content: $0.content) }
-        let requestBody = ChatRequest(message: text, history: Array(history), ownerMode: ownerMode)
+        let requestBody = ChatRequest(message: text, history: Array(history), ownerMode: ownerMode, modelId: selectedModelId)
         let endpoint = base.appendingPathComponent("api/chat")
 
         var request = URLRequest(url: endpoint)
@@ -73,7 +85,5 @@ final class ChatService: ObservableObject {
         return decoded.reply
     }
 
-    func clear() {
-        messages.removeAll()
-    }
+    func clear() { messages.removeAll() }
 }
