@@ -11,6 +11,9 @@ on:
       - 'agents/qrexec-coordinator-adapter.test.mjs'
       - 'agents/qrexec-service-process.mjs'
       - 'agents/qrexec-service-process.test.mjs'
+      - 'agents/qrexec-readonly-probe.mjs'
+      - 'agents/qrexec-readonly-service-process.mjs'
+      - 'agents/qrexec-readonly-service-process.test.mjs'
       - 'agents/qrexec-process-lease-lifecycle.test.mjs'
       - 'agents/qrexec-service-process-crash-child.mjs'
       - 'agents/qrexec-service-process-crash.test.mjs'
@@ -21,6 +24,7 @@ on:
       - 'agents/qrexec-transport-execution-qualification.test.mjs'
       - 'agents/qrexec-transport-qualification.decision.json'
       - 'agents/qrexec-execution-derived-qualification.decision.json'
+      - 'agents/qrexec-real-worker-gate.decision.json'
       - 'agents/qubes-transport-contract.test.mjs'
       - 'agents/qubes-transport-contract.decision.json'
       - 'agents/qrexec-crash-window.decision.json'
@@ -51,6 +55,9 @@ jobs:
           node --check agents/qrexec-coordinator-adapter.test.mjs
           node --check agents/qrexec-service-process.mjs
           node --check agents/qrexec-service-process.test.mjs
+          node --check agents/qrexec-readonly-probe.mjs
+          node --check agents/qrexec-readonly-service-process.mjs
+          node --check agents/qrexec-readonly-service-process.test.mjs
           node --check agents/qrexec-process-lease-lifecycle.test.mjs
           node --check agents/qrexec-service-process-crash-child.mjs
           node --check agents/qrexec-service-process-crash.test.mjs
