@@ -1,0 +1,43 @@
+{
+  "decision": "Use a test-only spawned qrexec child entrypoint to terminate at before-mutation, after-durable-mutation-before-journal-commit, and after-journal-commit-before-stdout boundaries while leaving the production service entrypoint free of fault switches.",
+  "reviews": {
+    "correctness": {
+      "winner": "spawned process-death boundary harness",
+      "reason": "Adapter-level injected exceptions prove state-machine behavior but do not prove process-per-call qrexec durability across actual process death. The spawned harness exercises filesystem locks, MissionQueueStore, DurableRequestJournal, adapter reconciliation, and response emission boundaries together.",
+      "required_results": [
+        "before mutation: no journal entry and no mission mutation; retry executes once",
+        "after claim mutation: one durable claim, pending journal, retry returns attested indeterminate, no second claim",
+        "after journal commit before stdout: committed response is replayed without a second mutation",
+        "after complete mutation: retry reconciles read-only from the exact durable terminal postcondition"
+      ]
+    },
+    "robustness_security": {
+      "winner": "test-only crash child, no production fault environment variable",
+      "reason": "A production crash switch would create an avoidable denial-of-service/control surface. The test-only child injects process exit by wrapping the already injectable handler boundary and never changes the production service configuration contract.",
+      "controls_preserved": [
+        "HMAC request authentication",
+        "lease-token fencing",
+        "per-request process-spanning serialization",
+        "DurableRequestJournal pending/committed semantics",
+        "Ed25519 request-bound response attestation",
+        "constant non-diagnostic transport stderr"
+      ]
+    },
+    "latency_resources_regression": {
+      "winner": "short-lived Node child processes only in QA",
+      "reason": "The harness adds zero production qrexec round trips, no daemon, no database, no additional fsync in production, and no persistent process state. Runtime cost exists only in tests.",
+      "rejected": [
+        "production fault switch: unnecessary runtime/security surface",
+        "daemonized crash simulator: extra lifecycle, RAM, IPC, and regression risk",
+        "adapter-only exceptions: lower fidelity for process-death semantics"
+      ]
+    }
+  },
+  "failures_lessons": [
+    "A thrown exception inside the adapter is not equivalent evidence to OS process death at the qrexec service boundary.",
+    "Crash points must distinguish mutation durability from journal durability and response delivery; otherwise exactly-once claims become ambiguous.",
+    "Complete can be reconciled only because the durable postcondition proves the same mission, worker, fencing token, and result; claim/heartbeat/fail remain indeterminate after unknown post-mutation death.",
+    "Fault injection belongs in test-only entrypoints rather than production configuration."
+  ],
+  "safety": "Synthetic defensive transport qualification only. No real financial transactions, payment data, fraud workflows, or weakened security controls."
+}
