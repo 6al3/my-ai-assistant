@@ -1,0 +1,41 @@
+{
+  "task": "Close the qrexec mutation-to-request-journal crash window without weakening lease fencing or introducing a heavyweight transactional service.",
+  "reviews": {
+    "correctness": {
+      "attempt": "Re-run a pending request after process restart and rely on operation idempotency.",
+      "result": "rejected",
+      "reason": "claim and fail are not safely replayable after an unknown post-mutation crash; replay can double-claim or change mission state again."
+    },
+    "robustness_security": {
+      "attempt": "Serialize the complete request lifecycle with a per-request filesystem mutation lock and fail closed when a durable journal entry is pending after restart.",
+      "result": "selected",
+      "reason": "Concurrent duplicates cannot execute the same mutation twice. A crash after mission persistence but before journal commit leaves an explicit indeterminate state, and retries refuse to mutate again until reconciliation is added. Coordinator rejections are committed as deterministic attested error responses so ordinary rejected requests do not become stranded pending entries."
+    },
+    "latency_resources_regression": {
+      "attempt": "Introduce a transactional database/WAL service spanning mission state and the request journal.",
+      "result": "deferred",
+      "reason": "A true atomic two-record transaction would be stronger for liveness but adds storage migration, daemon/IPC lifecycle, operational complexity, and regression surface. The selected request lock is same-host, bounded, and adds no qrexec round trip."
+    }
+  },
+  "winner": "Per-request process-spanning lock plus durable pending-state fail-closed recovery, with deterministic coordinator rejections committed to the journal.",
+  "qa": [
+    "Two concurrent copies of the same authenticated claim execute one durable mission mutation and return the same committed response.",
+    "A synthetic crash after durable mission mutation but before journal commit leaves the request pending.",
+    "Retrying that pending request fails closed and does not claim a second mission.",
+    "Coordinator rejection such as a stale lease token is committed once as an attested ok=false response and is replayable without a new mutation.",
+    "Different commands reusing the same requestId remain rejected."
+  ],
+  "failures_lessons": [
+    "A request journal by itself does not create exactly-once mutation semantics when mission state and request outcome are persisted separately.",
+    "Operation-specific replay is unsafe for claim/fail when the prior outcome is unknown.",
+    "Safety and liveness must be separated: this change prevents duplicate mutation, but a pending request after crash still requires explicit reconciliation before the system can claim exactly-once completion semantics.",
+    "The request lock is same-host and is appropriate for the current single coordinator host/Qubes model, not a multi-coordinator distributed database."
+  ],
+  "remaining_gates": [
+    "Add a read-only reconciliation protocol for pending requests that can prove the prior mutation outcome without reapplying it.",
+    "Fault-inject crashes before mutation, after mutation, and after journal commit across separate OS processes.",
+    "Run independent test:qubes-transport and Slice 1 Mission Runtime QA green before real Qubes workers.",
+    "Do not describe the transport as exactly-once until pending-request reconciliation is proven."
+  ],
+  "safety": "Synthetic/defensive transport qualification only. No real financial transactions, payment data, fraud workflows, or weakened security controls."
+}
