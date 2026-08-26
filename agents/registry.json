@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "agents": [
     {"id":"orchestrator","name":"Orchestrator","role":"Route tasks, coordinate specialists, combine results","auto":true},
     {"id":"planner","name":"Planner","role":"Decompose complex goals into ordered executable plans","auto":true},
@@ -10,6 +10,7 @@
     {"id":"memory","name":"Memory","role":"Maintain useful project context and retrieve prior knowledge","auto":true},
     {"id":"media","name":"Voice & Media","role":"Coordinate supported voice, image, audio and video workflows","auto":true},
     {"id":"audit","name":"Audit & Security","role":"Observe health, authentication events, logs and suspicious changes","auto":true},
-    {"id":"qa","name":"QA Reviewer","role":"Review outputs, detect regressions and verify completed work","auto":true}
+    {"id":"qa","name":"QA Reviewer","role":"Review outputs, detect regressions and verify completed work","auto":true},
+    {"id":"saddam","name":"Saddam","role":"Coordinate bounded model-arena security evaluations, compare models, flag critical results and route review cases","auto":false}
   ]
 }
