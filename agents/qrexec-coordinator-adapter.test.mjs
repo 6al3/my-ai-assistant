@@ -14,6 +14,7 @@ import { verifyCoordinatorResponseAttestation } from './qrexec-response-attestat
 const SECRET='0123456789abcdef0123456789abcdef', SHA='b'.repeat(40), SERVICE='dig.Coordinator', KEY='lab-key';
 function keys(){const {privateKey,publicKey}=generateKeyPairSync('ed25519');return {attestationConfig:{privateKey,keyId:KEY,gitSha:SHA,service:SERVICE},publicKeyPem:publicKey.export({format:'pem',type:'spki'}).toString()};}
 function verify(response,k,requestId){return verifyCoordinatorResponseAttestation(response,{publicKeyPem:k.publicKeyPem,expectedKeyId:KEY,expectedGitSha:SHA,expectedService:SERVICE,expectedRequestId:requestId});}
+function assertIndeterminate(value,op){assert.equal(value.ok,false);assert.equal(value.op,op);assert.equal(value.error.code,'REQUEST_OUTCOME_INDETERMINATE');assert.equal(value.error.retryable,false);assert.equal(value.error.reconciliationRequired,true);}
 
 test('same authenticated request is durably idempotent across service processes', async()=>{
  const dir=await mkdtemp(join(tmpdir(),'dig-qrexec-')); try {
@@ -53,7 +54,7 @@ test('coordinator rejection is durably committed as an attested response', async
  } finally {await rm(dir,{recursive:true,force:true});}
 });
 
-test('crash after durable claim mutation remains indeterminate and retry does not claim twice', async()=>{
+test('crash after durable claim mutation returns attested indeterminate and never claims twice', async()=>{
  const dir=await mkdtemp(join(tmpdir(),'dig-qrexec-')); try {
   const storePath=join(dir,'missions.json'), journalPath=join(dir,'requests.json'), k=keys();
   const c=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true}}); await c.enqueue({task:'one',requiredCapabilities:['coder']}); await c.enqueue({task:'two',requiredCapabilities:['coder']});
@@ -63,9 +64,37 @@ test('crash after durable claim mutation remains indeterminate and retry does no
   const afterCrash=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,preserveRunningLeasesOnRestore:true}});
   assert.equal(afterCrash.list({status:'running'}).length,1); assert.equal(afterCrash.list({status:'queued'}).length,1);
   const journal=await DurableRequestJournal.open(journalPath); assert.equal(journal.get('req-crash-window').status,'pending');
-  await assert.rejects(()=>handleQrexecEnvelope(env,opts),/indeterminate|reconciliation required/i);
+  const retry=verify(await handleQrexecEnvelope(env,opts),k,'req-crash-window'); assertIndeterminate(retry,'claim');
   const afterRetry=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,preserveRunningLeasesOnRestore:true}});
   assert.equal(afterRetry.list({status:'running'}).length,1); assert.equal(afterRetry.list({status:'queued'}).length,1);
+  const stillPending=await DurableRequestJournal.open(journalPath); assert.equal(stillPending.get('req-crash-window').status,'pending');
+ } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('crash after durable heartbeat returns attested indeterminate without extending lease twice', async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'dig-qrexec-')); try {
+  const storePath=join(dir,'missions.json'), journalPath=join(dir,'requests.json'), k=keys(); let now=1800000000000;
+  const c=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,leaseMs:5000,now:()=>now}}); await c.enqueue({task:'heartbeat',requiredCapabilities:['coder']}); const claimed=await c.claim({workerId:'worker-a',capabilities:['coder'],sessionId:'s1'}); now+=1000;
+  const env=signWorkerEnvelope({requestId:'req-heartbeat-crash',issuedAt:now,op:'heartbeat',body:{missionId:claimed.id,workerId:'worker-a',leaseToken:claimed.leaseToken},secret:SECRET});
+  const opts={secret:SECRET,missionStorePath:storePath,journalPath,queueOptions:{requireLeaseToken:true,leaseMs:5000,now:()=>now,preserveRunningLeasesOnRestore:true},attestationConfig:k.attestationConfig,now:()=>now};
+  await assert.rejects(()=>handleQrexecEnvelope(env,{...opts,afterMutation:()=>{throw new Error('synthetic crash after heartbeat');}}),/synthetic crash/);
+  const afterCrash=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:opts.queueOptions}); const leaseAfterCrash=afterCrash.get(claimed.id).leaseUntil;
+  now+=250;
+  const retry=verify(await handleQrexecEnvelope(env,{...opts,now:()=>1800000001000}),k,'req-heartbeat-crash'); assertIndeterminate(retry,'heartbeat');
+  const afterRetry=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:opts.queueOptions}); assert.equal(afterRetry.get(claimed.id).leaseUntil,leaseAfterCrash);
+ } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('crash after durable fail returns attested indeterminate without applying fail twice', async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'dig-qrexec-')); try {
+  const storePath=join(dir,'missions.json'), journalPath=join(dir,'requests.json'), k=keys();
+  const c=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,maxAttempts:3}}); await c.enqueue({task:'failure',requiredCapabilities:['coder']}); const claimed=await c.claim({workerId:'worker-a',capabilities:['coder'],sessionId:'s1'});
+  const env=signWorkerEnvelope({requestId:'req-fail-crash',issuedAt:1800000000000,op:'fail',body:{missionId:claimed.id,workerId:'worker-a',leaseToken:claimed.leaseToken,error:'synthetic failure'},secret:SECRET});
+  const opts={secret:SECRET,missionStorePath:storePath,journalPath,queueOptions:{requireLeaseToken:true,maxAttempts:3},attestationConfig:k.attestationConfig,now:()=>1800000000000};
+  await assert.rejects(()=>handleQrexecEnvelope(env,{...opts,afterMutation:()=>{throw new Error('synthetic crash after fail');}}),/synthetic crash/);
+  const afterCrash=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,maxAttempts:3}}); const failedOnce=afterCrash.get(claimed.id); assert.equal(failedOnce.status,'queued'); assert.equal(failedOnce.attempts,1); assert.equal(failedOnce.error,'synthetic failure');
+  const retry=verify(await handleQrexecEnvelope(env,opts),k,'req-fail-crash'); assertIndeterminate(retry,'fail');
+  const afterRetry=await MissionCoordinator.open({store:new MissionQueueStore(storePath),queueOptions:{requireLeaseToken:true,maxAttempts:3}}); const unchanged=afterRetry.get(claimed.id); assert.equal(unchanged.status,'queued'); assert.equal(unchanged.attempts,1); assert.equal(unchanged.error,'synthetic failure');
  } finally {await rm(dir,{recursive:true,force:true});}
 });
 
