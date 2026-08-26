@@ -1,0 +1,47 @@
+{
+  "decision": "Preserve live durable worker leases when a new qrexec service process restores MissionQueue state.",
+  "status": "selected",
+  "problem": "The qrexec service is process-per-call. Restoring a running mission with preserveRunningLeasesOnRestore=false requeues it before a later heartbeat/complete/fail request can prove the same fenced authority, even when the lease is still live and the leaseToken is correct.",
+  "independentReviews": [
+    {
+      "role": "correctness",
+      "preferredApproach": "set preserveRunningLeasesOnRestore=true at the qrexec service boundary",
+      "reason": "Process-per-call transport must preserve the durable workerId, leaseToken, and live leaseUntil across service invocations or fenced follow-up mutations are impossible. Expired leases still requeue through existing restore/requeue logic."
+    },
+    {
+      "role": "robustness-security",
+      "preferredApproach": "preserve only live durable leases and continue requiring exact leaseToken fencing",
+      "reason": "This does not weaken stale-worker rejection. It keeps authority only when durable ownership metadata exists and leaseUntil remains in the future; stale or expired leases still fail/requeue."
+    },
+    {
+      "role": "latency-resources-regression",
+      "preferredApproach": "reuse MissionQueue restore semantics instead of a long-lived qrexec daemon",
+      "reason": "Adds no extra round trip, daemon, database, IPC channel, or persistent process state. It changes only restore policy for the qrexec adapter and preserves the existing file format."
+    }
+  ],
+  "alternativesRejected": [
+    {
+      "approach": "leave restore recovery at the default and reclaim on every qrexec call",
+      "reason": "Breaks heartbeat/complete/fail across process-per-call boundaries and invalidates lease-token authority."
+    },
+    {
+      "approach": "run a long-lived qrexec coordinator daemon",
+      "reason": "Avoids restore but adds lifecycle, memory, IPC, crash-state, and attack surface that is unnecessary when live leases can be restored safely."
+    },
+    {
+      "approach": "disable lease-token fencing for qrexec follow-up calls",
+      "reason": "Would weaken security and allow stale workers to mutate missions."
+    }
+  ],
+  "qaRequirements": [
+    "claim in one qrexec process, heartbeat in a second, and complete in a third using the same live leaseToken",
+    "verify every response with request-bound Ed25519 attestation",
+    "verify durable final mission state is completed after reopen",
+    "retain existing expired-lease and stale-token rejection tests",
+    "keep requireLeaseToken=true at the service boundary"
+  ],
+  "failuresLessons": [
+    "Process-per-call transport changes restore semantics into part of the protocol contract; a restart policy suitable for crash recovery is not automatically suitable for every normal qrexec invocation.",
+    "Lease preservation is safe only together with expiry checks and exact fencing-token verification."
+  ]
+}
