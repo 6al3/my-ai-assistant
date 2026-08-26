@@ -16,6 +16,8 @@ on:
       - 'agents/qrexec-service-process-crash-boundary.decision.json'
       - 'agents/qrexec-transport-qualification.mjs'
       - 'agents/qrexec-transport-qualification.test.mjs'
+      - 'agents/qrexec-transport-execution-qualification.mjs'
+      - 'agents/qrexec-transport-execution-qualification.test.mjs'
       - 'agents/qrexec-transport-qualification.decision.json'
       - 'agents/qubes-transport-contract.test.mjs'
       - 'agents/qubes-transport-contract.decision.json'
@@ -51,6 +53,8 @@ jobs:
           node --check agents/qrexec-service-process-crash.test.mjs
           node --check agents/qrexec-transport-qualification.mjs
           node --check agents/qrexec-transport-qualification.test.mjs
+          node --check agents/qrexec-transport-execution-qualification.mjs
+          node --check agents/qrexec-transport-execution-qualification.test.mjs
           node --check agents/qubes-transport-contract.test.mjs
       - name: Run Qubes transport contract QA
         run: npm run test:qubes-transport
