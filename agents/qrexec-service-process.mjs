@@ -32,7 +32,10 @@ export function loadQrexecServiceConfig(env = process.env) {
       secret: required(env.DIG_QREXEC_TRANSPORT_SECRET, 'DIG_QREXEC_TRANSPORT_SECRET'),
       missionStorePath: required(env.DIG_QREXEC_MISSION_STORE_PATH, 'DIG_QREXEC_MISSION_STORE_PATH'),
       journalPath: required(env.DIG_QREXEC_REQUEST_JOURNAL_PATH, 'DIG_QREXEC_REQUEST_JOURNAL_PATH'),
-      queueOptions: { requireLeaseToken: true },
+      // qrexec uses one process per request. A live durable lease must survive the next
+      // service process so heartbeat/complete/fail can prove the same worker authority.
+      // Expired leases are still requeued by MissionQueue restore/requeue logic.
+      queueOptions: { requireLeaseToken: true, preserveRunningLeasesOnRestore: true },
       attestationConfig: {
         privateKey: decodePrivateKey(env.DIG_QREXEC_ATTESTATION_PRIVATE_KEY_B64),
         keyId: required(env.DIG_QREXEC_ATTESTATION_KEY_ID, 'DIG_QREXEC_ATTESTATION_KEY_ID'),
