@@ -28,6 +28,19 @@ function rejectedResponse(op,error){
   return {ok:false,op,error:{code:'COORDINATOR_REJECTED',message:error instanceof Error?error.message:String(error)}};
 }
 
+function indeterminateResponse(op){
+  return {
+    ok:false,
+    op,
+    error:{
+      code:'REQUEST_OUTCOME_INDETERMINATE',
+      message:'request outcome is indeterminate; reconciliation required',
+      retryable:false,
+      reconciliationRequired:true
+    }
+  };
+}
+
 function reconcilePendingComplete(body, coordinator) {
   const mission = coordinator.get(body.missionId);
   if (!mission || mission.status !== 'completed') return null;
@@ -41,7 +54,7 @@ async function reconcilePendingRequest({verified,body,journal,missionStorePath,q
   // Only complete has a durable, exact postcondition that is already idempotent in
   // MissionQueue: completed + same worker + same fencing token + identical result.
   // claim, heartbeat, and fail remain indeterminate because current mission state cannot
-  // prove which request caused the observed state without adding a new transactional receipt.
+  // prove which request caused the observed state without adding a shared transactional boundary.
   if (verified.op !== 'complete') return null;
   const coordinator = await MissionCoordinator.open({store:new MissionQueueStore(missionStorePath),queueOptions});
   const response = reconcilePendingComplete(body,coordinator);
@@ -59,7 +72,9 @@ export async function handleQrexecEnvelope(envelope,{secret,missionStorePath,jou
   // Serialize the full request lifecycle, not just journal writes. This prevents two
   // process-per-call qrexec invocations from executing the same request concurrently.
   // If a process dies after the mission mutation but before journal commit, retries first
-  // attempt read-only reconciliation and otherwise fail closed rather than re-applying it.
+  // attempt read-only reconciliation. If causal proof is unavailable, return an attested,
+  // non-retryable indeterminate outcome rather than re-applying the mutation or surfacing
+  // an unsigned transport exception.
   return withFileMutationLock(requestLockPath(journalPath,verified.requestId),async()=>{
     const journal=await DurableRequestJournal.open(journalPath);
     const existing=journal.get(verified.requestId);
@@ -68,7 +83,7 @@ export async function handleQrexecEnvelope(envelope,{secret,missionStorePath,jou
       if(existing.status==='committed') return attestCoordinatorResponse(existing.response,attestationConfig,{requestId:verified.requestId});
       const reconciled=await reconcilePendingRequest({verified,body,journal,missionStorePath,queueOptions});
       if(reconciled) return attestCoordinatorResponse(reconciled,attestationConfig,{requestId:verified.requestId});
-      throw new Error('request outcome is indeterminate; reconciliation required');
+      return attestCoordinatorResponse(indeterminateResponse(verified.op),attestationConfig,{requestId:verified.requestId});
     }
 
     await journal.begin({requestId:verified.requestId,digest});
