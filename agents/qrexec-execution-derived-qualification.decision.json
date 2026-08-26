@@ -1,0 +1,52 @@
+{
+  "decision": "Derive Qubes transport qualification facts directly from spawned qrexec service crash executions, then build and immediately verify the bounded qualification artifact.",
+  "status": "selected",
+  "scope": "synthetic defensive transport qualification only",
+  "independentReviews": [
+    {
+      "role": "correctness",
+      "preferredApproach": "spawned scenario runners feeding the qualification builder directly",
+      "reason": "A schema-valid hand-built report can prove report logic but cannot prove the crash executions produced the facts. Reusing the actual service process boundary gives causal evidence for before-mutation, post-mutation, post-journal-commit, indeterminate retries, and complete reconciliation."
+    },
+    {
+      "role": "robustness-security",
+      "preferredApproach": "isolated durable stores per scenario with actual Ed25519 response verification and bounded facts only",
+      "reason": "Keeps claim/heartbeat/fail fail-closed after unknown post-mutation death, allows complete reconciliation only from exact durable postconditions, and excludes lease tokens, request MACs, private keys, raw payloads, paths, and stacks from qualification evidence."
+    },
+    {
+      "role": "latency-resources-regression",
+      "preferredApproach": "test/qualification-only spawned processes using existing service and crash child entrypoints",
+      "reason": "Adds no production qrexec round trip, daemon, database, WAL, coordinator mutation, or persistent runtime state. Cost exists only when qualification is executed and reuses existing process-per-call semantics."
+    }
+  ],
+  "alternativesRejected": [
+    {
+      "approach": "hand-construct scenario facts in qualification tests",
+      "reason": "Validates schema and digest logic but not causal execution provenance."
+    },
+    {
+      "approach": "add production telemetry or crash switches",
+      "reason": "Would expand attack and operational surface for evidence needed only during qualification."
+    },
+    {
+      "approach": "introduce a standalone WAL or receipt database",
+      "reason": "Does not create atomicity with MissionQueueStore by itself and widens Slice 1 responsibilities without closing the same crash ambiguity."
+    }
+  ],
+  "qaRequirements": [
+    "run all six required crash scenarios through spawned qrexec service processes",
+    "derive scenario facts from durable MissionQueueStore state, DurableRequestJournal reopen, and actual Ed25519 verification",
+    "duplicateMutations must equal zero for every scenario",
+    "before-mutation must have no durable effect and retry must execute once",
+    "post-claim/heartbeat/fail retry must be attested indeterminate with no second mutation",
+    "post-complete retry must reconcile read-only from exact durable terminal state",
+    "post-journal-commit retry must replay the committed outcome",
+    "build and immediately verify one qualification report per exact Git SHA and runtime fingerprint",
+    "keep raw secrets, fencing tokens, payloads, filesystem paths, and stack traces out of the report"
+  ],
+  "failuresLessons": [
+    "Earlier qualification evidence could be structurally correct while remaining disconnected from the spawned crash execution that was supposed to justify it.",
+    "A missing stdout response is not permission to replay a mutation; durable state and journal status determine whether reconciliation is safe.",
+    "Exactly-once for claim/heartbeat/fail is not claimed without a shared transactional boundary; fail-closed indeterminate outcomes are safer than causal inference from post-state."
+  ]
+}
