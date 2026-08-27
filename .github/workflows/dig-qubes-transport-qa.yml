@@ -16,6 +16,11 @@ on:
       - 'agents/qrexec-readonly-service-process.test.mjs'
       - 'agents/qrexec-readonly-policy-qualification.mjs'
       - 'agents/qrexec-readonly-policy-qualification.test.mjs'
+      - 'agents/qrexec-readonly-policy-collector.mjs'
+      - 'agents/qrexec-readonly-policy-collector.test.mjs'
+      - 'agents/qrexec-readonly-phase1-harness.mjs'
+      - 'agents/qrexec-readonly-phase1-harness.test.mjs'
+      - 'agents/qrexec-readonly-phase1-harness.decision.json'
       - 'agents/qrexec-readonly-policy-qualification.decision.json'
       - 'agents/qrexec-process-lease-lifecycle.test.mjs'
       - 'agents/qrexec-service-process-crash-child.mjs'
@@ -63,6 +68,10 @@ jobs:
           node --check agents/qrexec-readonly-service-process.test.mjs
           node --check agents/qrexec-readonly-policy-qualification.mjs
           node --check agents/qrexec-readonly-policy-qualification.test.mjs
+          node --check agents/qrexec-readonly-policy-collector.mjs
+          node --check agents/qrexec-readonly-policy-collector.test.mjs
+          node --check agents/qrexec-readonly-phase1-harness.mjs
+          node --check agents/qrexec-readonly-phase1-harness.test.mjs
           node --check agents/qrexec-process-lease-lifecycle.test.mjs
           node --check agents/qrexec-service-process-crash-child.mjs
           node --check agents/qrexec-service-process-crash.test.mjs
