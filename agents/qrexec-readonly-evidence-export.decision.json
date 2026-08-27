@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "decision": "Use two bounded, one-input/one-output evidence exporters: one in dom0 for persistent qrexec policy evidence and one under the dedicated non-root Coordinator-Qube service identity for service deployment evidence.",
+  "winner": "split-domain bounded JSON exporters",
+  "comparison": {
+    "correctness": "Preserves the real Qubes trust topology: dom0 never needs Coordinator-Qube filesystem access and the Coordinator Qube never needs dom0 policy access. Evidence is joined only by the existing artifact verifier.",
+    "robustnessSecurity": "Each exporter has bounded input/output, constant non-diagnostic stderr, no shell, no MissionQueue mutation, and delegates path/identity/immutability checks to the existing hardened collectors.",
+    "latency": "Only local file reads and JSON serialization; no additional qrexec round trip is introduced by evidence collection itself.",
+    "resourceUse": "Process-per-call, bounded buffers, no daemon, watcher, database, WAL, or persistent service state.",
+    "regressionRisk": "Adds thin adapters around existing collectors instead of a second evidence authority or changes to MissionQueue/WorkerRuntime.",
+    "qa": "Host-only happy-path tests remain intentionally limited because canonical Qubes paths and kernel EUID binding must not be weakened for test convenience. Syntax and negative framing tests can run off-Qubes; successful collection must be qualified in the real trust domains."
+  },
+  "rejected": [
+    {
+      "approach": "single privileged cross-domain evidence process",
+      "reason": "violates Qubes trust separation and creates unnecessary privilege/IPC surface"
+    },
+    {
+      "approach": "persistent evidence supervisor daemon",
+      "reason": "adds lifecycle, memory, IPC, and privileged attack surface without improving evidence correctness"
+    },
+    {
+      "approach": "test-only production path overrides",
+      "reason": "would weaken canonical path and identity enforcement solely to make host tests easier"
+    }
+  ],
+  "failuresLessons": [
+    "A structurally correct artifact is not sufficient unless each trust domain produces its own evidence.",
+    "Do not make Qubes canonical-path or service-identity checks configurable in production just to improve host-test convenience.",
+    "Export failures must not reflect input, paths, credentials, MACs, keys, lease tokens, or stack traces."
+  ],
+  "safety": "Read-only defensive qualification only; no real financial transactions, payment data, fraud workflow, or weakened security controls."
+}
