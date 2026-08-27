@@ -21,50 +21,48 @@ function sha(value, name) {
 
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
-  }
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
   return value;
 }
 
-function digest(value) {
-  return createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
-}
+function digest(value) { return createHash('sha256').update(JSON.stringify(stable(value))).digest('hex'); }
 
 function normalizeScenario(input, name) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error(`scenario ${name} is required`);
   const expected = name === 'intended-service-allowed' ? 'allowed' : 'denied';
   const outcome = requiredString(input.outcome, `scenario ${name}.outcome`);
   if (outcome !== expected) throw new Error(`scenario ${name} must be ${expected}`);
-  if (!Number.isInteger(input.exitCode) || input.exitCode < 0 || input.exitCode > 255) {
-    throw new Error(`scenario ${name}.exitCode must be an integer from 0 to 255`);
-  }
+  if (!Number.isInteger(input.exitCode) || input.exitCode < 0 || input.exitCode > 255) throw new Error(`scenario ${name}.exitCode must be an integer from 0 to 255`);
   if (expected === 'allowed' && input.exitCode !== 0) throw new Error(`scenario ${name} must exit 0`);
   if (expected === 'denied' && input.exitCode === 0) throw new Error(`scenario ${name} must fail non-zero`);
   return { outcome, exitCode: input.exitCode };
 }
 
-function normalizeMutationEvidence(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('mutationEvidence is required');
-  const missionStoreBefore = requiredString(input.missionStoreBefore, 'mutationEvidence.missionStoreBefore');
-  const missionStoreAfter = requiredString(input.missionStoreAfter, 'mutationEvidence.missionStoreAfter');
-  const requestJournalBefore = requiredString(input.requestJournalBefore, 'mutationEvidence.requestJournalBefore');
-  const requestJournalAfter = requiredString(input.requestJournalAfter, 'mutationEvidence.requestJournalAfter');
-  if (missionStoreBefore !== missionStoreAfter) throw new Error('read-only qualification mutated MissionStore');
-  if (requestJournalBefore !== requestJournalAfter) throw new Error('read-only qualification mutated DurableRequestJournal');
+function normalizeMutationEvidence(input, label = 'mutationEvidence') {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error(`${label} is required`);
+  const missionStoreBefore = requiredString(input.missionStoreBefore, `${label}.missionStoreBefore`);
+  const missionStoreAfter = requiredString(input.missionStoreAfter, `${label}.missionStoreAfter`);
+  const requestJournalBefore = requiredString(input.requestJournalBefore, `${label}.requestJournalBefore`);
+  const requestJournalAfter = requiredString(input.requestJournalAfter, `${label}.requestJournalAfter`);
+  if (missionStoreBefore !== missionStoreAfter) throw new Error(`${label} mutated MissionStore`);
+  if (requestJournalBefore !== requestJournalAfter) throw new Error(`${label} mutated DurableRequestJournal`);
   return { missionStoreBefore, missionStoreAfter, requestJournalBefore, requestJournalAfter };
+}
+
+function normalizeScenarioMutationEvidence(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('scenarioMutationEvidence is required');
+  return Object.fromEntries(REQUIRED_SCENARIOS.map((name) => [name, normalizeMutationEvidence(input[name], `scenarioMutationEvidence.${name}`)]));
 }
 
 export function buildReadonlyQrexecPolicyQualification(input = {}) {
   const scenarios = {};
   for (const name of REQUIRED_SCENARIOS) scenarios[name] = normalizeScenario(input.scenarios?.[name], name);
-
   if (input.attestationVerified !== true) throw new Error('allowed response attestation must be verified');
   if (input.responseBounded !== true) throw new Error('allowed response must satisfy configured byte bound');
   if (input.singleResponseFrame !== true) throw new Error('allowed response must contain exactly one response frame');
 
   const evidence = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     readiness: 'LAB READY',
     gitSha: sha(input.gitSha, 'gitSha'),
     runtimeFingerprint: requiredString(input.runtimeFingerprint, 'runtimeFingerprint'),
@@ -76,17 +74,16 @@ export function buildReadonlyQrexecPolicyQualification(input = {}) {
     responseBounded: true,
     singleResponseFrame: true,
     zeroMutationVerified: true,
-    mutationEvidence: normalizeMutationEvidence(input.mutationEvidence)
+    mutationEvidence: normalizeMutationEvidence(input.mutationEvidence),
+    scenarioMutationEvidence: normalizeScenarioMutationEvidence(input.scenarioMutationEvidence)
   };
-
   return { ...evidence, evidenceDigest: digest(evidence) };
 }
 
 export function verifyReadonlyQrexecPolicyQualification(report) {
   if (!report || typeof report !== 'object' || Array.isArray(report)) throw new Error('qualification report is required');
   const { evidenceDigest, ...evidence } = report;
-  const expected = digest(evidence);
-  if (evidenceDigest !== expected) throw new Error('qualification evidence digest mismatch');
+  if (evidenceDigest !== digest(evidence)) throw new Error('qualification evidence digest mismatch');
   buildReadonlyQrexecPolicyQualification(evidence);
   return true;
 }
