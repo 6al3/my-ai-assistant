@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "decision": "derive Phase-1 deployment manifest from verified Qubes policy and service-handler evidence before any qrexec invocation",
+  "winner": "artifact-bound qualification",
+  "comparison": {
+    "artifactBoundQualification": {
+      "correctness": "strong: binds readiness to the exact persistent dom0 policy rule and coordinator qrexec service endpoint",
+      "robustnessSecurity": "strong: empty-argument only allow, exact source/target/user binding, explicit catch-all deny, immutable service handler evidence",
+      "latency": "negligible local parsing only; zero additional qrexec round trips",
+      "resourceUse": "no daemon, watcher, database, WAL, or persistent runtime state",
+      "regressionRisk": "low: additive deployment boundary reuses the existing manifest and Phase-1 runner contracts",
+      "qa": "dedicated positive and fail-before-qrexec regressions plus workflow syntax coverage"
+    },
+    "handAuthoredManifestOnly": {
+      "correctness": "weaker: validates declared intent but not the deployed Qubes policy/service artifacts",
+      "robustnessSecurity": "can pass while dom0 policy or coordinator service handler has drifted",
+      "latency": "lowest",
+      "resourceUse": "lowest",
+      "regressionRisk": "low",
+      "qa": "schema-only evidence cannot establish deployment provenance"
+    },
+    "persistentWatcherOrSupervisor": {
+      "correctness": "can observe runtime changes but does not improve policy provenance by itself",
+      "robustnessSecurity": "adds privileged lifecycle and IPC surface",
+      "latency": "higher continuous overhead",
+      "resourceUse": "persistent process and monitoring state",
+      "regressionRisk": "higher deployment complexity",
+      "qa": "more platform-specific failure modes"
+    }
+  },
+  "failuresLessons": [
+    "A valid Node manifest is not proof that the dom0 qrexec policy grants only the intended path.",
+    "For a no-argument read-only service, Qubes policy should allow the empty argument token '+' from exactly one source to exactly one coordinator and then deny all other calls to that service.",
+    "Deployment evidence must bind the service handler target to the exact candidate Git SHA and prove the service identity cannot rewrite it.",
+    "Keep real-Qubes Phase-1 read-only; do not use state-changing MissionQueue operations to validate policy routing."
+  ],
+  "safety": "synthetic/defensive qualification only; no real financial transactions, payment data, fraud workflow, or weakened security controls"
+}
