@@ -1,6 +1,7 @@
 import { runReadonlyQrexecPhase1Qualification } from './qrexec-readonly-phase1-runner.mjs';
 import { verifyReadonlyServiceIdentityContract } from './qrexec-readonly-service-identity-contract.mjs';
 import { verifyReadonlyQrexecDeploymentManifest } from './qrexec-readonly-deployment-manifest.mjs';
+import { buildReadonlyQrexecDeploymentManifestFromArtifact } from './qrexec-readonly-deployment-artifact.mjs';
 
 function requiredString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required`);
@@ -41,5 +42,40 @@ export async function runIdentityBoundReadonlyQrexecPhase1Qualification(options 
     coordinatorQube,
     expectedServiceUser,
     expectedServiceUid
+  });
+}
+
+/**
+ * Real-Qubes boundary: derive the manifest from captured dom0 policy + coordinator
+ * qrexec service evidence instead of trusting a hand-authored deployment manifest.
+ */
+export async function runArtifactBoundReadonlyQrexecPhase1Qualification(options = {}) {
+  const gitSha = requiredString(options.gitSha, 'gitSha').toLowerCase();
+  const intendedService = requiredString(options.intendedService, 'intendedService');
+  const sourceQube = requiredString(options.sourceQube, 'sourceQube');
+  const coordinatorQube = requiredString(options.coordinatorQube, 'coordinatorQube');
+  const expectedServiceUser = requiredString(options.expectedServiceUser, 'expectedServiceUser');
+  const expectedServiceUid = requiredUid(options.expectedServiceUid, 'expectedServiceUid');
+  const expectedServiceTarget = requiredString(options.expectedServiceTarget, 'expectedServiceTarget');
+
+  const deploymentManifest = buildReadonlyQrexecDeploymentManifestFromArtifact(options.deploymentArtifact, {
+    expectedService: intendedService,
+    expectedSourceQube: sourceQube,
+    expectedCoordinatorQube: coordinatorQube,
+    expectedServiceUser,
+    expectedServiceUid,
+    expectedGitSha: gitSha,
+    expectedServiceTarget
+  });
+
+  return runIdentityBoundReadonlyQrexecPhase1Qualification({
+    ...options,
+    gitSha,
+    intendedService,
+    sourceQube,
+    coordinatorQube,
+    expectedServiceUser,
+    expectedServiceUid,
+    deploymentManifest
   });
 }
