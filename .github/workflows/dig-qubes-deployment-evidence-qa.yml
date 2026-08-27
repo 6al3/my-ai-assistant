@@ -12,6 +12,9 @@ on:
       - 'agents/qrexec-readonly-deployment-artifact.test.mjs'
       - 'agents/qrexec-readonly-dom0-evidence-export.mjs'
       - 'agents/qrexec-readonly-coordinator-evidence-export.mjs'
+      - 'agents/qrexec-readonly-evidence-import.mjs'
+      - 'agents/qrexec-readonly-evidence-import.test.mjs'
+      - 'agents/qrexec-readonly-evidence-import.decision.json'
       - 'agents/qrexec-readonly-evidence-export.decision.json'
       - '.github/workflows/dig-qubes-deployment-evidence-qa.yml'
   workflow_dispatch:
@@ -38,5 +41,7 @@ jobs:
           node --check agents/qrexec-readonly-deployment-artifact.test.mjs
           node --check agents/qrexec-readonly-dom0-evidence-export.mjs
           node --check agents/qrexec-readonly-coordinator-evidence-export.mjs
+          node --check agents/qrexec-readonly-evidence-import.mjs
+          node --check agents/qrexec-readonly-evidence-import.test.mjs
       - name: Run deployment evidence gate QA
-        run: node --test agents/qrexec-readonly-deployment-evidence-collector.test.mjs agents/qrexec-readonly-deployment-artifact.test.mjs
+        run: node --test agents/qrexec-readonly-deployment-evidence-collector.test.mjs agents/qrexec-readonly-deployment-artifact.test.mjs agents/qrexec-readonly-evidence-import.test.mjs
