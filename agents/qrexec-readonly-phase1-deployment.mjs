@@ -22,11 +22,13 @@ export async function runIdentityBoundReadonlyQrexecPhase1Qualification(options 
   const gitSha = requiredString(options.gitSha, 'gitSha').toLowerCase();
   const intendedService = requiredString(options.intendedService, 'intendedService');
   const coordinatorQube = requiredString(options.coordinatorQube, 'coordinatorQube');
+  const expectedServiceUser = requiredString(options.expectedServiceUser, 'expectedServiceUser');
   const expectedServiceUid = requiredUid(options.expectedServiceUid, 'expectedServiceUid');
 
   verifyReadonlyServiceIdentityContract(options.serviceIdentityContract, {
     expectedService: intendedService,
     expectedCoordinatorQube: coordinatorQube,
+    expectedServiceUser,
     expectedServiceUid,
     expectedGitSha: gitSha
   });
@@ -36,6 +38,7 @@ export async function runIdentityBoundReadonlyQrexecPhase1Qualification(options 
     gitSha,
     intendedService,
     coordinatorQube,
+    expectedServiceUser,
     expectedServiceUid
   });
 }
