@@ -24,6 +24,9 @@ on:
       - 'agents/qrexec-readonly-phase1-runner.test.mjs'
       - 'agents/qrexec-readonly-mutation-snapshot.mjs'
       - 'agents/qrexec-readonly-mutation-snapshot.test.mjs'
+      - 'agents/qrexec-readonly-filesystem-enforcement.mjs'
+      - 'agents/qrexec-readonly-filesystem-enforcement.test.mjs'
+      - 'agents/qrexec-readonly-filesystem-enforcement.decision.json'
       - 'agents/qrexec-readonly-phase1-runner.decision.json'
       - 'agents/qrexec-readonly-harness.decision.json'
       - 'agents/qrexec-readonly-phase1-harness.decision.json'
@@ -82,6 +85,8 @@ jobs:
           node --check agents/qrexec-readonly-phase1-runner.test.mjs
           node --check agents/qrexec-readonly-mutation-snapshot.mjs
           node --check agents/qrexec-readonly-mutation-snapshot.test.mjs
+          node --check agents/qrexec-readonly-filesystem-enforcement.mjs
+          node --check agents/qrexec-readonly-filesystem-enforcement.test.mjs
           node --check agents/qrexec-process-lease-lifecycle.test.mjs
           node --check agents/qrexec-service-process-crash-child.mjs
           node --check agents/qrexec-service-process-crash.test.mjs
@@ -92,5 +97,7 @@ jobs:
           node --check agents/qubes-transport-contract.test.mjs
       - name: Run coordinator mutation snapshot QA
         run: node --test agents/qrexec-readonly-mutation-snapshot.test.mjs
+      - name: Run read-only filesystem enforcement QA
+        run: node --test agents/qrexec-readonly-filesystem-enforcement.test.mjs
       - name: Run Qubes transport contract QA
         run: npm run test:qubes-transport
