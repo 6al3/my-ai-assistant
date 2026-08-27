@@ -22,7 +22,10 @@ on:
       - 'agents/qrexec-readonly-phase1-harness.test.mjs'
       - 'agents/qrexec-readonly-phase1-runner.mjs'
       - 'agents/qrexec-readonly-phase1-runner.test.mjs'
+      - 'agents/qrexec-readonly-mutation-snapshot.mjs'
+      - 'agents/qrexec-readonly-mutation-snapshot.test.mjs'
       - 'agents/qrexec-readonly-phase1-runner.decision.json'
+      - 'agents/qrexec-readonly-harness.decision.json'
       - 'agents/qrexec-readonly-phase1-harness.decision.json'
       - 'agents/qrexec-readonly-policy-qualification.decision.json'
       - 'agents/qrexec-process-lease-lifecycle.test.mjs'
@@ -77,6 +80,8 @@ jobs:
           node --check agents/qrexec-readonly-phase1-harness.test.mjs
           node --check agents/qrexec-readonly-phase1-runner.mjs
           node --check agents/qrexec-readonly-phase1-runner.test.mjs
+          node --check agents/qrexec-readonly-mutation-snapshot.mjs
+          node --check agents/qrexec-readonly-mutation-snapshot.test.mjs
           node --check agents/qrexec-process-lease-lifecycle.test.mjs
           node --check agents/qrexec-service-process-crash-child.mjs
           node --check agents/qrexec-service-process-crash.test.mjs
@@ -85,5 +90,7 @@ jobs:
           node --check agents/qrexec-transport-execution-qualification.mjs
           node --check agents/qrexec-transport-execution-qualification.test.mjs
           node --check agents/qubes-transport-contract.test.mjs
+      - name: Run coordinator mutation snapshot QA
+        run: node --test agents/qrexec-readonly-mutation-snapshot.test.mjs
       - name: Run Qubes transport contract QA
         run: npm run test:qubes-transport
