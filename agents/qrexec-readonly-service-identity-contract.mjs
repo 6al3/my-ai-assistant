@@ -42,14 +42,17 @@ export function buildReadonlyServiceIdentityContract({
 export function verifyReadonlyServiceIdentityContract(contract, {
   expectedService,
   expectedCoordinatorQube,
+  expectedServiceUser,
   expectedServiceUid,
   expectedGitSha
 } = {}) {
   if (!contract || contract.schemaVersion !== 1 || contract.deploymentIdentityBound !== true) {
     throw new Error('invalid read-only qrexec service identity contract');
   }
+  if (contract.nonRootVerified !== true) throw new Error('read-only qrexec service non-root identity was not verified');
   if (contract.service !== requiredString(expectedService, 'expectedService')) throw new Error('service identity mismatch');
   if (contract.coordinatorQube !== requiredString(expectedCoordinatorQube, 'expectedCoordinatorQube')) throw new Error('coordinator identity mismatch');
+  if (contract.serviceUser !== requiredString(expectedServiceUser, 'expectedServiceUser')) throw new Error('service user identity mismatch');
   if (contract.expectedServiceUid !== requiredUid(expectedServiceUid, 'expectedServiceUid')) throw new Error('service uid mismatch');
   if (contract.configuredServiceUid !== contract.expectedServiceUid) throw new Error('configured service uid mismatch');
   if (contract.gitSha !== requiredString(expectedGitSha, 'expectedGitSha').toLowerCase()) throw new Error('service deployment git sha mismatch');
