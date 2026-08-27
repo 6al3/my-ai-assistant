@@ -1,0 +1,47 @@
+{
+  "decision": "Use an execution-derived read-only qrexec policy collector before any state-changing Qubes worker qualification.",
+  "winner": "injected real-invocation collector with before/after durable-state digests and immediate qualification verification",
+  "comparison": {
+    "correctness": {
+      "winner": "execution-derived collector",
+      "reason": "The final LAB READY artifact is built from the same invocation observations, attestation check, framing facts, and mutation snapshots produced by the qualification run rather than hand-entered scenario facts."
+    },
+    "robustnessSecurity": {
+      "winner": "fail-closed collector",
+      "reason": "Wrong service, wrong identity, bad auth, malformed framing, mutation drift, failed attestation, oversized output, or multi-frame output all prevent qualification. The collector does not need request secrets, lease tokens, private keys, raw mission payloads, or stack traces in its report."
+    },
+    "latencyResources": {
+      "winner": "thin orchestration layer",
+      "reason": "It adds no production daemon, database, WAL, MissionQueue mutation, or extra production qrexec round trip; it only sequences the explicit qualification invocations and two state snapshots."
+    },
+    "regressionRisk": {
+      "winner": "reuse existing qualification builder/verifier",
+      "reason": "Readiness semantics remain centralized in qrexec-readonly-policy-qualification.mjs rather than duplicated in the collector."
+    },
+    "qa": {
+      "winner": "contract tests plus real-Qubes injected runner",
+      "reason": "Synthetic tests prove fail-closed orchestration while the same collector can accept the real qrexec invocation and coordinator-side snapshot functions in a Qubes lab."
+    }
+  },
+  "rejected": [
+    {
+      "approach": "hand-construct final qualification facts",
+      "reason": "Schema-valid evidence is not causal proof that the expected qrexec routes were actually exercised."
+    },
+    {
+      "approach": "start with state-changing claim/heartbeat/complete smoke",
+      "reason": "It mixes policy/auth/framing failures with MissionQueue semantics and unnecessarily increases blast radius before read-only routing is proven."
+    },
+    {
+      "approach": "persistent qrexec qualification daemon",
+      "reason": "Adds lifecycle, RAM, IPC, and attack surface without improving the read-only acceptance proof."
+    }
+  ],
+  "lessons": [
+    "A policy qualification gate should consume execution observations, not operator assertions.",
+    "Read-only routing evidence must prove both intended allow and explicit deny cases.",
+    "Zero mutation is strongest when measured independently with before/after durable-state digests.",
+    "The collector is not itself proof of Qubes policy; REAL-WORKER readiness still requires observations from actual Qubes VM invocation."
+  ],
+  "safety": "Synthetic and defensive qualification only. No real financial transactions, payment data, fraud workflows, or weakened security controls."
+}
