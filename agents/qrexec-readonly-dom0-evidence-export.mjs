@@ -2,6 +2,12 @@ import { collectDom0ReadonlyPolicyEvidence } from './qrexec-readonly-deployment-
 
 const MAX_CONFIG_BYTES = 8 * 1024;
 const MAX_OUTPUT_BYTES = 80 * 1024;
+const CHALLENGE_RE = /^[A-Za-z0-9_-]{24,128}$/;
+
+function requiredChallenge(value) {
+  if (typeof value !== 'string' || !CHALLENGE_RE.test(value)) throw new Error('evidenceChallenge is invalid');
+  return value;
+}
 
 async function readBoundedStdin(stream = process.stdin) {
   const chunks = [];
@@ -21,8 +27,9 @@ async function readBoundedStdin(stream = process.stdin) {
 
 export async function exportDom0ReadonlyPolicyEvidence({ input = process.stdin } = {}) {
   const config = await readBoundedStdin(input);
+  const evidenceChallenge = requiredChallenge(config.evidenceChallenge);
   const evidence = await collectDom0ReadonlyPolicyEvidence({ policyPath: config.policyPath });
-  const output = `${JSON.stringify({ schemaVersion: 1, domain: 'dom0-policy', evidence })}\n`;
+  const output = `${JSON.stringify({ schemaVersion: 2, domain: 'dom0-policy', evidenceChallenge, evidence })}\n`;
   if (Buffer.byteLength(output) > MAX_OUTPUT_BYTES) throw new Error('output exceeds byte limit');
   return output;
 }
