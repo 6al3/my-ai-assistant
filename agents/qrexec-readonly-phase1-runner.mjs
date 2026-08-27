@@ -1,6 +1,7 @@
 import { collectReadonlyQrexecPolicyQualification } from './qrexec-readonly-policy-collector.mjs';
 import { createQrexecClientVmInvoker, QREXEC_READONLY_PHASE1_DEFAULTS } from './qrexec-readonly-phase1-harness.mjs';
 import { createReadonlyMutationStateSnapshotter } from './qrexec-readonly-mutation-snapshot.mjs';
+import { qualifyReadonlyFilesystemEnforcement } from './qrexec-readonly-filesystem-enforcement.mjs';
 import { READONLY_QREXEC_POLICY_SCENARIOS } from './qrexec-readonly-policy-qualification.mjs';
 import { verifyCoordinatorResponseAttestation } from './qrexec-response-attestation.mjs';
 
@@ -25,6 +26,19 @@ function validateScenarioDefinitions(scenarios) {
   return scenarios;
 }
 
+async function verifyFilesystemGate({ verifyFilesystemEnforcement, missionStorePath, requestJournalPath }) {
+  if (verifyFilesystemEnforcement != null) {
+    const report = await requiredFunction(verifyFilesystemEnforcement, 'verifyFilesystemEnforcement')();
+    if (!report || report.enforcementVerified !== true) throw new Error('read-only filesystem enforcement was not verified');
+    return;
+  }
+  const report = await qualifyReadonlyFilesystemEnforcement({
+    missionStorePath: requiredString(missionStorePath, 'missionStorePath'),
+    requestJournalPath: requiredString(requestJournalPath, 'requestJournalPath')
+  });
+  if (report.enforcementVerified !== true) throw new Error('read-only filesystem enforcement was not verified');
+}
+
 function resolveMutationSnapshotter({ snapshotMutationState, missionStorePath, requestJournalPath, snapshotMaxAttempts }) {
   if (snapshotMutationState != null) return requiredFunction(snapshotMutationState, 'snapshotMutationState');
   return createReadonlyMutationStateSnapshotter({
@@ -37,8 +51,9 @@ function resolveMutationSnapshotter({ snapshotMutationState, missionStorePath, r
 /**
  * Compose the real Worker-Qube qrexec process invoker with the read-only policy collector.
  * Production/deployment callers provide coordinator-side MissionStore and request-journal paths;
- * the runner creates a read-only byte+metadata snapshotter itself. Tests may inject a snapshot
- * function explicitly. No state-changing MissionQueue operation is imported or exposed here.
+ * the runner first proves that the Phase-1 service identity cannot write those durable targets,
+ * then creates the byte+metadata snapshotter. Tests may inject explicit verification/snapshot seams.
+ * No state-changing MissionQueue operation is imported or exposed here.
  */
 export async function runReadonlyQrexecPhase1Qualification({
   gitSha,
@@ -51,6 +66,7 @@ export async function runReadonlyQrexecPhase1Qualification({
   requestJournalPath,
   snapshotMaxAttempts,
   snapshotMutationState,
+  verifyFilesystemEnforcement,
   publicKeyPem,
   expectedKeyId,
   clientPath = QREXEC_READONLY_PHASE1_DEFAULTS.clientPath,
@@ -61,6 +77,11 @@ export async function runReadonlyQrexecPhase1Qualification({
   const expectedGitSha = requiredString(gitSha, 'gitSha').toLowerCase();
   const expectedService = requiredString(intendedService, 'intendedService');
   const scenarioDefinitions = validateScenarioDefinitions(scenarios);
+  await verifyFilesystemGate({
+    verifyFilesystemEnforcement,
+    missionStorePath,
+    requestJournalPath
+  });
   const snapshot = resolveMutationSnapshotter({
     snapshotMutationState,
     missionStorePath,
