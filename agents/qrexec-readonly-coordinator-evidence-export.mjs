@@ -2,6 +2,12 @@ import { collectCoordinatorReadonlyServiceEvidence } from './qrexec-readonly-dep
 
 const MAX_CONFIG_BYTES = 16 * 1024;
 const MAX_OUTPUT_BYTES = 32 * 1024;
+const CHALLENGE_RE = /^[A-Za-z0-9_-]{24,128}$/;
+
+function requiredChallenge(value) {
+  if (typeof value !== 'string' || !CHALLENGE_RE.test(value)) throw new Error('evidenceChallenge is invalid');
+  return value;
+}
 
 async function readBoundedStdin(stream = process.stdin) {
   const chunks = [];
@@ -21,6 +27,7 @@ async function readBoundedStdin(stream = process.stdin) {
 
 export async function exportCoordinatorReadonlyServiceEvidence({ input = process.stdin } = {}) {
   const config = await readBoundedStdin(input);
+  const evidenceChallenge = requiredChallenge(config.evidenceChallenge);
   const evidence = await collectCoordinatorReadonlyServiceEvidence({
     service: config.service,
     serviceUser: config.serviceUser,
@@ -29,7 +36,7 @@ export async function exportCoordinatorReadonlyServiceEvidence({ input = process
     serviceHandlerPath: config.serviceHandlerPath,
     deploymentMarkerPath: config.deploymentMarkerPath
   });
-  const output = `${JSON.stringify({ schemaVersion: 1, domain: 'coordinator-service', evidence })}\n`;
+  const output = `${JSON.stringify({ schemaVersion: 2, domain: 'coordinator-service', evidenceChallenge, evidence })}\n`;
   if (Buffer.byteLength(output) > MAX_OUTPUT_BYTES) throw new Error('output exceeds byte limit');
   return output;
 }
