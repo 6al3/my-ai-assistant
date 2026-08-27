@@ -1,0 +1,30 @@
+{
+  "decision": "Compose the process-per-call qrexec invoker directly with the schema-v2 read-only policy collector behind one fail-closed Phase-1 runner.",
+  "winner": "thin-composition-runner",
+  "criteria": {
+    "correctness": "Strongest because all five required policy scenarios flow through the same real qrexec invocation path and directly into per-scenario zero-mutation qualification evidence.",
+    "robustness": "Fails before invocation when scenario wiring is incomplete and fails closed on deployment-bound Ed25519 attestation mismatch, response framing, response size, or mutation evidence drift.",
+    "latency": "Adds no qrexec round trip beyond the five qualification invocations already required; composition and signature verification are local.",
+    "resourceUse": "No daemon, database, WAL, background worker, or persistent cross-request process state is introduced.",
+    "regressionRisk": "Low relative to alternatives because MissionQueue, WorkerRuntime, coordinator mutation semantics, and existing collector/invoker contracts are unchanged.",
+    "qa": "Adds composed success, wrong-deployment-attestation, and incomplete-wiring regressions and includes them in syntax, transport, and full QA suites. Executable CI must still run green before readiness can advance."
+  },
+  "alternatives": [
+    {
+      "name": "external-manual-wiring",
+      "result": "rejected",
+      "lesson": "Leaving invoker/collector composition to deployment scripts creates a configuration gap where required deny cases or attestation bindings can be omitted."
+    },
+    {
+      "name": "persistent-qrexec-daemon",
+      "result": "rejected",
+      "lesson": "A daemon adds lifecycle, memory, cross-request state, and attack surface without improving the read-only Phase-1 evidence contract."
+    },
+    {
+      "name": "state-changing-smoke-first",
+      "result": "rejected",
+      "lesson": "Mutation before read-only policy qualification mixes routing/auth failures with MissionQueue semantics and increases blast radius."
+    }
+  ],
+  "safety": "Synthetic and defensive Qubes qualification only. No financial transactions, payment data, fraud workflow, or security-control weakening."
+}
