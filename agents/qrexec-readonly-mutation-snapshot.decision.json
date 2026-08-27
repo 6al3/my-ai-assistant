@@ -1,0 +1,39 @@
+{
+  "decision": "Use a coordinator-side stable byte+metadata digest snapshotter for MissionStore and DurableRequestJournal during read-only Qubes Phase-1 qualification.",
+  "status": "accepted-for-lab-qualification",
+  "winner": "stable regular-file digest with inode/mtime/ctime/size/content binding and fail-closed retries",
+  "criteria": {
+    "correctness": "Detects content changes, atomic replacement, and same-content rewrites that a content-only hash can miss; absent files have a deterministic sentinel state.",
+    "robustnessSecurity": "Rejects symlinks/non-regular files and fails closed if a target changes while sampled. Imports no MissionQueue or journal mutation APIs and returns digests only, not state contents or paths.",
+    "latency": "Two small local file reads per snapshot plus SHA-256; no qrexec/network round trip is added by the adapter itself.",
+    "resourceUse": "No daemon, database, WAL, persistent watcher, or production state. Memory is bounded by the two state files being hashed.",
+    "regressionRisk": "New isolated adapter and tests; no changes to MissionQueue, WorkerRuntime, coordinator mutation semantics, or transport protocol.",
+    "qa": "Syntax and focused node:test coverage are wired into DIG Qubes Transport QA before the existing transport suite. Local focused validation passed before commit review."
+  },
+  "alternatives": [
+    {
+      "name": "content-only SHA-256",
+      "result": "rejected",
+      "lesson": "Same-content rewrite or atomic replacement can mutate durable state while preserving bytes, so bytes alone are insufficient evidence."
+    },
+    {
+      "name": "semantic JSON digest",
+      "result": "rejected",
+      "lesson": "Normalizing JSON can hide writes such as savedAt changes and weakens zero-mutation evidence."
+    },
+    {
+      "name": "persistent filesystem watcher",
+      "result": "deferred",
+      "lesson": "Can improve transient-write observability but adds lifecycle/platform complexity and still needs OS-specific guarantees; not required to unblock the current snapshotMutationState interface."
+    },
+    {
+      "name": "state-changing smoke test first",
+      "result": "rejected",
+      "lesson": "Expands blast radius before policy/routing zero-mutation qualification is proven."
+    }
+  ],
+  "knownLimitations": [
+    "Before/after snapshots cannot by themselves prove that no transient write-and-rollback occurred entirely between samples. Real-Qubes readiness should additionally rely on the dedicated read-only service boundary and coordinator-side OS permissions/policy that deny writes.",
+    "Executable GitHub-hosted QA remains a separate readiness gate."
+  ]
+}
