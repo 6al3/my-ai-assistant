@@ -14,6 +14,9 @@ on:
       - 'agents/qrexec-readonly-probe.mjs'
       - 'agents/qrexec-readonly-service-process.mjs'
       - 'agents/qrexec-readonly-service-process.test.mjs'
+      - 'agents/qrexec-readonly-policy-qualification.mjs'
+      - 'agents/qrexec-readonly-policy-qualification.test.mjs'
+      - 'agents/qrexec-readonly-policy-qualification.decision.json'
       - 'agents/qrexec-process-lease-lifecycle.test.mjs'
       - 'agents/qrexec-service-process-crash-child.mjs'
       - 'agents/qrexec-service-process-crash.test.mjs'
@@ -58,6 +61,8 @@ jobs:
           node --check agents/qrexec-readonly-probe.mjs
           node --check agents/qrexec-readonly-service-process.mjs
           node --check agents/qrexec-readonly-service-process.test.mjs
+          node --check agents/qrexec-readonly-policy-qualification.mjs
+          node --check agents/qrexec-readonly-policy-qualification.test.mjs
           node --check agents/qrexec-process-lease-lifecycle.test.mjs
           node --check agents/qrexec-service-process-crash-child.mjs
           node --check agents/qrexec-service-process-crash.test.mjs
