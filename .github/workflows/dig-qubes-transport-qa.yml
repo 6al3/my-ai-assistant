@@ -16,6 +16,7 @@ on:
       - 'agents/qrexec-readonly-service-process.test.mjs'
       - 'agents/qrexec-readonly-service-identity-contract.mjs'
       - 'agents/qrexec-readonly-service-identity-contract.test.mjs'
+      - 'agents/qrexec-readonly-deployment-manifest.mjs'
       - 'agents/qrexec-readonly-phase1-deployment.mjs'
       - 'agents/qrexec-readonly-phase1-deployment.test.mjs'
       - 'agents/qrexec-readonly-policy-qualification.mjs'
@@ -81,6 +82,7 @@ jobs:
           node --check agents/qrexec-readonly-service-process.test.mjs
           node --check agents/qrexec-readonly-service-identity-contract.mjs
           node --check agents/qrexec-readonly-service-identity-contract.test.mjs
+          node --check agents/qrexec-readonly-deployment-manifest.mjs
           node --check agents/qrexec-readonly-phase1-deployment.mjs
           node --check agents/qrexec-readonly-phase1-deployment.test.mjs
           node --check agents/qrexec-readonly-policy-qualification.mjs
@@ -103,7 +105,7 @@ jobs:
           node --check agents/qrexec-transport-execution-qualification.mjs
           node --check agents/qrexec-transport-execution-qualification.test.mjs
           node --check agents/qubes-transport-contract.test.mjs
-      - name: Run identity-bound Phase-1 deployment QA
+      - name: Run identity and manifest bound Phase-1 deployment QA
         run: node --test agents/qrexec-readonly-service-identity-contract.test.mjs agents/qrexec-readonly-phase1-deployment.test.mjs
       - name: Run coordinator mutation snapshot QA
         run: node --test agents/qrexec-readonly-mutation-snapshot.test.mjs
