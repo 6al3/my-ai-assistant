@@ -1,0 +1,37 @@
+name: DIG Qubes Deployment Evidence QA
+
+on:
+  pull_request:
+    branches:
+      - dig/mission-runtime-reliability-slice
+    paths:
+      - 'agents/qrexec-readonly-deployment-evidence-collector.mjs'
+      - 'agents/qrexec-readonly-deployment-evidence-collector.test.mjs'
+      - 'agents/qrexec-readonly-deployment-evidence-collector.decision.json'
+      - 'agents/qrexec-readonly-deployment-artifact.mjs'
+      - 'agents/qrexec-readonly-deployment-artifact.test.mjs'
+      - '.github/workflows/dig-qubes-deployment-evidence-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Syntax check deployment evidence gate
+        run: |
+          node --check agents/qrexec-readonly-deployment-evidence-collector.mjs
+          node --check agents/qrexec-readonly-deployment-evidence-collector.test.mjs
+          node --check agents/qrexec-readonly-deployment-artifact.mjs
+          node --check agents/qrexec-readonly-deployment-artifact.test.mjs
+      - name: Run deployment evidence gate QA
+        run: node --test agents/qrexec-readonly-deployment-evidence-collector.test.mjs agents/qrexec-readonly-deployment-artifact.test.mjs
