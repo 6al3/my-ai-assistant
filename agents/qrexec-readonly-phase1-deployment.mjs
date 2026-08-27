@@ -2,11 +2,7 @@ import { runReadonlyQrexecPhase1Qualification } from './qrexec-readonly-phase1-r
 import { verifyReadonlyServiceIdentityContract } from './qrexec-readonly-service-identity-contract.mjs';
 import { verifyReadonlyQrexecDeploymentManifest } from './qrexec-readonly-deployment-manifest.mjs';
 import { buildReadonlyQrexecDeploymentManifestFromArtifact } from './qrexec-readonly-deployment-artifact.mjs';
-import {
-  assembleReadonlyQrexecDeploymentArtifact,
-  collectCoordinatorReadonlyServiceEvidence,
-  collectDom0ReadonlyPolicyEvidence
-} from './qrexec-readonly-deployment-evidence-collector.mjs';
+import { assembleReadonlyQrexecDeploymentArtifact } from './qrexec-readonly-deployment-evidence-collector.mjs';
 
 function requiredString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required`);
@@ -51,8 +47,8 @@ export async function runIdentityBoundReadonlyQrexecPhase1Qualification(options 
 }
 
 /**
- * Real-Qubes boundary: derive the manifest from captured dom0 policy + coordinator
- * qrexec service evidence instead of trusting a hand-authored deployment manifest.
+ * Real-Qubes boundary: derive the manifest from independently captured dom0 policy +
+ * coordinator qrexec service evidence instead of trusting a hand-authored manifest.
  */
 export async function runArtifactBoundReadonlyQrexecPhase1Qualification(options = {}) {
   const gitSha = requiredString(options.gitSha, 'gitSha').toLowerCase();
@@ -86,10 +82,11 @@ export async function runArtifactBoundReadonlyQrexecPhase1Qualification(options 
 }
 
 /**
- * Collection-facing real deployment boundary. The dom0 policy and coordinator service
- * evidence are collected from their respective trust domains, assembled once, and
- * immediately consumed by the existing artifact verifier before any qrexec scenario runs.
- * Collector functions remain injectable strictly as a test seam.
+ * Split-domain real deployment boundary. dom0 policy evidence and coordinator service
+ * evidence MUST be collected independently in their own trust domains and supplied here.
+ * A single process cannot truthfully collect both in real Qubes. Collector injection is
+ * therefore test-only and requires an explicit opt-in so production cannot accidentally
+ * collapse the dom0/coordinator trust boundary.
  */
 export async function runCollectedArtifactBoundReadonlyQrexecPhase1Qualification(options = {}) {
   const gitSha = requiredString(options.gitSha, 'gitSha').toLowerCase();
@@ -99,20 +96,36 @@ export async function runCollectedArtifactBoundReadonlyQrexecPhase1Qualification
   const expectedServiceUser = requiredString(options.expectedServiceUser, 'expectedServiceUser');
   const expectedServiceUid = requiredUid(options.expectedServiceUid, 'expectedServiceUid');
 
-  const collectPolicy = options.collectDom0PolicyEvidence ?? collectDom0ReadonlyPolicyEvidence;
-  const collectCoordinator = options.collectCoordinatorServiceEvidence ?? collectCoordinatorReadonlyServiceEvidence;
+  const hasInjectedCollectors =
+    typeof options.collectDom0PolicyEvidence === 'function' ||
+    typeof options.collectCoordinatorServiceEvidence === 'function';
 
-  const policyEvidence = await collectPolicy({ policyPath: options.policyPath });
-  const coordinatorEvidence = await collectCoordinator({
-    service: intendedService,
-    serviceUser: expectedServiceUser,
-    serviceUid: expectedServiceUid,
-    expectedGitSha: gitSha,
-    serviceHandlerPath: options.serviceHandlerPath,
-    deploymentMarkerPath: options.deploymentMarkerPath,
-    getEuid: options.getEuid,
-    getEgid: options.getEgid
-  });
+  let policyEvidence = options.policyEvidence;
+  let coordinatorEvidence = options.coordinatorEvidence;
+
+  if (hasInjectedCollectors) {
+    if (options.allowTestCrossDomainCollectors !== true) {
+      throw new Error('cross-domain collector injection is test-only; collect dom0 and coordinator evidence separately');
+    }
+    if (typeof options.collectDom0PolicyEvidence !== 'function' || typeof options.collectCoordinatorServiceEvidence !== 'function') {
+      throw new Error('both test collectors are required when cross-domain collector injection is enabled');
+    }
+    policyEvidence = await options.collectDom0PolicyEvidence({ policyPath: options.policyPath });
+    coordinatorEvidence = await options.collectCoordinatorServiceEvidence({
+      service: intendedService,
+      serviceUser: expectedServiceUser,
+      serviceUid: expectedServiceUid,
+      expectedGitSha: gitSha,
+      serviceHandlerPath: options.serviceHandlerPath,
+      deploymentMarkerPath: options.deploymentMarkerPath,
+      getEuid: options.getEuid,
+      getEgid: options.getEgid
+    });
+  }
+
+  if (!policyEvidence || !coordinatorEvidence) {
+    throw new Error('split-domain policyEvidence and coordinatorEvidence are required');
+  }
 
   const deploymentArtifact = assembleReadonlyQrexecDeploymentArtifact({
     service: intendedService,
