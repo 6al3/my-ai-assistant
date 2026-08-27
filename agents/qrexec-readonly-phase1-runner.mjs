@@ -15,6 +15,11 @@ function requiredFunction(value, name) {
   return value;
 }
 
+function requiredUid(value, name) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`);
+  return value;
+}
+
 function validateScenarioDefinitions(scenarios) {
   if (!scenarios || typeof scenarios !== 'object' || Array.isArray(scenarios)) throw new Error('scenarios is required');
   for (const name of READONLY_QREXEC_POLICY_SCENARIOS) {
@@ -26,7 +31,7 @@ function validateScenarioDefinitions(scenarios) {
   return scenarios;
 }
 
-async function verifyFilesystemGate({ verifyFilesystemEnforcement, missionStorePath, requestJournalPath }) {
+async function verifyFilesystemGate({ verifyFilesystemEnforcement, missionStorePath, requestJournalPath, expectedServiceUid }) {
   if (verifyFilesystemEnforcement != null) {
     const report = await requiredFunction(verifyFilesystemEnforcement, 'verifyFilesystemEnforcement')();
     if (!report || report.enforcementVerified !== true) throw new Error('read-only filesystem enforcement was not verified');
@@ -34,9 +39,12 @@ async function verifyFilesystemGate({ verifyFilesystemEnforcement, missionStoreP
   }
   const report = await qualifyReadonlyFilesystemEnforcement({
     missionStorePath: requiredString(missionStorePath, 'missionStorePath'),
-    requestJournalPath: requiredString(requestJournalPath, 'requestJournalPath')
+    requestJournalPath: requiredString(requestJournalPath, 'requestJournalPath'),
+    expectedServiceUid: requiredUid(expectedServiceUid, 'expectedServiceUid')
   });
-  if (report.enforcementVerified !== true) throw new Error('read-only filesystem enforcement was not verified');
+  if (report.enforcementVerified !== true || report.executionIdentity?.identityBindingVerified !== true) {
+    throw new Error('read-only filesystem enforcement was not identity-bound');
+  }
 }
 
 function resolveMutationSnapshotter({ snapshotMutationState, missionStorePath, requestJournalPath, snapshotMaxAttempts }) {
@@ -50,10 +58,10 @@ function resolveMutationSnapshotter({ snapshotMutationState, missionStorePath, r
 
 /**
  * Compose the real Worker-Qube qrexec process invoker with the read-only policy collector.
- * Production/deployment callers provide coordinator-side MissionStore and request-journal paths;
- * the runner first proves that the Phase-1 service identity cannot write those durable targets,
- * then creates the byte+metadata snapshotter. Tests may inject explicit verification/snapshot seams.
- * No state-changing MissionQueue operation is imported or exposed here.
+ * Production/deployment callers provide coordinator-side MissionStore and request-journal paths
+ * plus the expected effective uid for the dedicated read-only qrexec service identity. The runner
+ * binds filesystem enforcement evidence to that uid before invoking qrexec, then performs the
+ * existing per-scenario zero-mutation qualification. Tests may inject explicit seams.
  */
 export async function runReadonlyQrexecPhase1Qualification({
   gitSha,
@@ -64,6 +72,7 @@ export async function runReadonlyQrexecPhase1Qualification({
   scenarios,
   missionStorePath,
   requestJournalPath,
+  expectedServiceUid,
   snapshotMaxAttempts,
   snapshotMutationState,
   verifyFilesystemEnforcement,
@@ -80,7 +89,8 @@ export async function runReadonlyQrexecPhase1Qualification({
   await verifyFilesystemGate({
     verifyFilesystemEnforcement,
     missionStorePath,
-    requestJournalPath
+    requestJournalPath,
+    expectedServiceUid
   });
   const snapshot = resolveMutationSnapshotter({
     snapshotMutationState,
