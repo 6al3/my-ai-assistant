@@ -2,6 +2,11 @@ import { runReadonlyQrexecPhase1Qualification } from './qrexec-readonly-phase1-r
 import { verifyReadonlyServiceIdentityContract } from './qrexec-readonly-service-identity-contract.mjs';
 import { verifyReadonlyQrexecDeploymentManifest } from './qrexec-readonly-deployment-manifest.mjs';
 import { buildReadonlyQrexecDeploymentManifestFromArtifact } from './qrexec-readonly-deployment-artifact.mjs';
+import {
+  assembleReadonlyQrexecDeploymentArtifact,
+  collectCoordinatorReadonlyServiceEvidence,
+  collectDom0ReadonlyPolicyEvidence
+} from './qrexec-readonly-deployment-evidence-collector.mjs';
 
 function requiredString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required`);
@@ -77,5 +82,57 @@ export async function runArtifactBoundReadonlyQrexecPhase1Qualification(options 
     expectedServiceUser,
     expectedServiceUid,
     deploymentManifest
+  });
+}
+
+/**
+ * Collection-facing real deployment boundary. The dom0 policy and coordinator service
+ * evidence are collected from their respective trust domains, assembled once, and
+ * immediately consumed by the existing artifact verifier before any qrexec scenario runs.
+ * Collector functions remain injectable strictly as a test seam.
+ */
+export async function runCollectedArtifactBoundReadonlyQrexecPhase1Qualification(options = {}) {
+  const gitSha = requiredString(options.gitSha, 'gitSha').toLowerCase();
+  const intendedService = requiredString(options.intendedService, 'intendedService');
+  const sourceQube = requiredString(options.sourceQube, 'sourceQube');
+  const coordinatorQube = requiredString(options.coordinatorQube, 'coordinatorQube');
+  const expectedServiceUser = requiredString(options.expectedServiceUser, 'expectedServiceUser');
+  const expectedServiceUid = requiredUid(options.expectedServiceUid, 'expectedServiceUid');
+
+  const collectPolicy = options.collectDom0PolicyEvidence ?? collectDom0ReadonlyPolicyEvidence;
+  const collectCoordinator = options.collectCoordinatorServiceEvidence ?? collectCoordinatorReadonlyServiceEvidence;
+
+  const policyEvidence = await collectPolicy({ policyPath: options.policyPath });
+  const coordinatorEvidence = await collectCoordinator({
+    service: intendedService,
+    serviceUser: expectedServiceUser,
+    serviceUid: expectedServiceUid,
+    expectedGitSha: gitSha,
+    serviceHandlerPath: options.serviceHandlerPath,
+    deploymentMarkerPath: options.deploymentMarkerPath,
+    getEuid: options.getEuid,
+    getEgid: options.getEgid
+  });
+
+  const deploymentArtifact = assembleReadonlyQrexecDeploymentArtifact({
+    service: intendedService,
+    sourceQube,
+    coordinatorQube,
+    serviceUser: expectedServiceUser,
+    serviceUid: expectedServiceUid,
+    gitSha,
+    policyEvidence,
+    coordinatorEvidence
+  });
+
+  return runArtifactBoundReadonlyQrexecPhase1Qualification({
+    ...options,
+    gitSha,
+    intendedService,
+    sourceQube,
+    coordinatorQube,
+    expectedServiceUser,
+    expectedServiceUid,
+    deploymentArtifact
   });
 }
