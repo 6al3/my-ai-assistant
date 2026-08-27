@@ -3,10 +3,16 @@ import { verifyReadonlyQrexecDeploymentArtifact } from './qrexec-readonly-deploy
 
 const MAX_EXPORT_BYTES = 96 * 1024;
 const EXPECTED_DOMAINS = new Set(['dom0-policy', 'coordinator-service']);
+const CHALLENGE_RE = /^[A-Za-z0-9_-]{24,128}$/;
 
 function requiredString(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${name} is required`);
   return value.trim();
+}
+
+function requiredChallenge(value, name) {
+  if (typeof value !== 'string' || !CHALLENGE_RE.test(value)) throw new Error(`${name} is invalid`);
+  return value;
 }
 
 function parseBoundedExport(value, label) {
@@ -18,25 +24,28 @@ function parseBoundedExport(value, label) {
     try { parsed = JSON.parse(text.trim()); } catch { throw new Error(`${label} must be valid JSON`); }
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be an object`);
-  if (parsed.schemaVersion !== 1) throw new Error(`${label} schema mismatch`);
+  if (parsed.schemaVersion !== 2) throw new Error(`${label} schema mismatch`);
   if (!EXPECTED_DOMAINS.has(parsed.domain)) throw new Error(`${label} domain mismatch`);
+  parsed.evidenceChallenge = requiredChallenge(parsed.evidenceChallenge, `${label}.evidenceChallenge`);
   if (!parsed.evidence || typeof parsed.evidence !== 'object' || Array.isArray(parsed.evidence)) throw new Error(`${label} evidence is required`);
   return parsed;
 }
 
 /**
  * Join exactly one dom0-policy export with exactly one coordinator-service export.
- * The join is deliberately offline: it performs no qrexec call and does not mutate
- * MissionQueue state. Deployment expectations remain authoritative and are checked
- * again by verifyReadonlyQrexecDeploymentArtifact().
+ * Both exports must be bound to the caller-provided one-run challenge. This prevents
+ * stale evidence replay and cross-run evidence mixing without introducing shared
+ * mutable state or another qrexec round trip.
  */
 export function importReadonlyQrexecDeploymentEvidence({ exports, expected } = {}) {
   if (!Array.isArray(exports) || exports.length !== 2) throw new Error('exactly two deployment evidence exports are required');
   if (!expected || typeof expected !== 'object' || Array.isArray(expected)) throw new Error('expected deployment identity is required');
 
+  const expectedChallenge = requiredChallenge(expected.evidenceChallenge, 'expected.evidenceChallenge');
   const parsed = exports.map((value, index) => parseBoundedExport(value, `exports[${index}]`));
   const byDomain = new Map();
   for (const item of parsed) {
+    if (item.evidenceChallenge !== expectedChallenge) throw new Error(`deployment evidence challenge mismatch: ${item.domain}`);
     if (byDomain.has(item.domain)) throw new Error(`duplicate deployment evidence domain: ${item.domain}`);
     byDomain.set(item.domain, item.evidence);
   }
