@@ -1,0 +1,35 @@
+{
+  "decision": "Use a deployment-facing identity-bound Phase-1 entrypoint that verifies the qrexec service identity contract before filesystem qualification or any qrexec invocation.",
+  "winner": "identity-bound deployment wrapper",
+  "criteria": {
+    "correctness": "Binds intended service, coordinator Qube, non-root service UID, and exact Git SHA before invoking the lower-level qualification runner.",
+    "robustness_security": "Fails closed on missing or mismatched deployment identity and preserves the existing filesystem write-denial and zero-mutation gates.",
+    "latency": "Adds only local metadata verification; no extra qrexec round trip.",
+    "resource_use": "No daemon, database, watcher, WAL, or persistent process state.",
+    "regression_risk": "Keeps the lower-level runner unchanged and introduces a narrow deployment boundary, reducing impact on existing contract tests.",
+    "qa": "Adds positive qualification plus service, coordinator, UID, Git-SHA, and missing-contract negative tests, all required before qrexec invocation."
+  },
+  "alternatives": [
+    {
+      "approach": "Modify the lower-level runner to make identity-contract verification mandatory everywhere",
+      "result": "deferred",
+      "reason": "Stronger globally, but would expand regression surface across existing isolated tests and seams. The deployment wrapper creates a mandatory production-facing boundary without changing those primitives."
+    },
+    {
+      "approach": "Trust expectedServiceUid and runtime EUID checks alone",
+      "result": "rejected",
+      "reason": "Does not prove that service/coordinator/SHA deployment metadata corresponds to the same identity being qualified."
+    },
+    {
+      "approach": "Add a persistent qrexec supervisor to enforce identity",
+      "result": "rejected",
+      "reason": "Adds lifecycle, IPC, memory, and attack surface without improving the metadata binding itself."
+    }
+  ],
+  "failures_lessons": [
+    "A filesystem capability PASS is insufficient unless it is tied to the declared qrexec deployment identity.",
+    "Deployment provenance must be checked before any remote invocation, not inferred from successful transport behavior.",
+    "Keep low-level testable primitives separate from the production-facing gate, but make the production entrypoint explicit and fail closed."
+  ],
+  "safety": "Read-only synthetic/defensive Qubes qualification only; no real financial transactions, payment data, fraud workflow, or weakened security controls."
+}
