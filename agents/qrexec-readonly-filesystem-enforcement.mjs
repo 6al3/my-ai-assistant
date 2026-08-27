@@ -9,6 +9,11 @@ function requiredString(value, name) {
   return value.trim();
 }
 
+function requiredUid(value, name) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`);
+  return value;
+}
+
 function denied(error) {
   return Boolean(error && DENIED_CODES.has(error.code));
 }
@@ -21,6 +26,15 @@ async function requireDenied(operation, label) {
     throw error;
   }
   throw new Error(`${label} is writable by the Phase-1 service identity`);
+}
+
+function currentIdentity(identityOps) {
+  for (const name of ['geteuid', 'getegid']) {
+    if (typeof identityOps?.[name] !== 'function') throw new Error(`identityOps.${name} must be a function`);
+  }
+  const euid = requiredUid(identityOps.geteuid(), 'service euid');
+  const egid = requiredUid(identityOps.getegid(), 'service egid');
+  return { euid, egid };
 }
 
 async function verifyTarget(targetPath, label, fsOps) {
@@ -54,29 +68,43 @@ async function verifyTarget(targetPath, label, fsOps) {
 
 /**
  * Qualify the coordinator-side execution identity used by the read-only qrexec Phase-1 service.
- * This must execute inside that service identity/context. It proves that MissionStore and the
- * DurableRequestJournal are readable but not writable, and that their parent directories cannot
- * be used for atomic replacement. It performs no writes and exposes no file contents.
+ * This must execute inside that service identity/context. In addition to filesystem capability
+ * checks, the caller binds the evidence to the expected effective uid so a successful result from
+ * an unrelated account/context cannot be mistaken for service qualification.
  */
 export async function qualifyReadonlyFilesystemEnforcement({
   missionStorePath,
   requestJournalPath,
-  fsOps = { access, lstat, open }
+  expectedServiceUid,
+  fsOps = { access, lstat, open },
+  identityOps = { geteuid: process.geteuid?.bind(process), getegid: process.getegid?.bind(process) }
 } = {}) {
   const missionPath = requiredString(missionStorePath, 'missionStorePath');
   const journalPath = requiredString(requestJournalPath, 'requestJournalPath');
+  const expectedUid = requiredUid(expectedServiceUid, 'expectedServiceUid');
   if (!fsOps || typeof fsOps !== 'object') throw new Error('fsOps is required');
   for (const name of ['access', 'lstat', 'open']) {
     if (typeof fsOps[name] !== 'function') throw new Error(`fsOps.${name} must be a function`);
   }
 
+  const identity = currentIdentity(identityOps);
+  if (identity.euid === 0) throw new Error('Phase-1 read-only service must not run as root');
+  if (identity.euid !== expectedUid) throw new Error(`Phase-1 service euid mismatch: expected ${expectedUid}, got ${identity.euid}`);
+
   const missionStore = await verifyTarget(missionPath, 'MissionStore', fsOps);
   const requestJournal = await verifyTarget(journalPath, 'DurableRequestJournal', fsOps);
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     readiness: 'LAB READY',
     enforcementVerified: true,
+    executionIdentity: {
+      expectedEuid: expectedUid,
+      observedEuid: identity.euid,
+      observedEgid: identity.egid,
+      nonRootVerified: true,
+      identityBindingVerified: true
+    },
     missionStore,
     requestJournal
   };
