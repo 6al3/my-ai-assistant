@@ -53,6 +53,10 @@ function snapshots() {
   return async () => ({ missionStoreDigest: 'mission-stable', requestJournalDigest: 'journal-stable' });
 }
 
+function filesystemEnforcementPass() {
+  return async () => ({ enforcementVerified: true });
+}
+
 test('composes real qrexec invoker observations into a schema-v2 zero-mutation qualification report', async () => {
   const { privateKey, publicKeyPem } = keyMaterial();
   const allowedResponse = attestCoordinatorResponse(
@@ -69,6 +73,7 @@ test('composes real qrexec invoker observations into a schema-v2 zero-mutation q
     intendedService: service,
     scenarios: scenarios(),
     snapshotMutationState: snapshots(),
+    verifyFilesystemEnforcement: filesystemEnforcementPass(),
     publicKeyPem,
     expectedKeyId: keyId,
     spawnImpl: fakeSpawn({ allowedResponse })
@@ -108,6 +113,7 @@ test('builds coordinator mutation snapshots directly from MissionStore and reque
       scenarios: scenarios(),
       missionStorePath,
       requestJournalPath,
+      verifyFilesystemEnforcement: filesystemEnforcementPass(),
       publicKeyPem,
       expectedKeyId: keyId,
       spawnImpl: fakeSpawn({ allowedResponse })
@@ -138,6 +144,22 @@ test('fails closed when mutation-state paths are missing and no snapshot functio
   }), /missionStorePath is required/);
 });
 
+test('fails closed before qrexec when read-only filesystem enforcement is not verified', async () => {
+  const { publicKeyPem } = keyMaterial();
+  await assert.rejects(() => runReadonlyQrexecPhase1Qualification({
+    gitSha,
+    runtimeFingerprint: 'node-test-runtime',
+    sourceQube: 'dig-worker',
+    coordinatorQube: 'dig-coordinator',
+    intendedService: service,
+    scenarios: scenarios(),
+    snapshotMutationState: snapshots(),
+    verifyFilesystemEnforcement: async () => ({ enforcementVerified: false }),
+    publicKeyPem,
+    expectedKeyId: keyId
+  }), /read-only filesystem enforcement was not verified/);
+});
+
 test('fails closed when the allowed response attestation is bound to the wrong deployment identity', async () => {
   const { privateKey, publicKeyPem } = keyMaterial();
   const allowedResponse = attestCoordinatorResponse(
@@ -154,6 +176,7 @@ test('fails closed when the allowed response attestation is bound to the wrong d
     intendedService: service,
     scenarios: scenarios(),
     snapshotMutationState: snapshots(),
+    verifyFilesystemEnforcement: filesystemEnforcementPass(),
     publicKeyPem,
     expectedKeyId: keyId,
     spawnImpl: fakeSpawn({ allowedResponse })
@@ -170,6 +193,7 @@ test('rejects incomplete scenario wiring before invoking qrexec', async () => {
     intendedService: service,
     scenarios: { 'intended-service-allowed': { service, payload: '{}' } },
     snapshotMutationState: snapshots(),
+    verifyFilesystemEnforcement: filesystemEnforcementPass(),
     publicKeyPem,
     expectedKeyId: keyId
   }), /scenario wrong-service-denied is required/);
