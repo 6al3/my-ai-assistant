@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "decision": "Require coordinator-side filesystem enforcement verification before read-only Qubes Phase-1 qualification.",
+  "winner": "service-identity permission gate on durable files plus parent directories",
+  "criteria": {
+    "correctness": "Proves the service identity cannot obtain file write permission or a writable descriptor and cannot atomically replace durable files through a writable parent directory.",
+    "robustnessSecurity": "Fail-closed on symlinks, non-regular files, unexpected filesystem errors, writable files, writable descriptors, or writable parent directories. Performs no write and exposes no durable-state contents.",
+    "latency": "Qualification-only local filesystem permission checks; no production qrexec round trip is added.",
+    "resourceUse": "No daemon, watcher, database, WAL, polling loop, or persistent process state.",
+    "regressionRisk": "Thin precondition gate composed ahead of the existing Phase-1 collector; MissionQueue, WorkerRuntime, transport framing, and attestation semantics are unchanged.",
+    "qa": "Unit regressions cover verified read-only state, writable files, writable descriptors, writable parent directories, and symlink fail-closed behavior. Runner regression rejects qualification when enforcement is not verified."
+  },
+  "alternatives": [
+    {
+      "approach": "before/after digests only",
+      "result": "rejected",
+      "reason": "Detects durable drift but does not prevent writes and can miss a short write-and-rollback entirely between snapshots."
+    },
+    {
+      "approach": "persistent filesystem watcher or audit daemon",
+      "result": "deferred",
+      "reason": "Adds lifecycle, platform, resource, and operational complexity while still being observational rather than a prevention boundary."
+    },
+    {
+      "approach": "content-only read-only file mode check",
+      "result": "rejected",
+      "reason": "Mode bits alone do not prove effective permission for the actual service identity and ignore atomic replacement through writable parent directories."
+    }
+  ],
+  "knownLimitations": [
+    "This gate must execute as the same coordinator-side identity/context that runs the Phase-1 qrexec service.",
+    "Filesystem permissions do not replace Qubes qrexec policy isolation or deployment identity/attestation checks.",
+    "A more privileged process outside the service identity may still mutate state; this gate establishes the service-specific boundary only."
+  ],
+  "lessons": [
+    "Zero-mutation evidence and zero-mutation capability are different properties; REAL-WORKER gating needs both observation and prevention.",
+    "Read-only files are insufficient when the containing directory permits rename/unlink/atomic replacement.",
+    "Qualification should prefer prevention controls that add no production data-plane round trips."
+  ],
+  "safety": "Synthetic/defensive qualification only; no real financial transactions, payment data, fraud workflow, or security-control weakening."
+}
