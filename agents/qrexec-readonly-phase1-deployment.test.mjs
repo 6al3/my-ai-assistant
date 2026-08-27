@@ -9,6 +9,7 @@ import { runIdentityBoundReadonlyQrexecPhase1Qualification } from './qrexec-read
 const gitSha = 'c'.repeat(40);
 const service = 'dig.ReadonlyProbe';
 const coordinatorQube = 'dig-coordinator';
+const serviceUser = 'dig-readonly';
 const uid = 2201;
 const keyId = 'deployment-test-key';
 
@@ -16,7 +17,7 @@ function identityContract(overrides = {}) {
   return buildReadonlyServiceIdentityContract({
     service,
     coordinatorQube,
-    serviceUser: 'dig-readonly',
+    serviceUser,
     serviceUid: uid,
     configuredServiceUid: uid,
     gitSha,
@@ -85,6 +86,7 @@ async function baseOptions(overrides = {}) {
       sourceQube: 'dig-worker',
       coordinatorQube,
       intendedService: service,
+      expectedServiceUser: serviceUser,
       expectedServiceUid: uid,
       serviceIdentityContract: identityContract(),
       scenarios: scenarios(),
@@ -121,6 +123,19 @@ test('coordinator mismatch fails before any qrexec invocation', async () => {
     serviceIdentityContract: identityContract({ coordinatorQube: 'wrong-coordinator' })
   });
   await assert.rejects(() => runIdentityBoundReadonlyQrexecPhase1Qualification(options), /coordinator identity mismatch/);
+  assert.equal(calls.length, 0);
+});
+
+test('service user mismatch fails before any qrexec invocation', async () => {
+  const { options, calls } = await baseOptions({ expectedServiceUser: 'unexpected-service-user' });
+  await assert.rejects(() => runIdentityBoundReadonlyQrexecPhase1Qualification(options), /service user identity mismatch/);
+  assert.equal(calls.length, 0);
+});
+
+test('non-root verification tamper fails before any qrexec invocation', async () => {
+  const { options, calls } = await baseOptions();
+  options.serviceIdentityContract = { ...options.serviceIdentityContract, nonRootVerified: false };
+  await assert.rejects(() => runIdentityBoundReadonlyQrexecPhase1Qualification(options), /non-root identity was not verified/);
   assert.equal(calls.length, 0);
 });
 
