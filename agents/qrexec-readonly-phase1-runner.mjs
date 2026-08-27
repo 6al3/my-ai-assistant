@@ -1,5 +1,6 @@
 import { collectReadonlyQrexecPolicyQualification } from './qrexec-readonly-policy-collector.mjs';
 import { createQrexecClientVmInvoker, QREXEC_READONLY_PHASE1_DEFAULTS } from './qrexec-readonly-phase1-harness.mjs';
+import { createReadonlyMutationStateSnapshotter } from './qrexec-readonly-mutation-snapshot.mjs';
 import { READONLY_QREXEC_POLICY_SCENARIOS } from './qrexec-readonly-policy-qualification.mjs';
 import { verifyCoordinatorResponseAttestation } from './qrexec-response-attestation.mjs';
 
@@ -24,10 +25,20 @@ function validateScenarioDefinitions(scenarios) {
   return scenarios;
 }
 
+function resolveMutationSnapshotter({ snapshotMutationState, missionStorePath, requestJournalPath, snapshotMaxAttempts }) {
+  if (snapshotMutationState != null) return requiredFunction(snapshotMutationState, 'snapshotMutationState');
+  return createReadonlyMutationStateSnapshotter({
+    missionStorePath: requiredString(missionStorePath, 'missionStorePath'),
+    requestJournalPath: requiredString(requestJournalPath, 'requestJournalPath'),
+    ...(snapshotMaxAttempts == null ? {} : { maxAttempts: snapshotMaxAttempts })
+  });
+}
+
 /**
  * Compose the real Worker-Qube qrexec process invoker with the read-only policy collector.
- * The caller supplies only coordinator-side mutation snapshots and the public attestation
- * identity. No state-changing MissionQueue operation is exposed by this runner.
+ * Production/deployment callers provide coordinator-side MissionStore and request-journal paths;
+ * the runner creates a read-only byte+metadata snapshotter itself. Tests may inject a snapshot
+ * function explicitly. No state-changing MissionQueue operation is imported or exposed here.
  */
 export async function runReadonlyQrexecPhase1Qualification({
   gitSha,
@@ -36,6 +47,9 @@ export async function runReadonlyQrexecPhase1Qualification({
   coordinatorQube,
   intendedService,
   scenarios,
+  missionStorePath,
+  requestJournalPath,
+  snapshotMaxAttempts,
   snapshotMutationState,
   publicKeyPem,
   expectedKeyId,
@@ -47,7 +61,12 @@ export async function runReadonlyQrexecPhase1Qualification({
   const expectedGitSha = requiredString(gitSha, 'gitSha').toLowerCase();
   const expectedService = requiredString(intendedService, 'intendedService');
   const scenarioDefinitions = validateScenarioDefinitions(scenarios);
-  const snapshot = requiredFunction(snapshotMutationState, 'snapshotMutationState');
+  const snapshot = resolveMutationSnapshotter({
+    snapshotMutationState,
+    missionStorePath,
+    requestJournalPath,
+    snapshotMaxAttempts
+  });
   requiredString(publicKeyPem, 'publicKeyPem');
   const keyId = requiredString(expectedKeyId, 'expectedKeyId');
 
