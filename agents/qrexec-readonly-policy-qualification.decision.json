@@ -1,0 +1,40 @@
+{
+  "decision": "Adopt a fail-closed evidence gate for the first real-Qubes phase: intended read-only service must be allowed, wrong service/identity/auth/framing must be denied, the allowed response must verify Ed25519 attestation and byte/framing bounds, and MissionStore/DurableRequestJournal must remain unchanged.",
+  "winner": "offline qualification report built from real qrexec observations",
+  "comparisons": [
+    {
+      "approach": "promote the existing Node probe tests directly to readiness evidence",
+      "correctness": "weak: proves application behavior but not Qubes policy routing",
+      "robustness": "weak against policy misconfiguration",
+      "latencyResourceUse": "best",
+      "regressionRisk": "low",
+      "qa": "insufficient for real-Qubes gate",
+      "result": "rejected"
+    },
+    {
+      "approach": "add a state-changing qrexec smoke immediately",
+      "correctness": "can test more of the stack but conflates policy and MissionQueue failures",
+      "robustness": "worse blast radius because first VM-crossing test mutates state",
+      "latencyResourceUse": "moderate",
+      "regressionRisk": "higher",
+      "qa": "harder to localize failures",
+      "result": "rejected"
+    },
+    {
+      "approach": "offline qualification report built from real qrexec observations",
+      "correctness": "strong: explicitly gates routing, deployment identity, attestation, framing and zero mutation",
+      "robustness": "fail-closed and preserves separation between transport acceptance and MissionQueue mutation",
+      "latencyResourceUse": "no production round trips, daemon, database or worker changes",
+      "regressionRisk": "low and isolated to Slice 2 qualification",
+      "qa": "deterministic contract tests plus later real-Qubes evidence ingestion",
+      "result": "selected"
+    }
+  ],
+  "lessons": [
+    "A read-only application probe alone cannot prove Qubes policy routing.",
+    "The first real-Qubes gate should detect wrong-service authorization before any MissionQueue mutation is possible.",
+    "Evidence integrity digests make reports tamper-evident but do not replace Ed25519 protocol authenticity.",
+    "Zero mutation must be supported by before/after durable-state evidence, not assumed from operation naming."
+  ],
+  "safety": "Synthetic/defensive qualification only. No financial transactions, payment data, fraud flows, or weakened security controls."
+}
