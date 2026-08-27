@@ -1,0 +1,39 @@
+{
+  "decision": "Bind read-only filesystem qualification to the expected effective uid of the dedicated coordinator qrexec service identity and reject root execution.",
+  "status": "accepted",
+  "scope": "Qubes Phase-1 read-only qualification only",
+  "comparison": {
+    "permission_checks_only": {
+      "correctness": "Insufficient: proves permissions for whichever account executed the check, not necessarily the deployed qrexec service identity.",
+      "robustness": "Can yield misleading evidence if invoked from an unrelated restricted account.",
+      "latency": "Lowest cost.",
+      "resourceUse": "Minimal.",
+      "regressionRisk": "Low but leaves an evidence-binding gap.",
+      "qa": "Existing tests cover write denial but not identity provenance."
+    },
+    "username_or_environment_binding": {
+      "correctness": "Weaker: names and environment variables are mutable labels and do not establish kernel execution identity.",
+      "robustness": "Susceptible to configuration drift and spoofed environment values.",
+      "latency": "Low.",
+      "resourceUse": "Minimal.",
+      "regressionRisk": "Low.",
+      "qa": "Easy to test but weak evidence."
+    },
+    "effective_uid_binding": {
+      "correctness": "Strongest minimal option: binds the filesystem capability test to the kernel effective uid used by the service process.",
+      "robustness": "Fails closed on uid mismatch and root execution while preserving existing file, descriptor, parent-directory and symlink checks.",
+      "latency": "Negligible; two local identity syscalls and no qrexec round trip.",
+      "resourceUse": "No daemon, database, watcher or persistent state.",
+      "regressionRisk": "Small and localized to Phase-1 qualification; deployment must provide expectedServiceUid explicitly.",
+      "qa": "Adds root and mismatched-uid negative tests plus identity evidence in the report."
+    }
+  },
+  "winner": "effective_uid_binding",
+  "whyWinner": "It closes the provenance gap with kernel-derived identity, adds essentially zero runtime cost, and does not widen MissionQueue or transport semantics.",
+  "failuresAndLessons": [
+    "A read-only permission result is not sufficient evidence unless it is bound to the actual service execution identity.",
+    "Username/environment labels are weaker than kernel effective uid for deployment qualification.",
+    "Phase-1 read-only qrexec qualification should never run as root because root can invalidate ordinary discretionary-permission assumptions."
+  ],
+  "safety": "Synthetic/defensive qualification only; no financial transactions, payment data, fraud workflow, or security-control weakening."
+}
