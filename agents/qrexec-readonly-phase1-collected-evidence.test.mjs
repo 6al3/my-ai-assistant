@@ -16,14 +16,32 @@ const keyId = 'collected-evidence-key';
 const serviceTarget = '/opt/dig/current/agents/qrexec-readonly-service-process.mjs';
 
 function identityContract() {
-  return buildReadonlyServiceIdentityContract({
-    service,
-    coordinatorQube,
+  return buildReadonlyServiceIdentityContract({ service, coordinatorQube, serviceUser, serviceUid: uid, configuredServiceUid: uid, gitSha });
+}
+
+function policyEvidence(overrides = {}) {
+  return {
+    path: '/etc/qubes/policy.d/30-dig-readonly.policy',
+    text: `${service} + ${sourceQube} ${coordinatorQube} allow user=${serviceUser}\n${service} * * * deny\n`,
+    ...overrides
+  };
+}
+
+function coordinatorEvidence(overrides = {}) {
+  return {
     serviceUser,
     serviceUid: uid,
-    configuredServiceUid: uid,
-    gitSha
-  });
+    effectiveUid: uid,
+    effectiveGid: 2201,
+    serviceHandler: {
+      path: `/usr/local/etc/qubes-rpc/${service}`,
+      target: serviceTarget,
+      executable: true,
+      writableByServiceUser: false,
+      targetGitSha: gitSha
+    },
+    ...overrides
+  };
 }
 
 function scenarios() {
@@ -48,37 +66,25 @@ function fakeSpawn(allowedResponse, calls) {
       if (args[1] === service) {
         child.stdout.emit('data', Buffer.from(`${JSON.stringify(allowedResponse)}\n`));
         child.emit('close', 0);
-      } else {
-        child.emit('close', 126);
-      }
+      } else child.emit('close', 126);
     });
     return child;
   };
 }
 
-function stableSnapshots() {
-  return async () => ({ missionStoreDigest: 'mission-stable', requestJournalDigest: 'journal-stable' });
-}
-
-function filesystemPass() {
-  return async () => ({ enforcementVerified: true });
-}
-
 async function makeOptions(overrides = {}) {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-  const allowedResponse = attestCoordinatorResponse(
+  const response = attestCoordinatorResponse(
     { ok: true, probe: 'readonly' },
     { privateKey, keyId, gitSha, service },
     { requestId: 'phase1-ok' }
   );
   const calls = [];
-  const collectorCalls = [];
   return {
     calls,
-    collectorCalls,
     options: {
       gitSha,
-      runtimeFingerprint: 'node-collected-evidence-test',
+      runtimeFingerprint: 'node-split-domain-evidence-test',
       sourceQube,
       coordinatorQube,
       intendedService: service,
@@ -86,57 +92,66 @@ async function makeOptions(overrides = {}) {
       expectedServiceUid: uid,
       expectedServiceTarget: serviceTarget,
       serviceIdentityContract: identityContract(),
-      policyPath: '/etc/qubes/policy.d/30-dig-readonly.policy',
-      serviceHandlerPath: `/usr/local/etc/qubes-rpc/${service}`,
-      deploymentMarkerPath: '/opt/dig/current/deployment.json',
-      collectDom0PolicyEvidence: async ({ policyPath }) => {
-        collectorCalls.push(['dom0', policyPath]);
-        return {
-          path: policyPath,
-          text: `${service} + ${sourceQube} ${coordinatorQube} allow user=${serviceUser}\n${service} * * * deny\n`
-        };
-      },
-      collectCoordinatorServiceEvidence: async ({ service: collectedService, serviceUid }) => {
-        collectorCalls.push(['coordinator', collectedService, serviceUid]);
-        return {
-          serviceUser,
-          serviceUid: uid,
-          effectiveUid: uid,
-          effectiveGid: 2201,
-          serviceHandler: {
-            path: `/usr/local/etc/qubes-rpc/${service}`,
-            target: serviceTarget,
-            executable: true,
-            writableByServiceUser: false,
-            targetGitSha: gitSha
-          }
-        };
-      },
+      policyEvidence: policyEvidence(),
+      coordinatorEvidence: coordinatorEvidence(),
       scenarios: scenarios(),
-      snapshotMutationState: stableSnapshots(),
-      verifyFilesystemEnforcement: filesystemPass(),
+      snapshotMutationState: async () => ({ missionStoreDigest: 'mission-stable', requestJournalDigest: 'journal-stable' }),
+      verifyFilesystemEnforcement: async () => ({ enforcementVerified: true }),
       publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
       expectedKeyId: keyId,
-      spawnImpl: fakeSpawn(allowedResponse, calls),
+      spawnImpl: fakeSpawn(response, calls),
       ...overrides
     }
   };
 }
 
-test('collected deployment evidence is assembled, verified, and consumed before qrexec scenarios run', async () => {
-  const { options, calls, collectorCalls } = await makeOptions();
+test('independently collected dom0 and coordinator evidence is assembled before qrexec scenarios run', async () => {
+  const { options, calls } = await makeOptions();
   const report = await runCollectedArtifactBoundReadonlyQrexecPhase1Qualification(options);
   assert.equal(report.readiness, 'LAB READY');
   assert.equal(report.zeroMutationVerified, true);
   assert.equal(report.attestationVerified, true);
-  assert.deepEqual(collectorCalls.map(([domain]) => domain), ['dom0', 'coordinator']);
   assert.equal(calls.length, 5);
 });
 
-test('invalid collected policy evidence fails before any qrexec invocation', async () => {
+test('cross-domain collector injection is rejected by default before qrexec', async () => {
   const { options, calls } = await makeOptions({
-    collectDom0PolicyEvidence: async ({ policyPath }) => ({
-      path: policyPath,
+    policyEvidence: undefined,
+    coordinatorEvidence: undefined,
+    collectDom0PolicyEvidence: async () => policyEvidence(),
+    collectCoordinatorServiceEvidence: async () => coordinatorEvidence()
+  });
+  await assert.rejects(
+    () => runCollectedArtifactBoundReadonlyQrexecPhase1Qualification(options),
+    /cross-domain collector injection is test-only/
+  );
+  assert.equal(calls.length, 0);
+});
+
+test('explicit test seam may inject both collectors without changing production boundary', async () => {
+  const collectorCalls = [];
+  const { options, calls } = await makeOptions({
+    policyEvidence: undefined,
+    coordinatorEvidence: undefined,
+    allowTestCrossDomainCollectors: true,
+    collectDom0PolicyEvidence: async () => {
+      collectorCalls.push('dom0');
+      return policyEvidence();
+    },
+    collectCoordinatorServiceEvidence: async () => {
+      collectorCalls.push('coordinator');
+      return coordinatorEvidence();
+    }
+  });
+  const report = await runCollectedArtifactBoundReadonlyQrexecPhase1Qualification(options);
+  assert.equal(report.readiness, 'LAB READY');
+  assert.deepEqual(collectorCalls, ['dom0', 'coordinator']);
+  assert.equal(calls.length, 5);
+});
+
+test('invalid split-domain policy evidence fails before any qrexec invocation', async () => {
+  const { options, calls } = await makeOptions({
+    policyEvidence: policyEvidence({
       text: `${service} + * ${coordinatorQube} allow user=${serviceUser}\n${service} * * * deny\n`
     })
   });
@@ -147,21 +162,9 @@ test('invalid collected policy evidence fails before any qrexec invocation', asy
   assert.equal(calls.length, 0);
 });
 
-test('coordinator identity drift in collected evidence fails before any qrexec invocation', async () => {
+test('coordinator identity drift in split-domain evidence fails before qrexec', async () => {
   const { options, calls } = await makeOptions({
-    collectCoordinatorServiceEvidence: async () => ({
-      serviceUser,
-      serviceUid: uid + 1,
-      effectiveUid: uid + 1,
-      effectiveGid: 2201,
-      serviceHandler: {
-        path: `/usr/local/etc/qubes-rpc/${service}`,
-        target: serviceTarget,
-        executable: true,
-        writableByServiceUser: false,
-        targetGitSha: gitSha
-      }
-    })
+    coordinatorEvidence: coordinatorEvidence({ serviceUid: uid + 1, effectiveUid: uid + 1 })
   });
   await assert.rejects(
     () => runCollectedArtifactBoundReadonlyQrexecPhase1Qualification(options),
