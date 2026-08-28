@@ -19,6 +19,9 @@ on:
       - 'agents/qrexec-readonly-evidence-challenge-driver.mjs'
       - 'agents/qrexec-readonly-evidence-challenge-driver.test.mjs'
       - 'agents/qrexec-readonly-evidence-challenge-driver.decision.json'
+      - 'agents/qrexec-readonly-evidence-process-driver.mjs'
+      - 'agents/qrexec-readonly-evidence-process-driver.test.mjs'
+      - 'agents/qrexec-readonly-evidence-process-driver.decision.json'
       - '.github/workflows/dig-qubes-deployment-evidence-qa.yml'
   workflow_dispatch:
 
@@ -48,5 +51,7 @@ jobs:
           node --check agents/qrexec-readonly-evidence-import.test.mjs
           node --check agents/qrexec-readonly-evidence-challenge-driver.mjs
           node --check agents/qrexec-readonly-evidence-challenge-driver.test.mjs
+          node --check agents/qrexec-readonly-evidence-process-driver.mjs
+          node --check agents/qrexec-readonly-evidence-process-driver.test.mjs
       - name: Run deployment evidence gate QA
-        run: node --test agents/qrexec-readonly-deployment-evidence-collector.test.mjs agents/qrexec-readonly-deployment-artifact.test.mjs agents/qrexec-readonly-evidence-import.test.mjs agents/qrexec-readonly-evidence-challenge-driver.test.mjs
+        run: node --test agents/qrexec-readonly-deployment-evidence-collector.test.mjs agents/qrexec-readonly-deployment-artifact.test.mjs agents/qrexec-readonly-evidence-import.test.mjs agents/qrexec-readonly-evidence-challenge-driver.test.mjs agents/qrexec-readonly-evidence-process-driver.test.mjs
