@@ -48,13 +48,14 @@ export async function runBoundedEvidenceExporter({
   return new Promise((resolve, reject) => {
     let settled = false;
     let total = 0;
-    const chunks = [];
     let child;
+    let timer = null;
+    const chunks = [];
 
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (error) reject(error);
       else resolve(value);
     };
@@ -66,11 +67,11 @@ export async function runBoundedEvidenceExporter({
         windowsHide: true
       });
     } catch {
-      reject(new Error('evidence exporter failed'));
+      finish(new Error('evidence exporter failed'));
       return;
     }
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       try { child.kill('SIGKILL'); } catch {}
       finish(new Error('evidence exporter timed out'));
     }, timeout);
