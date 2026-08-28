@@ -16,13 +16,19 @@ function requiredChallenge(value, name) {
 }
 
 function parseBoundedExport(value, label) {
-  let parsed = value;
-  if (typeof value === 'string' || Buffer.isBuffer(value)) {
-    const bytes = Buffer.isBuffer(value) ? value.length : Buffer.byteLength(value);
-    if (bytes > MAX_EXPORT_BYTES) throw new Error(`${label} exceeds byte limit`);
-    const text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
-    try { parsed = JSON.parse(text.trim()); } catch { throw new Error(`${label} must be valid JSON`); }
+  // Deployment evidence crosses independent Qubes trust domains as bounded wire data.
+  // Requiring the wire representation here prevents callers from bypassing byte limits
+  // by pre-parsing an arbitrarily large object before qualification.
+  if (typeof value !== 'string' && !Buffer.isBuffer(value)) {
+    throw new Error(`${label} must be bounded wire JSON`);
   }
+
+  const bytes = Buffer.isBuffer(value) ? value.length : Buffer.byteLength(value);
+  if (bytes > MAX_EXPORT_BYTES) throw new Error(`${label} exceeds byte limit`);
+  const text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
+
+  let parsed;
+  try { parsed = JSON.parse(text.trim()); } catch { throw new Error(`${label} must be valid JSON`); }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be an object`);
   if (parsed.schemaVersion !== 2) throw new Error(`${label} schema mismatch`);
   if (!EXPECTED_DOMAINS.has(parsed.domain)) throw new Error(`${label} domain mismatch`);
