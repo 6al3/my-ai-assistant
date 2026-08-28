@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "decision": "Use a bounded shell-free process run-owner to execute the already-separated dom0 and Coordinator evidence exporters, preserving their raw wire JSON for the authoritative challenge importer.",
+  "winner": "bounded-process-run-owner",
+  "criteria": {
+    "correctness": "Preserves one challenge across two independently executed trust-domain exporters and passes their raw outputs to the existing wire-only importer without introducing a second readiness authority.",
+    "robustnessSecurity": "Requires absolute executables, disables shell execution, bounds stdout and execution time, ignores stderr, and fails closed on spawn, timeout, non-zero exit, empty output, or output overflow.",
+    "latency": "Runs the two exporters concurrently through the existing challenge driver; no extra protocol round trip is added.",
+    "resourceUse": "Process-per-run only; bounded memory and time; no daemon, database, WAL, watcher, or persistent worker.",
+    "regressionRisk": "Adds an orchestration boundary around existing exporters/importer rather than changing their schemas or MissionQueue semantics.",
+    "qa": "Dedicated tests cover raw stdout preservation, absolute-command enforcement, timeout, output bounds, stderr non-reflection, and empty output rejection."
+  },
+  "alternativesRejected": [
+    {
+      "name": "privileged-cross-domain-supervisor",
+      "reason": "Collapses Qubes trust separation and adds persistent privileged lifecycle/IPC surface."
+    },
+    {
+      "name": "shell-command-driver",
+      "reason": "Creates quoting/injection ambiguity and makes command provenance less auditable."
+    },
+    {
+      "name": "deployment-glue-only",
+      "reason": "Leaves timeout, output-bound, stderr-reflection, and raw-wire preservation behavior outside repository QA."
+    },
+    {
+      "name": "persistent-replay-orchestration-db",
+      "reason": "Adds state and corruption/recovery surface while the existing random one-run challenge already supplies freshness."
+    }
+  ],
+  "failuresLessons": [
+    "Library callbacks are sufficient for unit composition but do not prove safe process execution at the real trust-domain boundary.",
+    "Exporter stderr must never become qualification evidence or user-visible diagnostics because it can contain host-specific or sensitive details.",
+    "Bounds must be enforced before the authoritative importer receives wire evidence; otherwise a valid schema can still become a resource-exhaustion path."
+  ],
+  "safety": "Read-only defensive Qubes qualification only; no real financial operations, payment data, fraud workflow, or weakened security control."
+}
