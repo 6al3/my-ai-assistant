@@ -1,0 +1,121 @@
+name: DIG Qubes Transport QA
+
+on:
+  pull_request:
+    branches:
+      - dig/mission-runtime-reliability-slice
+    paths:
+      - 'agents/worker-transport-envelope.mjs'
+      - 'agents/qrexec-response-attestation.mjs'
+      - 'agents/qrexec-coordinator-adapter.mjs'
+      - 'agents/qrexec-coordinator-adapter.test.mjs'
+      - 'agents/qrexec-service-process.mjs'
+      - 'agents/qrexec-service-process.test.mjs'
+      - 'agents/qrexec-readonly-probe.mjs'
+      - 'agents/qrexec-readonly-service-process.mjs'
+      - 'agents/qrexec-readonly-service-process.test.mjs'
+      - 'agents/qrexec-readonly-service-identity-contract.mjs'
+      - 'agents/qrexec-readonly-service-identity-contract.test.mjs'
+      - 'agents/qrexec-readonly-deployment-manifest.mjs'
+      - 'agents/qrexec-readonly-deployment-artifact.mjs'
+      - 'agents/qrexec-readonly-deployment-artifact.test.mjs'
+      - 'agents/qrexec-readonly-phase1-deployment.mjs'
+      - 'agents/qrexec-readonly-phase1-deployment.test.mjs'
+      - 'agents/qrexec-readonly-phase1-artifact-bound.test.mjs'
+      - 'agents/qrexec-readonly-policy-qualification.mjs'
+      - 'agents/qrexec-readonly-policy-qualification.test.mjs'
+      - 'agents/qrexec-readonly-policy-collector.mjs'
+      - 'agents/qrexec-readonly-policy-collector.test.mjs'
+      - 'agents/qrexec-readonly-phase1-harness.mjs'
+      - 'agents/qrexec-readonly-phase1-harness.test.mjs'
+      - 'agents/qrexec-readonly-phase1-runner.mjs'
+      - 'agents/qrexec-readonly-phase1-runner.test.mjs'
+      - 'agents/qrexec-readonly-mutation-snapshot.mjs'
+      - 'agents/qrexec-readonly-mutation-snapshot.test.mjs'
+      - 'agents/qrexec-readonly-filesystem-enforcement.mjs'
+      - 'agents/qrexec-readonly-filesystem-enforcement.test.mjs'
+      - 'agents/qrexec-readonly-filesystem-enforcement.decision.json'
+      - 'agents/qrexec-readonly-phase1-runner.decision.json'
+      - 'agents/qrexec-readonly-harness.decision.json'
+      - 'agents/qrexec-readonly-phase1-harness.decision.json'
+      - 'agents/qrexec-readonly-policy-qualification.decision.json'
+      - 'agents/qrexec-process-lease-lifecycle.test.mjs'
+      - 'agents/qrexec-service-process-crash-child.mjs'
+      - 'agents/qrexec-service-process-crash.test.mjs'
+      - 'agents/qrexec-service-process-crash-boundary.decision.json'
+      - 'agents/qrexec-transport-qualification.mjs'
+      - 'agents/qrexec-transport-qualification.test.mjs'
+      - 'agents/qrexec-transport-execution-qualification.mjs'
+      - 'agents/qrexec-transport-execution-qualification.test.mjs'
+      - 'agents/qrexec-transport-qualification.decision.json'
+      - 'agents/qrexec-execution-derived-qualification.decision.json'
+      - 'agents/qrexec-real-worker-gate.decision.json'
+      - 'agents/qubes-transport-contract.test.mjs'
+      - 'agents/qubes-transport-contract.decision.json'
+      - 'agents/qrexec-crash-window.decision.json'
+      - 'agents/qrexec-service-process.decision.json'
+      - 'package.json'
+      - '.github/workflows/dig-qubes-transport-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transport-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Syntax check transport slice
+        run: |
+          node --check agents/worker-transport-envelope.mjs
+          node --check agents/qrexec-response-attestation.mjs
+          node --check agents/qrexec-coordinator-adapter.mjs
+          node --check agents/qrexec-coordinator-adapter.test.mjs
+          node --check agents/qrexec-service-process.mjs
+          node --check agents/qrexec-service-process.test.mjs
+          node --check agents/qrexec-readonly-probe.mjs
+          node --check agents/qrexec-readonly-service-process.mjs
+          node --check agents/qrexec-readonly-service-process.test.mjs
+          node --check agents/qrexec-readonly-service-identity-contract.mjs
+          node --check agents/qrexec-readonly-service-identity-contract.test.mjs
+          node --check agents/qrexec-readonly-deployment-manifest.mjs
+          node --check agents/qrexec-readonly-deployment-artifact.mjs
+          node --check agents/qrexec-readonly-deployment-artifact.test.mjs
+          node --check agents/qrexec-readonly-phase1-deployment.mjs
+          node --check agents/qrexec-readonly-phase1-deployment.test.mjs
+          node --check agents/qrexec-readonly-phase1-artifact-bound.test.mjs
+          node --check agents/qrexec-readonly-policy-qualification.mjs
+          node --check agents/qrexec-readonly-policy-qualification.test.mjs
+          node --check agents/qrexec-readonly-policy-collector.mjs
+          node --check agents/qrexec-readonly-policy-collector.test.mjs
+          node --check agents/qrexec-readonly-phase1-harness.mjs
+          node --check agents/qrexec-readonly-phase1-harness.test.mjs
+          node --check agents/qrexec-readonly-phase1-runner.mjs
+          node --check agents/qrexec-readonly-phase1-runner.test.mjs
+          node --check agents/qrexec-readonly-mutation-snapshot.mjs
+          node --check agents/qrexec-readonly-mutation-snapshot.test.mjs
+          node --check agents/qrexec-readonly-filesystem-enforcement.mjs
+          node --check agents/qrexec-readonly-filesystem-enforcement.test.mjs
+          node --check agents/qrexec-process-lease-lifecycle.test.mjs
+          node --check agents/qrexec-service-process-crash-child.mjs
+          node --check agents/qrexec-service-process-crash.test.mjs
+          node --check agents/qrexec-transport-qualification.mjs
+          node --check agents/qrexec-transport-qualification.test.mjs
+          node --check agents/qrexec-transport-execution-qualification.mjs
+          node --check agents/qrexec-transport-execution-qualification.test.mjs
+          node --check agents/qubes-transport-contract.test.mjs
+      - name: Run identity, artifact, and manifest bound Phase-1 deployment QA
+        run: node --test agents/qrexec-readonly-service-identity-contract.test.mjs agents/qrexec-readonly-deployment-artifact.test.mjs agents/qrexec-readonly-phase1-deployment.test.mjs agents/qrexec-readonly-phase1-artifact-bound.test.mjs
+      - name: Run coordinator mutation snapshot QA
+        run: node --test agents/qrexec-readonly-mutation-snapshot.test.mjs
+      - name: Run read-only filesystem enforcement QA
+        run: node --test agents/qrexec-readonly-filesystem-enforcement.test.mjs
+      - name: Run Qubes transport contract QA
+        run: npm run test:qubes-transport

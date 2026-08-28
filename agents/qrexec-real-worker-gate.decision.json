@@ -1,0 +1,85 @@
+{
+  "decision": "Use a two-stage real-Qubes qualification gate: read-only qrexec policy/service smoke first, then synthetic fenced mutation/recovery campaign.",
+  "scope": "Defensive synthetic qualification only. No real financial transactions, payment data, fraud workflows, or weakened security controls.",
+  "context": {
+    "transportQualification": "Execution-derived process-boundary qualification already exists for before-mutation, post-claim, post-heartbeat, post-fail, post-complete, and post-journal-commit crash points.",
+    "remainingGap": "The same invariants have not yet been proven across an actual worker-Qube -> qrexec policy/service -> coordinator-Qube boundary.",
+    "ciConstraint": "GitHub-hosted jobs on the current head have failed before step 1 with runner_id=0, so workflow failure is not code-test evidence."
+  },
+  "independentReviews": {
+    "correctness": {
+      "preferred": "read-only smoke then synthetic mutation campaign",
+      "reason": "Separates policy/service/identity/framing defects from MissionQueue mutation semantics before testing state changes."
+    },
+    "robustnessSecurity": {
+      "preferred": "read-only smoke then synthetic mutation campaign",
+      "reason": "Keeps first real-VM interaction non-mutating, preserves HMAC/Ed25519/fencing checks, and fails closed before any synthetic claim if transport identity or policy is wrong."
+    },
+    "latencyResourcesRegression": {
+      "preferred": "read-only smoke then synthetic mutation campaign",
+      "reason": "Adds no daemon, database, WAL, or production round trip beyond the qrexec calls being qualified; avoids expanding Slice 1/2 semantics while executable QA is blocked."
+    }
+  },
+  "approaches": [
+    {
+      "name": "Direct mutable real-Qubes campaign",
+      "correctness": "medium",
+      "robustness": "medium-low",
+      "latency": "good",
+      "resourceUse": "good",
+      "regressionRisk": "medium",
+      "qa": "Poor fault isolation: policy/auth/framing failures can mask mutation-state defects.",
+      "result": "rejected for first real-Qubes step"
+    },
+    {
+      "name": "Read-only policy/service smoke followed by synthetic fenced mutation campaign",
+      "correctness": "high",
+      "robustness": "high",
+      "latency": "good",
+      "resourceUse": "good",
+      "regressionRisk": "low",
+      "qa": "Strong fault isolation and explicit phase gates.",
+      "result": "selected"
+    },
+    {
+      "name": "More local process emulation before Qubes",
+      "correctness": "medium",
+      "robustness": "medium",
+      "latency": "good",
+      "resourceUse": "good",
+      "regressionRisk": "low",
+      "qa": "Diminishing returns because process-boundary crash qualification already exists and cannot validate real qrexec policy/service installation.",
+      "result": "deferred"
+    }
+  ],
+  "selectedGate": {
+    "phase1ReadOnly": {
+      "requirements": [
+        "worker Qube reaches only the intended qrexec service in the coordinator Qube",
+        "request authentication and response Ed25519 attestation verify against the expected deployment identity",
+        "one request produces one bounded response with no secret/token reflection",
+        "no MissionQueue mutation is performed",
+        "policy denial, malformed framing, stale deployment identity, and authentication failure all fail closed"
+      ]
+    },
+    "phase2SyntheticMutation": {
+      "requirements": [
+        "claim -> heartbeat -> complete succeeds across separate qrexec process calls using the same live fenced lease",
+        "stale lease token acceptance = 0",
+        "duplicate committed mutations = 0",
+        "unresolved committed requests = 0",
+        "claim/heartbeat/fail unknown post-mutation crashes remain request-bound attested indeterminate and do not remutate",
+        "complete unknown post-mutation crash reconciles read-only only when exact durable postcondition is proven",
+        "all evidence is synthetic and bound to exact Git SHA/runtime/service/key identity"
+      ]
+    }
+  },
+  "readinessRule": "Do not classify REAL-WORKER READY until Mission Runtime QA and Qubes Transport QA execute green on the exact candidate SHA and both real-Qubes phases pass. LAB READY remains the maximum classification beforehand.",
+  "failuresLessons": [
+    "A red workflow with runner_id=0 and steps=[] is infrastructure non-execution, not a code-test failure or pass.",
+    "Process-boundary qualification is necessary but cannot prove qrexec policy/service installation or VM identity boundaries.",
+    "Do not add new mission reliability semantics merely to compensate for absent executable CI evidence.",
+    "Transport/authentication faults should be isolated with a non-mutating probe before state-changing synthetic tests."
+  ],
+  "nextTask": "Implement the phase-1 read-only qrexec policy/service acceptance contract and test harness on the current Slice 2 branch, without enabling a real worker or any real side effect."
+}

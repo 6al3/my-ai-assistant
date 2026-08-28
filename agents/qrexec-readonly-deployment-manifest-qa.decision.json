@@ -1,0 +1,39 @@
+{
+  "decision": "Make deployment-manifest verification executable QA authority at the Phase-1 boundary",
+  "winner": "manifest-bound fail-before-qrexec regressions plus workflow coverage",
+  "comparisons": [
+    {
+      "approach": "identity-contract-only tests",
+      "correctness": "insufficient because deployment manifest drift is not exercised",
+      "robustness": "can leave configuration provenance regressions undetected",
+      "latency": "lowest test cost",
+      "resourceUse": "lowest",
+      "regressionRisk": "high blind spot",
+      "qa": "failed to cover a required production argument"
+    },
+    {
+      "approach": "manifest-bound fail-before-qrexec regressions plus workflow coverage",
+      "correctness": "covers service, coordinator, user, uid, git sha, readOnly and state-changing-operation policy",
+      "robustness": "fails closed before qrexec on manifest absence or drift",
+      "latency": "local test-only comparisons; no production round trip",
+      "resourceUse": "negligible",
+      "regressionRisk": "low; no runtime semantics changed",
+      "qa": "strongest; closes both test-fixture and workflow-trigger gaps"
+    },
+    {
+      "approach": "defer manifest validation until real-Qubes integration",
+      "correctness": "late discovery of deterministic contract failures",
+      "robustness": "mixes deployment provenance defects with transport/policy failures",
+      "latency": "higher diagnostic latency",
+      "resourceUse": "requires Qubes execution for basic contract defects",
+      "regressionRisk": "higher",
+      "qa": "rejected"
+    }
+  ],
+  "lessons": [
+    "Adding a fail-closed production argument without updating the happy-path fixture creates a deterministic hidden test failure when CI is unavailable.",
+    "A workflow path filter that omits a security-authority file can silently skip the only QA intended to validate it.",
+    "Configuration provenance should be rejected before qrexec so invalid deployments produce zero remote invocations."
+  ],
+  "safety": "Read-only synthetic Qubes qualification only; no financial transactions, payment data, fraud workflows, or weakened controls."
+}

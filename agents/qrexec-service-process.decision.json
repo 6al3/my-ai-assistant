@@ -1,0 +1,45 @@
+{
+  "decision": "bounded-one-envelope-qrexec-service-process",
+  "status": "selected",
+  "problem": "Expose the coordinator adapter as a qrexec process boundary without turning stdin/stdout into an unbounded parser, leaking secrets on failures, or adding a long-lived daemon before transport contracts are proven.",
+  "independentReviews": [
+    {
+      "agent": "correctness",
+      "winner": "single JSON envelope per process with strict byte limits and one attested JSON response",
+      "why": "Matches qrexec process-per-call semantics, avoids stream framing ambiguity, and keeps request identity bound to the existing authenticated envelope and attested response.",
+      "rejected": [
+        "newline-delimited multi-request process because one process could accumulate cross-request state and framing ambiguity",
+        "unbounded stdin buffering because a peer could force memory growth before authentication"
+      ]
+    },
+    {
+      "agent": "robustness-security",
+      "winner": "fixed non-diagnostic stderr on transport/auth/config failures; authenticated coordinator outcomes stay on attested stdout",
+      "why": "Prevents request bodies, HMACs, lease tokens, filesystem paths, private-key material, and stack traces from being reflected through qrexec error channels.",
+      "rejected": [
+        "raw exception messages and stacks on stderr because they can become an information-disclosure surface",
+        "silently truncating oversized input/output because it can create ambiguous protocol state"
+      ]
+    },
+    {
+      "agent": "latency-resources-regression",
+      "winner": "thin process wrapper around the existing adapter",
+      "why": "Adds no qrexec round trip, daemon, database, watcher, or persistent process; the only added work is bounded JSON parsing/serialization and environment validation.",
+      "rejected": [
+        "long-lived transport daemon because it adds lifecycle, memory, replay-cache, and crash-recovery state",
+        "extra preflight/attestation RPC because it adds latency without improving the existing request-bound signature contract"
+      ]
+    }
+  ],
+  "qa": {
+    "required": [
+      "spawned process accepts exactly one authenticated JSON envelope and emits exactly one request-bound Ed25519-attested response",
+      "oversized input fails closed with empty stdout",
+      "concatenated/multiple JSON values fail closed",
+      "response size is bounded before stdout write",
+      "failure stderr is constant and contains no request secret, transport secret, private key, or lease token"
+    ],
+    "knownGap": "Process-death fault injection around the adapter mutation/journal boundary remains covered at adapter level; the next QA step should exercise the same crash points through the spawned service process without exposing a production fault-injection switch."
+  },
+  "safety": "Synthetic/defensive lab transport only. No real financial transactions, stolen payment data, fraud workflows, or weakened security controls."
+}

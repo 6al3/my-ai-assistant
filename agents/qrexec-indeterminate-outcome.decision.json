@@ -1,0 +1,44 @@
+{
+  "decision": "Retain fail-closed semantics for post-mutation crash outcomes that cannot be causally reconciled, but return a request-bound Ed25519-attested indeterminate response instead of an unsigned transport exception.",
+  "context": "Slice 2 supports process-per-call qrexec operations backed by a durable MissionQueueStore and DurableRequestJournal. A crash can occur after mission state is durably mutated but before the request journal commits the response. Complete can be reconciled read-only from an exact terminal postcondition; claim, heartbeat, and fail cannot currently prove causal ownership from durable mission state alone.",
+  "independentReviews": {
+    "correctness": {
+      "winner": "attested fail-closed indeterminate outcome",
+      "reason": "Never replays a mutation when the prior outcome is unknown, while giving the caller cryptographically authenticated protocol state instead of conflating coordinator uncertainty with transport failure.",
+      "rejected": [
+        "blind replay of pending claim/heartbeat/fail",
+        "causal inference from current mission state without a shared transactional receipt"
+      ]
+    },
+    "robustnessSecurity": {
+      "winner": "leave the journal pending and attest REQUEST_OUTCOME_INDETERMINATE",
+      "reason": "Preserves fencing and auditability, marks the response non-retryable, and does not expose lease tokens or raw mission state in diagnostic evidence.",
+      "rejected": [
+        "unsigned exception as the only retry signal",
+        "automatic recovery that guesses whether a previous mutation committed"
+      ]
+    },
+    "latencyResourcesRegression": {
+      "winner": "validation/attestation-only change",
+      "reason": "Adds no qrexec round trip, no daemon, no database, no additional fsync in the healthy path, and does not change MissionQueue or WorkerRuntime semantics.",
+      "rejected": [
+        "separate WAL file that is not atomically committed with MissionQueueStore",
+        "cross-slice MissionQueue snapshot/schema rewrite solely for receipts"
+      ]
+    }
+  },
+  "whyNotWalYet": "A standalone operation-receipt/WAL file would still have a crash window relative to the mission-store atomic commit. Closing that gap requires a shared transactional boundary with the mission mutation, which would widen Slice 1 semantics and file-format responsibilities. That redesign is deferred until executable QA is available and the latency/resource cost can be measured.",
+  "qa": [
+    "crash after claim: one durable claim only; retry returns attested indeterminate; journal stays pending",
+    "crash after heartbeat: lease is extended once; retry does not extend it again; response is attested indeterminate",
+    "crash after fail: fail is applied once; retry does not mutate again; response is attested indeterminate",
+    "crash after complete: exact durable terminal postcondition reconciles to committed success",
+    "committed coordinator rejections remain durably replayable and attested"
+  ],
+  "failuresLessons": [
+    "Durable request serialization prevents duplicate concurrent execution but does not itself create atomicity between mission state and request outcome.",
+    "Read-only postcondition reconciliation is safe only where the durable state proves the exact requested outcome.",
+    "Protocol uncertainty should be authenticated explicitly; callers should not have to infer it from an unsigned process failure."
+  ],
+  "safety": "Synthetic/defensive transport qualification only. No real financial transactions, stolen payment data, fraud workflows, or weakened security controls."
+}

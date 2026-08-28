@@ -1,0 +1,31 @@
+{
+  "decision": "Require the deployment-facing read-only qrexec qualification entrypoint to bind the declared service account name as well as the non-root UID, service, coordinator Qube, and exact Git SHA; reject contracts whose nonRootVerified evidence is not true before any qrexec invocation.",
+  "winner": "explicit service-user + non-root contract verification at the deployment boundary",
+  "comparison": {
+    "correctness": "Closes a provenance gap where a structurally valid hand-supplied contract could carry the expected UID/service/SHA while omitting or altering the intended dedicated account identity or non-root verification flag.",
+    "robustness_security": "Fails closed before filesystem checks and before qrexec. The kernel EUID gate remains authoritative for runtime capability; the service-user binding independently verifies deployment configuration provenance.",
+    "latency": "Local string/boolean comparisons only; no qrexec round trip or cryptographic operation added.",
+    "resource_use": "No daemon, watcher, database, WAL, persistent state, or MissionQueue mutation.",
+    "regression_risk": "Narrow deployment-contract change with focused negative tests; lower-level transport and MissionQueue semantics remain unchanged.",
+    "qa": "Added fail-before-qrexec tests for service-user mismatch and nonRootVerified tampering, retaining existing service/coordinator/UID/SHA mismatch coverage."
+  },
+  "rejected": [
+    {
+      "approach": "UID-only deployment verification",
+      "reason": "Strong for runtime capability but incomplete for deployment provenance and dedicated account configuration drift."
+    },
+    {
+      "approach": "Trust serviceUser metadata without an expected value",
+      "reason": "Checks presence but cannot detect configuration drift or substitution."
+    },
+    {
+      "approach": "Add a persistent identity supervisor",
+      "reason": "Adds lifecycle, IPC, resource, and regression surface without improving the pre-invocation contract enough to justify it."
+    }
+  ],
+  "lessons": [
+    "Runtime EUID verification and deployment configuration provenance are complementary controls, not substitutes.",
+    "Externally supplied qualification evidence must be revalidated field-by-field; builder invariants alone are insufficient at trust boundaries.",
+    "Keep Phase-1 read-only qualification fail-closed and non-mutating until real Qubes policy evidence is execution-derived."
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "decision": "Use split, bounded evidence collectors for dom0 policy and coordinator service identity, then assemble the existing verified deployment artifact offline.",
+  "winner": {
+    "approach": "split-source artifact collection",
+    "correctness": "Policy evidence is read only from persistent /etc/qubes/policy.d and coordinator evidence is collected only under the expected non-root service EUID. Assembly preserves source separation before the existing artifact verifier checks exact allow-then-deny policy and service target binding.",
+    "robustnessSecurity": "No shell execution, no qrexec mutation, bounded input files, no symlink policy files, immutable canonical qrexec handler locations, immutable target/marker/directory checks under the service identity, and no override that weakens production path checks for tests.",
+    "latencyResources": "Two bounded local file captures plus metadata/access checks; no daemon, watcher, database, WAL, persistent process, or extra qrexec round trip.",
+    "regressionRisk": "Reuses the existing deployment artifact verifier and manifest builder rather than introducing a second readiness authority.",
+    "qa": "Unit tests cover assembly, effective-UID fail-closed behavior, canonical handler path enforcement, persistent dom0 policy location enforcement, and identity mismatch rejection. Real filesystem success remains intentionally gated to a Qubes deployment because host-temp paths must not bypass canonical path checks."
+  },
+  "rejected": [
+    {
+      "approach": "hand-authored deployment artifact",
+      "reason": "Proves intended configuration but not that evidence came from the actual dom0 policy and coordinator service identity."
+    },
+    {
+      "approach": "single privileged collector spanning dom0 and coordinator state",
+      "reason": "Would require broader privilege/transport and collapse independent trust boundaries into one process."
+    },
+    {
+      "approach": "test-only path override for coordinator collector",
+      "reason": "Would create a production-accessible bypass of canonical qrexec handler path enforcement solely to simplify host tests."
+    },
+    {
+      "approach": "persistent watcher or supervisor",
+      "reason": "Adds lifecycle, IPC, memory, and privileged attack surface without improving the provenance of the two deployment artifacts."
+    }
+  ],
+  "failuresLessons": [
+    "Verifier strength is not enough when evidence is still manually constructed; collection provenance must be explicit.",
+    "A test seam must not weaken the same path/identity boundary being qualified; deployment-only success evidence is preferable to a bypassable unit test.",
+    "dom0 and coordinator evidence should remain independently collectible and combinable so compromise or drift in one side is visible rather than hidden by a monolithic collector."
+  ],
+  "safety": "Read-only defensive Qubes qualification only; no financial transaction, payment data, fraud workflow, or security-control weakening."
+}

@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "decision": "Use a bounded offline import/join verifier for exactly one dom0-policy export and exactly one coordinator-service export, then reuse the existing deployment artifact verifier as the final authority.",
+  "winner": "bounded-split-domain-import",
+  "comparison": {
+    "correctness": {
+      "winner": "bounded-split-domain-import",
+      "reason": "Preserves trust-domain provenance, rejects duplicate/wrong domains and stale coordinator SHA before qualification, and reuses the existing exact policy/service artifact checks."
+    },
+    "robustnessSecurity": {
+      "winner": "bounded-split-domain-import",
+      "reason": "Fail-closed parsing, schema/domain checks, bounded inputs, no shell, no qrexec execution, no MissionQueue mutation, and no new credential-bearing evidence fields."
+    },
+    "latency": {
+      "winner": "bounded-split-domain-import",
+      "reason": "Offline parsing and local verification only; zero additional qrexec round trips."
+    },
+    "resourceUse": {
+      "winner": "bounded-split-domain-import",
+      "reason": "Two bounded JSON documents, no daemon, watcher, DB, WAL, or persistent process."
+    },
+    "regressionRisk": {
+      "winner": "bounded-split-domain-import",
+      "reason": "Adds a narrow composition boundary while keeping assembleReadonlyQrexecDeploymentArtifact and verifyReadonlyQrexecDeploymentArtifact authoritative."
+    },
+    "qa": {
+      "winner": "bounded-split-domain-import",
+      "reason": "Adds explicit regressions for reversed order, duplicate/wrong domains, stale SHA, malformed/oversized/schema-drifted exports, and policy identity drift."
+    }
+  },
+  "rejected": [
+    {
+      "approach": "merge-untyped-json",
+      "reason": "Could mix or duplicate trust-domain evidence and create false provenance."
+    },
+    {
+      "approach": "privileged-cross-domain-supervisor",
+      "reason": "Adds privilege, IPC, lifecycle, latency, and attack surface without improving offline verification correctness."
+    },
+    {
+      "approach": "new-readiness-authority",
+      "reason": "Would duplicate artifact semantics and increase drift/regression risk."
+    }
+  ],
+  "failuresLessons": [
+    "Separated exporters are insufficient if the join step does not preserve and verify domain provenance.",
+    "Evidence order should be irrelevant, but domain cardinality must be exact.",
+    "The expected exact Git SHA remains authority; coordinator evidence must match it before artifact qualification.",
+    "The import boundary must remain offline and non-mutating so policy evidence cannot itself become a worker control path."
+  ],
+  "safety": "Synthetic/defensive Qubes qualification only; no financial transactions, payment data, fraud workflow, or weakened security controls."
+}

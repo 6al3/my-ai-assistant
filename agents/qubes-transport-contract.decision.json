@@ -1,0 +1,40 @@
+{
+  "task": "Establish the first reviewable Slice 2 contract for authenticated worker-to-coordinator transport without changing Slice 1 mission semantics.",
+  "reviews": {
+    "correctness": {
+      "attempt": "Reuse the existing HMAC request envelope and Ed25519 response attestation, but make request canonicalization deterministic across runtimes and bind response attestations to requestId, gitSha, service, and keyId.",
+      "result": "selected",
+      "reason": "Preserves exact leaseToken/body semantics, rejects tampering and response replay, and makes Swift/Node/Qubes implementations capable of computing the same HMAC for semantically identical JSON."
+    },
+    "robustness_security": {
+      "attempt": "Keep replay defense in the in-process verifier only.",
+      "result": "rejected as sole authority",
+      "reason": "qrexec process-per-call resets in-memory replay state. The bounded verifier cache remains defense-in-depth; durable request replay/idempotency stays owned by Slice 1 DurableRequestJournal. Secrets and lease tokens are never emitted as telemetry."
+    },
+    "latency_resources_regression": {
+      "attempt": "Introduce a transport daemon, database-backed nonce store, or extra attestation round trip.",
+      "result": "rejected",
+      "reason": "Adds IPC, lifecycle, storage and regression surface before transport correctness is proven. The selected contract uses one HMAC on the existing request and one Ed25519 signature on the existing response with no extra qrexec round trip."
+    }
+  },
+  "winner": "Canonical HMAC request envelope plus request-bound Ed25519 response attestation, stacked on Slice 1 with DurableRequestJournal as the durable replay/idempotency authority.",
+  "qa": [
+    "Semantic JSON key reordering preserves HMAC validity across runtimes.",
+    "Changing leaseToken, operation, body, or timestamp invalidates the request MAC.",
+    "Clock-skew and same-process replay are rejected before coordinator mutation.",
+    "Ed25519 responses are bound to requestId, exact deployment gitSha, qrexec service identity, and keyId.",
+    "Response payload modification or request/service/SHA substitution fails verification."
+  ],
+  "failures_lessons": [
+    "Plain JSON.stringify object ordering is not a strong cross-language signing contract; canonical JSON is required for iPhone/Node/Qubes interoperability.",
+    "An in-memory replay cache cannot be the durable replay authority for qrexec process-per-call workers.",
+    "Calibration/topology provenance belongs to the later calibration slice; importing it into the first transport slice would invert the decomposition dependency."
+  ],
+  "remaining_gates": [
+    "Wire the transport primitives through a one-envelope-per-process qrexec coordinator service.",
+    "Map claim/heartbeat/complete/fail operation schemas explicitly and require leaseToken on fenced mutations.",
+    "Prove same-request durable retry through DurableRequestJournal across separate service processes.",
+    "Run independent executable QA; real Qubes workers remain blocked until Slice 1 and Slice 2 are green."
+  ],
+  "safety": "Synthetic/defensive transport qualification only. No real financial operations, payment data, fraud workflows, or weakened security controls."
+}

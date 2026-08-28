@@ -1,0 +1,52 @@
+{
+  "decision": "require bounded wire JSON at the split-domain evidence importer",
+  "problem": "the importer enforced byte limits only for string/Buffer evidence; pre-parsed objects bypassed the wire-size authority and could move arbitrarily large evidence across the qualification boundary",
+  "reviewTracks": {
+    "correctness": {
+      "winner": "wire-only importer",
+      "reason": "qualification now evaluates the exact serialized artifact emitted by each trust-domain exporter rather than an unbounded reconstructed object"
+    },
+    "robustnessSecurity": {
+      "winner": "reject pre-parsed objects fail-closed",
+      "reason": "prevents byte-limit bypass and keeps parsing, schema validation, freshness binding, domain binding, SHA binding, and artifact verification in one authority"
+    },
+    "latencyResources": {
+      "winner": "single bounded parse",
+      "reason": "one JSON parse per export, no extra qrexec round trip, daemon, database, WAL, watcher, or persistent state"
+    },
+    "regressionRisk": {
+      "winner": "narrow importer hardening",
+      "reason": "exporters already emit JSON strings and existing production composition consumes wire output, so the change removes an unsafe alternate representation instead of adding a new protocol"
+    },
+    "qa": {
+      "winner": "negative pre-parsed-object coverage",
+      "reason": "tests now prove both normal and oversized pre-parsed objects are rejected before artifact qualification"
+    }
+  },
+  "rejected": [
+    {
+      "approach": "accept objects and estimate JSON.stringify size",
+      "reason": "re-serialization is not the original trust-domain wire representation and may create large transient allocations before the bound is enforced"
+    },
+    {
+      "approach": "trust caller-side exporter limits",
+      "reason": "qualification boundaries should enforce their own resource contract and must not depend on every future wrapper preserving wire form"
+    },
+    {
+      "approach": "persistent replay/resource supervisor",
+      "reason": "adds lifecycle and privilege surface without improving this local parsing boundary"
+    }
+  ],
+  "lessons": [
+    "resource bounds are only authoritative when enforced before parsing or reconstruction",
+    "split-domain provenance should preserve the exact bounded wire artifact until the authoritative importer",
+    "security gates should remove unsafe alternate input forms rather than normalize them silently"
+  ],
+  "productionImpact": {
+    "qrexecRoundTrips": 0,
+    "persistentProcesses": 0,
+    "missionQueueMutations": 0,
+    "newDurableState": 0
+  },
+  "safety": "synthetic/defensive Qubes qualification only; no real financial transactions or weakened security controls"
+}

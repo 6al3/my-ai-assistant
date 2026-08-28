@@ -1,0 +1,50 @@
+{
+  "decision": "bind both trust-domain evidence exports to one caller-generated qualification challenge and reject stale or cross-run joins",
+  "winner": "shared one-run challenge carried by both bounded exports and checked by the offline importer",
+  "comparisons": {
+    "correctness": {
+      "winner": "challenge binding",
+      "reason": "prevents a structurally valid old dom0 export from being joined with a fresh coordinator export, and prevents replay of a complete old pair when the verifier issues a new challenge"
+    },
+    "robustnessSecurity": {
+      "winner": "challenge binding plus existing artifact authority",
+      "reason": "fails closed before VM invocation while preserving split trust domains; challenge is freshness correlation, not a secret or authentication substitute"
+    },
+    "latency": {
+      "winner": "challenge binding",
+      "reason": "adds only local string validation and equality checks; zero qrexec round trips"
+    },
+    "resourceUse": {
+      "winner": "challenge binding",
+      "reason": "no daemon, database, WAL, watcher, persistent replay cache, or additional durable state"
+    },
+    "regressionRisk": {
+      "winner": "schema-v2 exports with importer gate",
+      "reason": "keeps the existing deployment artifact verifier authoritative and changes only the bounded export/import boundary"
+    },
+    "qa": {
+      "winner": "negative replay and cross-run mixing regressions",
+      "reason": "tests stale complete-pair replay, mixed-domain challenges, missing challenges, schema drift, and preserves existing identity/SHA checks"
+    }
+  },
+  "rejected": [
+    {
+      "approach": "timestamps alone",
+      "reason": "clock skew between dom0 and Coordinator Qube weakens deterministic freshness and still permits replay inside the acceptance window"
+    },
+    {
+      "approach": "persistent replay database",
+      "reason": "adds state, lifecycle, corruption, and privilege surface before real-Qubes Phase-1 evidence exists"
+    },
+    {
+      "approach": "cross-domain supervisor",
+      "reason": "collapses the trust separation that the split exporters were designed to preserve"
+    }
+  ],
+  "failuresLessons": [
+    "Structural validity and exact Git SHA binding do not by themselves prove that two exports were captured for the same qualification run.",
+    "A challenge must be generated uniquely by the qualification caller and must not be reused; it is correlation/freshness evidence, not authentication.",
+    "Keep artifact verification and filesystem/identity enforcement as independent controls; freshness binding does not replace them."
+  ],
+  "safety": "read-only defensive Qubes qualification only; no financial transaction, payment data, fraud workflow, or weakened control"
+}

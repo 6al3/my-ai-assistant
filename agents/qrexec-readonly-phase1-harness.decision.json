@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "decision": "Use a bounded process-per-call qrexec-client-vm invoker as the real-Qubes Phase-1 adapter feeding the existing read-only qualification collector.",
+  "winner": "bounded-qrexec-client-vm-invoker",
+  "comparison": {
+    "correctness": "Directly exercises the documented VM-to-VM qrexec path and preserves the real process exit code, response bytes, and frame count consumed by qualification.",
+    "robustnessSecurity": "No shell, fixed argv separation, bounded stdout, timeout kill, ignored stderr, and no MissionQueue mutation API. Denials remain non-zero observations; transport faults fail closed.",
+    "latency": "One qrexec process per scenario with no added protocol round trip beyond the qualification invocation itself.",
+    "resourceUse": "No daemon, database, WAL, or persistent transport state; bounded response buffering and bounded wall-clock duration.",
+    "regressionRisk": "Isolated adapter with dependency-injected spawn implementation; existing collector and protocol semantics are unchanged.",
+    "qa": "Unit coverage checks argv/shell isolation, allowed JSON framing, policy-denial observation, output-bound kill, missing scenario rejection, and sanitized spawn failure handling. Real-Qubes execution remains a separate acceptance gate."
+  },
+  "rejected": [
+    {
+      "approach": "persistent-qrexec-daemon",
+      "reason": "Adds lifecycle, IPC, memory, and cross-request state without improving Phase-1 evidence."
+    },
+    {
+      "approach": "shell-command-wrapper",
+      "reason": "Introduces quoting/injection risk and unnecessary shell semantics."
+    },
+    {
+      "approach": "state-changing-smoke-first",
+      "reason": "Mixes policy/routing failures with MissionQueue behavior and increases blast radius before read-only routing is proven."
+    }
+  ],
+  "failuresLessons": [
+    "Node-level collector tests cannot prove Qubes policy routing; the adapter must invoke qrexec-client-vm on a real Worker Qube.",
+    "Remote stderr should not become qualification evidence because it can contain paths or diagnostic material; exit status and bounded stdout are sufficient for this gate.",
+    "Coordinator-side before/after MissionStore and RequestJournal digests remain mandatory and are intentionally supplied independently to the collector."
+  ],
+  "safety": "Read-only synthetic qualification only; no financial transactions, payment data, fraud workflows, or weakened controls."
+}

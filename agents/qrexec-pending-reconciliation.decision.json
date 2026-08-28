@@ -1,0 +1,49 @@
+{
+  "task": "Recover safely from a qrexec crash after a durable coordinator mutation but before DurableRequestJournal commit, without replaying unsafe mutations.",
+  "reviews": {
+    "correctness": {
+      "attempts": [
+        "Replay every pending request after restart.",
+        "Infer success for every operation from current mission state.",
+        "Reconcile only operations with an exact durable postcondition that is already idempotent under the same worker, fencing token, and payload."
+      ],
+      "selected": "Reconcile pending complete requests only when durable mission state is completed with the same missionId, workerId, leaseToken, and deeply equal result; keep claim/heartbeat/fail indeterminate.",
+      "reason": "MissionQueue.complete is already idempotent for the exact committed result and fencing token. claim may select another mission, heartbeat changes lease time, and fail changes attempts/ownership, so current state cannot causally prove those requests without a new transactional receipt."
+    },
+    "robustness_security": {
+      "attempts": [
+        "Treat a pending journal entry as success after any matching-looking state.",
+        "Add an operation receipt to mission metadata immediately.",
+        "Use read-only postcondition reconciliation and fail closed on ambiguity."
+      ],
+      "selected": "Read-only reconciliation under the existing per-request process-spanning lock; commit the journal only after exact postcondition proof.",
+      "reason": "This preserves lease fencing and prevents a retry from mutating mission state again. Ambiguous pending claim/heartbeat/fail requests remain blocked instead of being guessed or replayed."
+    },
+    "latency_resources_regression": {
+      "attempts": [
+        "Introduce a transactional database/WAL spanning mission state and request outcomes.",
+        "Add a new reconciliation daemon or qrexec round-trip.",
+        "Reuse the existing MissionCoordinator read path only when a pending complete request is encountered."
+      ],
+      "selected": "Reuse the existing local durable store and coordinator get() path only on the rare pending-complete recovery path.",
+      "reason": "Normal requests add zero extra qrexec round-trips and no new daemon or persistent service. The extra store read occurs only after a crash leaves a pending complete request."
+    }
+  },
+  "qa": {
+    "positive": [
+      "Crash after durable complete mutation leaves the request pending; retry reconciles from exact durable terminal state, commits the journal, and returns an attested completed response.",
+      "Reconciled completion does not create another mission or alter total mission count."
+    ],
+    "negative": [
+      "Crash after durable claim remains indeterminate and retry does not claim a second mission.",
+      "requestId reuse with a different command remains rejected.",
+      "Coordinator rejections remain durably committed as deterministic attested error responses."
+    ]
+  },
+  "failures_lessons": [
+    "A process-spanning request lock solves concurrent duplicate execution but not the mutation-to-journal crash window by itself.",
+    "Exactly-once cannot be claimed for claim/heartbeat/fail from current state alone; a future transactional operation receipt would be required to reconcile them causally.",
+    "Postcondition reconciliation is safe only where the production mutation is already exact-idempotent under the same fencing authority and payload."
+  ],
+  "safety": "Synthetic/defensive transport qualification only. No real financial transactions, payment data, fraud workflows, or weakened security controls."
+}
