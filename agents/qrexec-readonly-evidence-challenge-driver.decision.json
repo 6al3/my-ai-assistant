@@ -1,0 +1,39 @@
+{
+  "decision": "Use a stateless one-run challenge driver to bind dom0 and coordinator evidence collection before authoritative import.",
+  "status": "accepted",
+  "scope": "read-only Qubes Phase-1 deployment evidence freshness",
+  "winner": {
+    "approach": "cryptographically random one-run challenge + exactly-once collector invocation + existing importer",
+    "correctness": "One driver owns freshness generation and passes the same challenge to both independent trust domains, preventing deployment glue from accidentally mixing runs.",
+    "robustnessSecurity": "No persistent replay database, no privilege merging, no automatic retry after partial collector failure, and stale/cross-run output remains rejected by the existing importer.",
+    "latency": "Independent trust-domain collectors run concurrently; no additional qrexec protocol round trip is added by the evidence format.",
+    "resourceUse": "24 random bytes plus two bounded exports; no daemon, WAL, database, watcher, or persistent process state.",
+    "regressionRisk": "Small orchestration layer reuses the existing exporter/importer contracts and does not alter MissionQueue, WorkerRuntime, qrexec mutation semantics, or readiness authority.",
+    "qa": "Tests cover entropy shape, same-challenge exactly-once delivery, stale/cross-run rejection, and fail-closed collector/entropy failure."
+  },
+  "alternatives": [
+    {
+      "approach": "timestamps and acceptance windows",
+      "rejectedBecause": "Clock skew and replay windows weaken freshness and complicate cross-domain reasoning."
+    },
+    {
+      "approach": "persistent consumed-challenge database",
+      "rejectedBecause": "Adds lifecycle, corruption, recovery, locking, and privilege surface before real-Qubes evidence justifies persistent state."
+    },
+    {
+      "approach": "privileged cross-domain supervisor",
+      "rejectedBecause": "Collapses dom0/coordinator trust separation and increases blast radius."
+    },
+    {
+      "approach": "leave challenge generation to deployment glue",
+      "rejectedBecause": "Freshness remains a convention rather than an executable orchestration invariant."
+    }
+  ],
+  "failuresLessons": [
+    "Freshness fields in exporters/importers are insufficient if no single run owner generates and distributes the value.",
+    "Exactly-once here means each collector callback is invoked once per driver run; it does not claim distributed exactly-once execution after host/process failure.",
+    "Collector failure is not retried automatically because a retry could create ambiguous mixed-run evidence; a new qualification run should generate a new challenge.",
+    "This gate remains synthetic/read-only and does not authorize state-changing Qubes workers."
+  ],
+  "safety": "No real financial transactions, payment data, fraud workflow, or security-control weakening."
+}
