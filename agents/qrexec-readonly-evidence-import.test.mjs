@@ -109,7 +109,7 @@ test('rejects stale coordinator git SHA before artifact qualification', () => {
   assert.throws(() => importReadonlyQrexecDeploymentEvidence({ exports, expected }), /coordinator evidence git sha mismatch/);
 });
 
-test('rejects malformed, oversized, incomplete, or schema-drifted exports', () => {
+test('rejects malformed, oversized, incomplete, schema-drifted, or pre-parsed exports', () => {
   const exports = validExports();
   assert.throws(() => importReadonlyQrexecDeploymentEvidence({ exports: [exports[0]], expected }), /exactly two/);
   assert.throws(() => importReadonlyQrexecDeploymentEvidence({ exports: ['{', exports[1]], expected }), /valid JSON/);
@@ -117,6 +117,18 @@ test('rejects malformed, oversized, incomplete, or schema-drifted exports', () =
   assert.throws(() => importReadonlyQrexecDeploymentEvidence({ exports: [schemaDrift, exports[1]], expected }), /schema mismatch/);
   const oversized = JSON.stringify({ schemaVersion: 2, domain: 'dom0-policy', evidenceChallenge: CHALLENGE, evidence: { path: '/etc/qubes/policy.d/x.policy', text: 'x'.repeat(100000) } });
   assert.throws(() => importReadonlyQrexecDeploymentEvidence({ exports: [oversized, exports[1]], expected }), /exceeds byte limit/);
+
+  const preParsed = JSON.parse(exports[0]);
+  assert.throws(
+    () => importReadonlyQrexecDeploymentEvidence({ exports: [preParsed, exports[1]], expected }),
+    /bounded wire JSON/
+  );
+
+  const oversizedPreParsed = JSON.parse(oversized);
+  assert.throws(
+    () => importReadonlyQrexecDeploymentEvidence({ exports: [oversizedPreParsed, exports[1]], expected }),
+    /bounded wire JSON/
+  );
 });
 
 test('rejects policy identity drift through the existing artifact authority', () => {
