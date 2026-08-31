@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var security: SecurityManager
     @EnvironmentObject private var ownerMode: OwnerModeManager
     @EnvironmentObject private var audit: AuditLogger
@@ -40,6 +41,12 @@ struct ContentView: View {
                 boxURL = url.absoluteString
             }
             audit.record("app_open")
+        }
+        .onChange(of: scenePhase) { newPhase in
+            guard newPhase == .background, security.isUnlocked else { return }
+            audit.record("auto_lock_background")
+            ownerMode.disable()
+            security.lock()
         }
     }
 
@@ -122,11 +129,18 @@ struct ContentView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if chat.messages.isEmpty {
-                        ContentUnavailableView(
-                            "لا توجد محادثة بعد",
-                            systemImage: "bubble.left.and.bubble.right",
-                            description: Text("تأكد من عنوان الـBox ثم اكتب رسالتك بالأسفل.")
-                        )
+                        VStack(spacing: 10) {
+                            Image(systemName: "bubble.left.and.bubble.right")
+                                .font(.system(size: 34))
+                                .foregroundStyle(.secondary)
+                            Text("لا توجد محادثة بعد")
+                                .font(.headline)
+                            Text("تأكد من عنوان الـBox ثم اكتب رسالتك بالأسفل.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
                         .padding(.top, 24)
                     }
 
