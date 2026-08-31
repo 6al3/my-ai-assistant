@@ -29,6 +29,7 @@ export class MissionQueue {
   claim(worker) {
     if (!worker?.id) throw new Error('worker id is required');
     this.requeueExpired();
+    this.#propagateDependencyFailures();
     const capabilities = new Set(worker.capabilities ?? []);
     const eligible = [...this.missions.values()]
       .filter(m => m.status === 'queued')
@@ -64,17 +65,32 @@ export class MissionQueue {
     mission.error = String(error ?? 'unknown failure');
     mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = this.now();
     mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
+    if (mission.status === 'failed') this.#propagateDependencyFailures();
+    return structuredClone(mission);
+  }
+
+  cancel(id, reason = 'cancelled') {
+    const mission = this.missions.get(id);
+    if (!mission) throw new Error('mission not found');
+    if (TERMINAL.has(mission.status)) throw new Error(`mission is ${mission.status}`);
+    mission.status = 'cancelled';
+    mission.error = String(reason);
+    mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = this.now();
+    this.#propagateDependencyFailures();
     return structuredClone(mission);
   }
 
   requeueExpired() {
     const now = this.now();
+    let terminalized = false;
     for (const mission of this.missions.values()) {
       if (mission.status !== 'running' || mission.leaseUntil > now) continue;
       mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = now;
       mission.error = 'worker lease expired';
       mission.status = mission.attempts >= this.maxAttempts ? 'failed' : 'queued';
+      terminalized ||= mission.status === 'failed';
     }
+    if (terminalized) this.#propagateDependencyFailures();
   }
 
   get(id) {
@@ -85,10 +101,11 @@ export class MissionQueue {
   list({ status } = {}) {
     return [...this.missions.values()]
       .filter(m => !status || m.status === status)
-      .map(structuredClone);
+      .map(m => structuredClone(m));
   }
 
   stats() {
+    this.#propagateDependencyFailures();
     const stats = { total: this.missions.size, queued: 0, running: 0, completed: 0, failed: 0, cancelled: 0, blocked: 0 };
     for (const m of this.missions.values()) {
       stats[m.status] += 1;
@@ -99,6 +116,24 @@ export class MissionQueue {
 
   #dependenciesCompleted(mission) {
     return mission.dependsOn.every(id => this.missions.get(id)?.status === 'completed');
+  }
+
+  #propagateDependencyFailures() {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const mission of this.missions.values()) {
+        if (mission.status !== 'queued') continue;
+        const blocker = mission.dependsOn
+          .map(id => this.missions.get(id))
+          .find(dep => dep && (dep.status === 'failed' || dep.status === 'cancelled'));
+        if (!blocker) continue;
+        mission.status = 'cancelled';
+        mission.error = `dependency ${blocker.id} ${blocker.status}`;
+        mission.workerId = null; mission.leaseUntil = null; mission.updatedAt = this.now();
+        changed = true;
+      }
+    }
   }
 
   #ownedRunning(id, workerId) {
